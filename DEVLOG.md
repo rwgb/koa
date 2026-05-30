@@ -1,5 +1,23 @@
 # Koa — DevLog
 
+## [2026-05-30] — Install Script & Global CLI
+
+### Completed
+- **`install.sh`** — single-command setup script:
+  - Pre-flight: checks Node.js ≥ 18, npm, warns if Engram CLI absent
+  - Env setup: creates `.env`, prompts for `ANTHROPIC_API_KEY` (respects existing env var)
+  - Installs root + web deps, builds TypeScript and Vite
+  - `npm link` installs `koa` globally — fixed `--prefix` bug (must `cd` first, not use prefix flag)
+  - Flags: `--no-global`, `--no-build`, `--help`
+- **`.gitignore`** — added `bin/` (npm link symlink directory, not a source artifact)
+- **58 tests passing, 0 lint errors**
+
+### Next Session
+- [ ] Address 2 moderate severity vulnerabilities in web deps (`npm audit`)
+- [ ] Engram integration — install/wire up Engram CLI for memory features
+
+---
+
 ## [2026-05-30] — Web Console, Security Hardening, Full QA Pass
 
 ### Completed
