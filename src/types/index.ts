@@ -54,9 +54,26 @@ export interface Tool {
   execute(input: ToolInput): Promise<string>;
 }
 
+export interface SpiderBrainMaster {
+  id: string;
+  webscore: number;
+  cluster: string;
+  role?: string;
+  fanIn: number;
+}
+
+export interface SpiderBrainContext {
+  available: boolean;
+  prey: string;
+  masters: SpiderBrainMaster[];
+  hotFiles: string[];
+  clusterNames: string[];
+}
+
 export interface AgentState {
   messages: Anthropic.MessageParam[];
   engramContext: EngramContext;
+  spiderBrainContext?: SpiderBrainContext;
   sessionId?: string;
   turnCount: number;
   lastModel?: string;

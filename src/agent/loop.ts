@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
+import type { SpiderBrainClient } from '../spiderbrain/client.js';
 import type { KoaConfig } from '../config/index.js';
 import { selectModel } from './router.js';
 import type { UsageTracker } from './usage.js';
@@ -19,14 +20,16 @@ export class AgentLoop {
   private client: Anthropic;
   private registry: ToolRegistry;
   private engram: EngramClient;
+  private sb: SpiderBrainClient;
   private config: KoaConfig;
   private state: AgentState;
   private usage: UsageTracker;
 
-  constructor(config: KoaConfig, registry: ToolRegistry, engram: EngramClient, usage: UsageTracker) {
+  constructor(config: KoaConfig, registry: ToolRegistry, engram: EngramClient, usage: UsageTracker, sb: SpiderBrainClient) {
     this.config = config;
     this.registry = registry;
     this.engram = engram;
+    this.sb = sb;
     this.usage = usage;
     this.client = new Anthropic({ apiKey: config.apiKey });
     this.state = {
@@ -43,12 +46,17 @@ export class AgentLoop {
       this.state.engramContext = await this.engram.getContext();
       await this.engram.startSession(this.state.engramContext.goal);
     }
+    this.state.spiderBrainContext = await this.sb.getContext();
   }
 
   private buildSystemPrompt(): string {
     const parts = [SYSTEM_BASE];
     const engramInjection = this.engram.buildSystemPromptInjection(this.state.engramContext);
     if (engramInjection) parts.push(engramInjection);
+    if (this.state.spiderBrainContext) {
+      const sbInjection = this.sb.buildSystemPromptInjection(this.state.spiderBrainContext);
+      if (sbInjection) parts.push(sbInjection);
+    }
     return parts.join('\n\n');
   }
 

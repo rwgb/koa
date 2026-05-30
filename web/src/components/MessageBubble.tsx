@@ -7,6 +7,14 @@ interface Props {
 
 export default function MessageBubble({ item }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
 
   if (item.kind === 'user') {
     return (
@@ -20,13 +28,13 @@ export default function MessageBubble({ item }: Props) {
   if (item.kind === 'assistant') {
     const tier = item.tier ?? 'sonnet';
     const badgeStyle: Record<string, string> = {
-      haiku: '#22c55e',   // green — cheap
-      sonnet: '#3b82f6',  // blue — default
-      opus: '#a855f7',    // purple — powerful
+      haiku: '#22c55e',
+      sonnet: '#3b82f6',
+      opus: '#a855f7',
     };
     const badgeColor = badgeStyle[tier] ?? badgeStyle['sonnet']!;
     return (
-      <div className="bubble">
+      <div className="bubble bubble--hoverable">
         <span className="bubble__label bubble__label--assistant">
           ◀ Koa
           <span
@@ -36,6 +44,13 @@ export default function MessageBubble({ item }: Props) {
           >
             {tier}
           </span>
+          <button
+            className="message__copy-btn"
+            onClick={() => handleCopy(item.content)}
+            title="Copy message"
+          >
+            {copied ? <span className="message__copy-flash">Copied!</span> : '[copy]'}
+          </button>
         </span>
         <div className="bubble__content" style={{ whiteSpace: 'pre-wrap' }}>
           {item.content}

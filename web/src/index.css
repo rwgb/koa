@@ -12,6 +12,8 @@
   --cyan: #79c0ff;
   --purple: #bc8cff;
   --orange: #ffa657;
+  --amber: #f59e0b;
+  --amber-dim: #92630a;
 }
 
 *,
@@ -51,7 +53,7 @@ body {
 
 .main {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 280px 1fr;
   overflow: hidden;
 }
 
@@ -131,8 +133,6 @@ body {
 .sidebar {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
-  padding: 12px;
   font-size: 12px;
   height: 100%;
 }
@@ -181,12 +181,6 @@ body {
 }
 
 /* ── ChatPanel ─────────────────────────────────────────────────── */
-
-.chat-panel {
-  display: grid;
-  grid-template-rows: 1fr auto;
-  overflow: hidden;
-}
 
 .messages {
   overflow-y: auto;
@@ -345,4 +339,272 @@ body {
   text-transform: uppercase;
   color: #fff;
   opacity: 0.9;
+}
+
+/* ── StatusBar SpiderBrain indicator ───────────────────────────── */
+
+.status-bar__spiderbrain {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.status-bar__sb-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-bar__sb-dot--on {
+  background: var(--amber);
+}
+
+.status-bar__sb-dot--off {
+  background: var(--text-muted);
+  opacity: 0.4;
+}
+
+/* ── Sidebar tabs ──────────────────────────────────────────────── */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.sidebar__tabs {
+  display: flex;
+  flex-direction: row;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+
+.sidebar__tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  padding: 8px 4px;
+  text-transform: uppercase;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.sidebar__tab:hover {
+  color: var(--text);
+}
+
+.sidebar__tab--active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
+
+.sidebar__tab--sb.sidebar__tab--active {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+
+.sidebar__tab-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  font-size: 12px;
+}
+
+/* ── Sidebar usage rows (shared with MemoryTab) ────────────────── */
+
+.sidebar__usage-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.sidebar__usage-label {
+  color: var(--text-muted);
+}
+
+.sidebar__usage-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Sidebar SpiderBrain (Structure tab) ───────────────────────── */
+
+.sidebar__spiderbrain {
+  color: var(--text);
+}
+
+.sidebar__prey {
+  color: var(--amber);
+  line-height: 1.4;
+}
+
+.sidebar__master-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  overflow: hidden;
+}
+
+.sidebar__webscore {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--amber-dim);
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: bold;
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: center;
+}
+
+.sidebar__webscore--critical {
+  background: var(--amber);
+  color: #000;
+}
+
+.sidebar__master-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.sidebar__master-cluster {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.sidebar__file--dim {
+  color: var(--text-muted);
+}
+
+.sidebar__clusters {
+  color: var(--text-muted);
+  line-height: 1.4;
+  font-size: 11px;
+}
+
+/* ── Sidebar Settings tab ──────────────────────────────────────── */
+
+.sidebar__settings-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--bg-tertiary);
+  gap: 8px;
+}
+
+.sidebar__settings-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.sidebar__settings-value {
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar__settings-path {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sidebar__settings-indicator--on {
+  color: var(--green);
+}
+
+.sidebar__settings-indicator--off {
+  color: var(--text-muted);
+}
+
+/* ── Chat header with clear button ────────────────────────────── */
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  overflow: hidden;
+}
+
+.chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.chat__header-title {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: bold;
+}
+
+.chat__clear-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s;
+}
+
+.chat__clear-btn:hover {
+  color: var(--red);
+}
+
+/* ── Message copy button ───────────────────────────────────────── */
+
+.bubble--hoverable .message__copy-btn {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.bubble--hoverable:hover .message__copy-btn {
+  opacity: 1;
+}
+
+.message__copy-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: auto;
+}
+
+.message__copy-btn:hover {
+  color: var(--cyan);
+}
+
+.message__copy-flash {
+  color: var(--green);
+  font-size: 10px;
 }

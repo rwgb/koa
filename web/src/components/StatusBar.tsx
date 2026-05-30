@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { AgentStatus, SessionUsageStats } from '../types.js';
+import type { AgentStatus, SessionUsageStats, SpiderBrainContext } from '../types.js';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -7,9 +7,10 @@ interface Props {
   status: AgentStatus | null;
   isThinking: boolean;
   usage?: SessionUsageStats | null;
+  spiderBrain?: SpiderBrainContext | null;
 }
 
-export default function StatusBar({ status, isThinking, usage }: Props) {
+export default function StatusBar({ status, isThinking, usage, spiderBrain }: Props) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -54,6 +55,16 @@ export default function StatusBar({ status, isThinking, usage }: Props) {
               }`}
             />
             engram
+          </span>
+          <span className="status-bar__spiderbrain">
+            <span
+              className={`status-bar__sb-dot ${
+                spiderBrain?.available
+                  ? 'status-bar__sb-dot--on'
+                  : 'status-bar__sb-dot--off'
+              }`}
+            />
+            SB
           </span>
         </>
       ) : (

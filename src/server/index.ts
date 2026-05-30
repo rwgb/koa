@@ -27,6 +27,7 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       activeModel: state.lastModel ?? config.model,
       activeTier: state.lastTier ?? 'sonnet',
       usage: state.usage,
+      spiderBrain: state.spiderBrainContext ?? null,
     });
   });
 

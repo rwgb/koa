@@ -31,6 +31,22 @@ export interface EngramContext {
   masterFiles: string[];
 }
 
+export interface SpiderBrainMaster {
+  id: string;
+  webscore: number;
+  cluster: string;
+  role?: string;
+  fanIn: number;
+}
+
+export interface SpiderBrainContext {
+  available: boolean;
+  prey: string;
+  masters: SpiderBrainMaster[];
+  hotFiles: string[];
+  clusterNames: string[];
+}
+
 export interface AgentStatus {
   context: EngramContext;
   model: string;
@@ -39,6 +55,8 @@ export interface AgentStatus {
   activeModel?: string;
   activeTier?: string;
   usage?: SessionUsageStats;
+  spiderBrain?: SpiderBrainContext | null;
+  projectPath?: string;
 }
 
 // Discriminated union of everything that can appear in the chat timeline

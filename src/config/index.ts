@@ -12,6 +12,7 @@ const ConfigSchema = z.object({
   smartRouting: z.boolean().default(false),
   maxToolOutputChars: z.number().default(12000),
   compactAfterTurns: z.number().default(10),
+  spiderBrainBrain: z.string().optional(),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -35,6 +36,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
     compactAfterTurns: process.env['KOA_COMPACT_TURNS']
       ? parseInt(process.env['KOA_COMPACT_TURNS'], 10)
       : 10,
+    spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'],
   });
 }
 

@@ -8,9 +8,10 @@ interface Props {
   setInput: (v: string) => void;
   onSubmit: () => void;
   isThinking: boolean;
+  onClear: () => void;
 }
 
-export default function ChatPanel({ items, input, setInput, onSubmit, isThinking }: Props) {
+export default function ChatPanel({ items, input, setInput, onSubmit, isThinking, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +27,15 @@ export default function ChatPanel({ items, input, setInput, onSubmit, isThinking
 
   return (
     <div className="chat-panel">
+      <div className="chat__header">
+        <span className="chat__header-title">Chat</span>
+        {items.length > 0 && (
+          <button className="chat__clear-btn" onClick={onClear} title="Clear conversation">
+            [clear]
+          </button>
+        )}
+      </div>
+
       <div className="messages">
         {items.length === 0 ? (
           <div className="messages__empty">
