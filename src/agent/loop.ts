@@ -3,6 +3,7 @@ import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { KoaConfig } from '../config/index.js';
+import { selectModel } from './router.js';
 
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
@@ -47,22 +48,56 @@ export class AgentLoop {
     return parts.join('\n\n');
   }
 
+  private maybeCompact(): void {
+    // Each turn produces 1 user + 1 assistant message (at minimum), so window * 2 preserves
+    // the most recent compactAfterTurns turns worth of context
+    const window = this.config.compactAfterTurns * 2;
+    if (this.state.messages.length > window) {
+      this.state.messages = this.state.messages.slice(-window);
+    }
+  }
+
   async turn(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
-    this.state.messages.push({ role: 'user', content: userMessage });
+    // Resolve the model for this turn, potentially stripping a @tier: prefix
+    const { model: selectedModel, tier, cleanMessage } = selectModel(
+      userMessage,
+      this.state.messages.filter((m) => m.role === 'assistant').length,
+      { model: this.config.model, smartRouting: this.config.smartRouting },
+    );
+
+    this.state.messages.push({ role: 'user', content: cleanMessage });
     this.state.turnCount++;
 
     const toolUses: ToolUse[] = [];
     let finalContent = '';
     let stopReason = 'end_turn';
 
+    // Build the system prompt as a cached TextBlockParam array — biggest spend win
+    const system: Array<Anthropic.TextBlockParam> = [
+      {
+        type: 'text' as const,
+        text: this.buildSystemPrompt(),
+        cache_control: { type: 'ephemeral' as const },
+      },
+    ];
+
+    // Add cache_control to the last tool so the whole tool list is cached
+    const tools = this.registry.toAnthropicTools();
+    if (tools.length > 0) {
+      tools[tools.length - 1] = {
+        ...tools[tools.length - 1]!,
+        cache_control: { type: 'ephemeral' as const },
+      };
+    }
+
     let continueLoop = true;
     while (continueLoop) {
       const response = await this.client.messages.create({
-        model: this.config.model,
+        model: selectedModel,
         max_tokens: this.config.maxTokens,
-        system: this.buildSystemPrompt(),
+        system,
         messages: this.state.messages,
-        tools: this.registry.toAnthropicTools(),
+        tools,
       });
 
       stopReason = response.stop_reason ?? 'end_turn';
@@ -93,6 +128,13 @@ export class AgentLoop {
             callbacks?.onToolResult?.(block.name, result);
           }
 
+          // Truncate oversized tool outputs to keep context manageable
+          if (result.length > this.config.maxToolOutputChars) {
+            result =
+              result.slice(0, this.config.maxToolOutputChars) +
+              `\n[truncated — ${result.length} total chars]`;
+          }
+
           toolUses.push({ id: block.id, name: block.name, input: toolInput, result });
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
         }
@@ -107,7 +149,14 @@ export class AgentLoop {
       }
     }
 
-    return { content: finalContent, toolUses, stopReason };
+    // Record the model used for status display
+    this.state.lastModel = selectedModel;
+    this.state.lastTier = tier;
+
+    // Slide the conversation window to prevent unbounded context growth
+    this.maybeCompact();
+
+    return { content: finalContent, toolUses, stopReason, model: selectedModel, tier };
   }
 
   async finalize(): Promise<void> {

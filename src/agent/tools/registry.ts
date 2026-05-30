@@ -1,3 +1,4 @@
+import type Anthropic from '@anthropic-ai/sdk';
 import type { Tool } from '../../types/index.js';
 
 export class ToolRegistry {
@@ -15,11 +16,7 @@ export class ToolRegistry {
     return Array.from(this.tools.values());
   }
 
-  toAnthropicTools(): Array<{
-    name: string;
-    description: string;
-    input_schema: Tool['inputSchema'];
-  }> {
+  toAnthropicTools(): Anthropic.Tool[] {
     return this.getAll().map((t) => ({
       name: t.name,
       description: t.description,

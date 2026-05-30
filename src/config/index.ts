@@ -8,6 +8,9 @@ const ConfigSchema = z.object({
   projectPath: z.string(),
   engramEnabled: z.boolean().default(true),
   apiKey: z.string().optional(),
+  smartRouting: z.boolean().default(false),
+  maxToolOutputChars: z.number().default(12000),
+  compactAfterTurns: z.number().default(10),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -21,6 +24,13 @@ export function loadConfig(projectPath?: string): KoaConfig {
     projectPath: resolvedPath,
     engramEnabled: process.env['KOA_ENGRAM'] !== 'false',
     apiKey: process.env['ANTHROPIC_API_KEY'],
+    smartRouting: process.env['KOA_SMART_ROUTING'] === 'true',
+    maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
+      ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
+      : 12000,
+    compactAfterTurns: process.env['KOA_COMPACT_TURNS']
+      ? parseInt(process.env['KOA_COMPACT_TURNS'], 10)
+      : 10,
   });
 }
 

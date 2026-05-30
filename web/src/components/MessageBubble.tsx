@@ -18,9 +18,25 @@ export default function MessageBubble({ item }: Props) {
   }
 
   if (item.kind === 'assistant') {
+    const tier = item.tier ?? 'sonnet';
+    const badgeStyle: Record<string, string> = {
+      haiku: '#22c55e',   // green — cheap
+      sonnet: '#3b82f6',  // blue — default
+      opus: '#a855f7',    // purple — powerful
+    };
+    const badgeColor = badgeStyle[tier] ?? badgeStyle['sonnet']!;
     return (
       <div className="bubble">
-        <span className="bubble__label bubble__label--assistant">◀ Koa</span>
+        <span className="bubble__label bubble__label--assistant">
+          ◀ Koa
+          <span
+            className="bubble__tier-badge"
+            style={{ backgroundColor: badgeColor }}
+            title={`Model tier: ${tier}`}
+          >
+            {tier}
+          </span>
+        </span>
         <div className="bubble__content" style={{ whiteSpace: 'pre-wrap' }}>
           {item.content}
         </div>
