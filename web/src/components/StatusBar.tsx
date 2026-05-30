@@ -24,6 +24,22 @@ export default function StatusBar({ status, isThinking }: Props) {
       {status ? (
         <>
           <span className="status-bar__model">{status.model}</span>
+          {status.activeTier && (
+            <span
+              className="status-bar__active-tier"
+              style={{
+                backgroundColor:
+                  status.activeTier === 'haiku'
+                    ? '#22c55e'
+                    : status.activeTier === 'opus'
+                      ? '#a855f7'
+                      : '#3b82f6',
+              }}
+              title={`Active model: ${status.activeModel ?? status.model}`}
+            >
+              {status.activeTier}
+            </span>
+          )}
           <span className="status-bar__turns">turns: {status.turnCount}</span>
           <span className="status-bar__engram">
             <span

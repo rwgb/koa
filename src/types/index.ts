@@ -41,12 +41,16 @@ export interface AgentState {
   engramContext: EngramContext;
   sessionId?: string;
   turnCount: number;
+  lastModel?: string;
+  lastTier?: string;
 }
 
 export interface TurnResult {
   content: string;
   toolUses: ToolUse[];
   stopReason: string;
+  model: string;
+  tier: string;
 }
 
 export interface ToolUse {

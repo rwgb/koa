@@ -9,9 +9,9 @@ function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function sseEventToChatItem(e: SseEvent): ChatItem | null {
+function sseEventToChatItem(e: SseEvent, currentTier: string): ChatItem | null {
   if (e.type === 'content') {
-    return { kind: 'assistant', content: e.text, id: makeId() };
+    return { kind: 'assistant', content: e.text, id: makeId(), tier: currentTier };
   }
   if (e.type === 'tool_call') {
     return { kind: 'tool_call', name: e.name, input: e.input, id: makeId() };
@@ -32,6 +32,8 @@ export default function App() {
   const [isThinking, setIsThinking] = useState(false);
   const [input, setInput] = useState('');
   const cancelRef = useRef<(() => void) | null>(null);
+  // Track the tier of the most recent completed turn so assistant bubbles can be badged
+  const lastTierRef = useRef<string>('sonnet');
 
   useEffect(() => {
     fetchStatus()
@@ -62,12 +64,15 @@ export default function App() {
       trimmed,
       (event: SseEvent) => {
         if (event.type === 'done') {
+          lastTierRef.current = event.tier;
           setStatus(prev =>
-            prev ? { ...prev, turnCount: event.turnCount } : prev,
+            prev
+              ? { ...prev, turnCount: event.turnCount, activeModel: event.model, activeTier: event.tier }
+              : prev,
           );
           return;
         }
-        const item = sseEventToChatItem(event);
+        const item = sseEventToChatItem(event, lastTierRef.current);
         if (item) {
           setItems(prev => [...prev, item]);
         }

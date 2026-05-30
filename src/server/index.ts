@@ -24,6 +24,8 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       model: config.model,
       turnCount: state.turnCount,
       engramEnabled: config.engramEnabled,
+      activeModel: state.lastModel ?? config.model,
+      activeTier: state.lastTier ?? 'sonnet',
     });
   });
 
@@ -64,7 +66,12 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       })
       .then((result) => {
         send({ type: 'content', text: result.content });
-        send({ type: 'done', turnCount: loop.getState().turnCount });
+        send({
+          type: 'done',
+          turnCount: loop.getState().turnCount,
+          model: result.model,
+          tier: result.tier,
+        });
         if (!disconnected) res.end();
       })
       .catch((err: unknown) => {

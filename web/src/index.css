@@ -259,10 +259,6 @@ body {
   color: var(--cyan);
 }
 
-.bubble__label--assistant {
-  color: var(--green);
-}
-
 .bubble__label--tool-call {
   color: var(--yellow);
   cursor: pointer;
@@ -316,4 +312,37 @@ body {
   white-space: pre;
   line-height: 1.4;
   margin-top: 4px;
+}
+
+.bubble__label--assistant {
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble__tier-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  opacity: 0.9;
+}
+
+/* ── StatusBar active-tier badge ───────────────────────────────── */
+
+.status-bar__active-tier {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  opacity: 0.9;
 }
