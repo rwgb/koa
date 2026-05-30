@@ -13,6 +13,46 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 
 ---
 
+## [2026-05-30] — Credentials, MCP Server, Token Dashboard, Documentation
+
+### Completed
+- **Persistent API key storage** (`src/config/credentials.ts`):
+  - `~/.koa/credentials` (key=value, chmod 600) — same pattern as AWS CLI
+  - `KOA_HOME` env var redirects config dir (used by tests)
+  - `loadConfig()` falls back to file when `ANTHROPIC_API_KEY` env var not set; env var always takes precedence
+  - `koa config set api-key <key>` — writes to credentials file
+  - `koa config unset api-key` — removes key
+  - `koa config show` — prints masked key + source (env / file path / not set)
+  - 11 new tests covering read/write/delete/fallback/precedence
+- **GitHub repo**: https://github.com/rwgb/koa (private); `develop` + `feature/web-console-and-hardening` pushed
+- **Full documentation suite**:
+  - `README.md` — vision, features, install, all CLI commands, all env vars, MCP wiring, Engram, token dashboard, dev workflow, project tree
+  - `ARCHITECTURE.md` — ASCII system diagram, agent loop, smart routing, UsageTracker, MCP design rationale, SSE event union, Engram injection, security model, web frontend
+  - `CONTRIBUTING.md` — setup, dev workflow, branch strategy, commit types, guides for adding tools/SSE events/env vars
+  - `docs/API.md` — full REST + MCP tool reference
+
+### State at checkpoint
+- **95 tests, 8 test files, 0 typecheck errors, 0 lint errors**
+- All commits on `feature/web-console-and-hardening`
+- NOT yet tested E2E — needs `koa config set api-key <key>` then `koa chat`
+
+### Next Session
+- [ ] E2E test: `koa config set api-key <key>` → `koa chat` → verify full loop
+- [ ] Index koa project with Engram: `python3 ~/.claude/skills/engram/cli/engram.py index .`
+- [ ] Verify `engram context --json` output matches `EngramClient.getContext()` expectations
+- [ ] Merge `feature/web-console-and-hardening` → `develop` via PR
+- [ ] Single `npm start` that boots Express + Vite dev server together
+- [ ] Vite upgrade (resolves esbuild advisory GHSA-67mh-4wv8-2f99)
+- [ ] Merge streaming `content` SSE events into a single assistant bubble in web UI
+- [ ] Update docs to cover `koa config` commands (README + CONTRIBUTING)
+
+### Decisions
+- **`~/.koa/credentials` over OS keychain**: `keytar` is deprecated; file with chmod 600 is the established pattern (AWS CLI, Heroku CLI). Same practical protection for a single-user machine.
+- **`KOA_HOME` env var override**: avoids mocking `os.homedir()` (unreliable with Vitest module caching); also useful for power users who want a non-standard config location.
+- **Docs written from source, not invented**: documentation agent read every source file before writing — no hallucinated flags or APIs.
+
+---
+
 ## [2026-05-30] — MCP Server Mode + Token Usage Dashboard
 
 ### Completed
