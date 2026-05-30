@@ -1,5 +1,61 @@
 # Koa — DevLog
 
+## [2026-05-30] — Smart Model Routing, Spend Optimization, Pipeline QA
+
+### Completed
+- **`fix(server)`**: Express 5 SPA fallback crash — `'*'` → `'/{*path}'` (path-to-regexp v8 breaking change)
+- **Smart model routing** (`src/agent/router.ts`):
+  - Message classified as simple/moderate/complex → routes to Haiku / Sonnet / Opus
+  - `@haiku:` / `@sonnet:` / `@opus:` message prefix for per-turn user override (prefix stripped before API call)
+  - Opt-in via `KOA_SMART_ROUTING=true`; off by default (safe for existing users)
+- **Prompt caching** (`loop.ts`): `cache_control: ephemeral` on system prompt + last tool definition — largest spend reduction per turn (Anthropic caches for 5 min, saves ~80% on re-sent context)
+- **Tool output truncation** (`loop.ts`): Results capped at `maxToolOutputChars` (default 12k); truncated output appends `[truncated — N total chars]` sentinel so agent knows result was cut
+- **Conversation compaction** (`loop.ts`): `maybeCompact()` drops oldest messages after `compactAfterTurns * 2` messages (default: 10 turns); sliding window prevents unbounded context growth
+- **UI model badge** (`web/src/`): Each assistant bubble shows tier badge (green=haiku, blue=sonnet, purple=opus); StatusBar shows active tier next to model name
+- **`vitest.config.ts`**: Added to exclude `.claude/` from test scanning — previously vitest double-counted tests from worktrees
+- **62 tests passing, 5 test files, 0 lint errors** (new: router.test.ts — 27 tests for routing, classifyMessage, extractTierOverride)
+
+### Decisions
+- **Smart routing off by default**: Prevents unexpected model switches for existing sessions. Users opt in with env var.
+- **Haiku for simple, Opus for complex**: Simple = short + SIMPLE_RE match; complex = COMPLEX_RE keyword OR >400 chars OR ≥3 recent tool uses. Moderate (default) stays on Sonnet.
+- **Truncation sentinel required**: Security review flagged truncation without a sentinel as MEDIUM risk — agent could misread partial output. Sentinel makes incompleteness explicit.
+- **Compaction drops messages, not summarizes**: Summarization would cost extra API tokens; sliding window is free. Trade-off: agent loses older context. Mitigated by system prompt never being in messages[].
+- **Pipeline workflow**: Coding → Security → QA run as parallel worktree agents. Security review found no HIGH risks; two MEDIUM items (truncation sentinel, compaction safety) both addressed.
+
+### Security Notes (from dedicated security review)
+- **Routing prefix** LOW: Metadata extraction, no injection path. Sanitize if logging raw messages.
+- **Prompt caching** LOW: No cross-session bleed for single-user tool.
+- **Truncation** MEDIUM → RESOLVED: Sentinel appended to all truncated results.
+- **Compaction** MEDIUM-HIGH → PARTIALLY MITIGATED: System prompt is separate from messages[], never dropped. Conversational context (e.g., "only edit src/") can still be lost at window boundary.
+- **Engram `--` sentinel**: Untested against real Engram argparse — verify when Engram is wired up.
+
+### New Env Vars
+| Var | Default | Purpose |
+|---|---|---|
+| `KOA_SMART_ROUTING` | `false` | Enable automatic model tier routing |
+| `KOA_MAX_TOOL_OUTPUT` | `12000` | Max chars per tool result before truncation |
+| `KOA_COMPACT_TURNS` | `10` | Sliding conversation window (in turns) |
+
+### Next Session
+- [ ] Engram integration — install/wire up Engram CLI for memory features
+- [ ] Address 2 moderate severity vulnerabilities in web deps (`npm audit`)
+- [ ] Test compaction safety: verify agent doesn't accept unsafe requests after window slides
+- [ ] Explore features to add (see session notes below)
+
+### Feature Ideas (post-session brainstorm)
+- **Conversation export** — save session as markdown/JSON
+- **MCP server mode** — expose Koa as an MCP tool for Claude Desktop
+- **Plugin system** — user-defined tools loaded from `~/.koa/tools/`
+- **Token usage dashboard** — show cache hit rate, tokens per turn, estimated cost
+- **Multi-project** — switch between project contexts without restarting
+- **Streaming TUI** — stream token-by-token in ink TUI (currently buffers full response)
+- **GitHub integration** — `koa pr` / `koa issue` commands via gh CLI
+- **Voice input** — whisper.cpp integration for dictation
+- **Session replay** — re-run a saved session against updated code
+- **`koa explain <file>`** — one-shot file explanation without starting a full session
+
+---
+
 ## [2026-05-30] — Install Script & Global CLI
 
 ### Completed
