@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "koa": {
+      "command": "koa",
+      "args": ["mcp", "--project", "/absolute/path/to/your/project"],
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}

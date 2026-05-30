@@ -1,8 +1,27 @@
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  model: string;
+}
+
+export interface SessionUsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  estimatedCostUsd: number;
+  cacheHitRate: number;
+  turnsCount: number;
+}
+
 export type SseEvent =
   | { type: 'tool_call'; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; name: string; result: string }
   | { type: 'content'; text: string }
   | { type: 'done'; turnCount: number; model: string; tier: string }
+  | { type: 'usage'; turn: TurnUsage; session: SessionUsageStats }
   | { type: 'error'; message: string };
 
 export interface EngramContext {
@@ -19,6 +38,7 @@ export interface AgentStatus {
   engramEnabled: boolean;
   activeModel?: string;
   activeTier?: string;
+  usage?: SessionUsageStats;
 }
 
 // Discriminated union of everything that can appear in the chat timeline

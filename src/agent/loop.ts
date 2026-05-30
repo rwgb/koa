@@ -4,6 +4,7 @@ import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { KoaConfig } from '../config/index.js';
 import { selectModel } from './router.js';
+import type { UsageTracker } from './usage.js';
 
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
@@ -20,16 +21,19 @@ export class AgentLoop {
   private engram: EngramClient;
   private config: KoaConfig;
   private state: AgentState;
+  private usage: UsageTracker;
 
-  constructor(config: KoaConfig, registry: ToolRegistry, engram: EngramClient) {
+  constructor(config: KoaConfig, registry: ToolRegistry, engram: EngramClient, usage: UsageTracker) {
     this.config = config;
     this.registry = registry;
     this.engram = engram;
+    this.usage = usage;
     this.client = new Anthropic({ apiKey: config.apiKey });
     this.state = {
       messages: [],
       engramContext: { hotFiles: [], masterFiles: [] },
       turnCount: 0,
+      usage: usage.getStats(),
     };
   }
 
@@ -90,6 +94,8 @@ export class AgentLoop {
       };
     }
 
+    const acc = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+
     let continueLoop = true;
     while (continueLoop) {
       const response = await this.client.messages.create({
@@ -99,6 +105,11 @@ export class AgentLoop {
         messages: this.state.messages,
         tools,
       });
+
+      acc.inputTokens += response.usage.input_tokens;
+      acc.outputTokens += response.usage.output_tokens;
+      acc.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
+      acc.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
 
       stopReason = response.stop_reason ?? 'end_turn';
 
@@ -149,6 +160,9 @@ export class AgentLoop {
       }
     }
 
+    this.usage.addTurn({ ...acc, model: selectedModel });
+    this.state.usage = this.usage.getStats();
+
     // Record the model used for status display
     this.state.lastModel = selectedModel;
     this.state.lastTier = tier;
@@ -156,7 +170,7 @@ export class AgentLoop {
     // Slide the conversation window to prevent unbounded context growth
     this.maybeCompact();
 
-    return { content: finalContent, toolUses, stopReason, model: selectedModel, tier };
+    return { content: finalContent, toolUses, stopReason, model: selectedModel, tier, usage: { ...acc, model: selectedModel } };
   }
 
   async finalize(): Promise<void> {

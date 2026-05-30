@@ -1,5 +1,23 @@
 import type Anthropic from '@anthropic-ai/sdk';
 
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  model: string;
+}
+
+export interface SessionUsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  estimatedCostUsd: number;
+  cacheHitRate: number;
+  turnsCount: number;
+}
+
 export interface KoaConfig {
   model: string;
   maxTokens: number;
@@ -43,6 +61,7 @@ export interface AgentState {
   turnCount: number;
   lastModel?: string;
   lastTier?: string;
+  usage: SessionUsageStats;
 }
 
 export interface TurnResult {
@@ -51,6 +70,7 @@ export interface TurnResult {
   stopReason: string;
   model: string;
   tier: string;
+  usage?: TurnUsage;
 }
 
 export interface ToolUse {

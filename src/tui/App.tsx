@@ -6,7 +6,7 @@ import { Sidebar } from './components/Sidebar.js';
 import { StatusBar } from './components/StatusBar.js';
 import type { AgentLoop } from '../agent/loop.js';
 import type { KoaConfig } from '../config/index.js';
-import type { EngramContext } from '../types/index.js';
+import type { EngramContext, SessionUsageStats } from '../types/index.js';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -26,6 +26,7 @@ export function App({ loop, config, engramContext }: Props) {
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
+  const [sessionUsage, setSessionUsage] = useState<SessionUsageStats | null>(null);
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') {
@@ -49,6 +50,7 @@ export function App({ loop, config, engramContext }: Props) {
           ...prev,
           { role: 'assistant', content: result.content, turn },
         ]);
+        setSessionUsage(loop.getState().usage);
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -87,6 +89,7 @@ export function App({ loop, config, engramContext }: Props) {
         turnCount={turnCount}
         engramEnabled={config.engramEnabled}
         isThinking={isThinking}
+        usage={sessionUsage}
       />
       <Box paddingX={1}>
         <Box marginRight={1}>

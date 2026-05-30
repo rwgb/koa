@@ -10,6 +10,7 @@ import { createFileTools } from '../agent/tools/files.js';
 import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { EngramClient } from '../engram/client.js';
 import { loadConfig } from '../config/index.js';
+import { UsageTracker } from '../agent/usage.js';
 
 function buildRegistry(engram: EngramClient, projectRoot: string): ToolRegistry {
   const registry = new ToolRegistry();
@@ -44,7 +45,7 @@ program
 
     const engram = new EngramClient(config.projectPath);
     const registry = buildRegistry(engram, config.projectPath);
-    const loop = new AgentLoop(config, registry, engram);
+    const loop = new AgentLoop(config, registry, engram, new UsageTracker());
     await loop.initialize();
 
     const engramContext = loop.getState().engramContext;
@@ -87,7 +88,7 @@ program
 
     const engram = new EngramClient(config.projectPath);
     const registry = buildRegistry(engram, config.projectPath);
-    const loop = new AgentLoop(config, registry, engram);
+    const loop = new AgentLoop(config, registry, engram, new UsageTracker());
     await loop.initialize();
 
     const { createServer } = await import('../server/index.js');
@@ -107,6 +108,24 @@ program
       await loop.finalize();
       process.exit(0);
     });
+  });
+
+program
+  .command('mcp')
+  .description('Start Koa as an MCP tool server on stdio (for Claude Desktop)')
+  .option('-p, --project <path>', 'Project root path (defaults to cwd)')
+  .option('--no-engram', 'Disable Engram memory integration')
+  .action(async (opts: { project?: string; engram: boolean }) => {
+    const config = loadConfig(opts.project);
+    if (!opts.engram) config.engramEnabled = false;
+    const engram = new EngramClient(config.projectPath);
+    const registry = buildRegistry(engram, config.projectPath);
+    if (config.engramEnabled) {
+      await engram.sync().catch(() => {});
+    }
+    const { createMcpServer, startMcpServer } = await import('../server/mcp.js');
+    const server = createMcpServer(registry, config.projectPath);
+    await startMcpServer(server);
   });
 
 program.parse(process.argv);

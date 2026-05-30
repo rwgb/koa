@@ -1,5 +1,56 @@
 # Koa — DevLog
 
+## Long-Term Vision
+
+Koa's goal is to be a **full personal AI assistant** — not just a CLI tool. Future scope includes:
+- Full web UI (browser-accessible agent)
+- iMessage integration
+- Gmail integration
+- Google Calendar integration
+- Web browsing capabilities
+
+Think of it as a self-built personal AI assistant. Every architectural decision should be made with this trajectory in mind.
+
+---
+
+## [2026-05-30] — MCP Server Mode + Token Usage Dashboard
+
+### Completed
+- **MCP server mode** (`src/server/mcp.ts`, `koa mcp` subcommand):
+  - Exposes Koa's tools (bash, file ops, engram_query) as MCP tools for Claude Desktop
+  - `@modelcontextprotocol/sdk` transport via stdio (JSON-RPC 2.0)
+  - `toMcpInputSchema()` adapter converts Koa's JSON Schema tool defs to Zod shapes
+  - `docs/claude_desktop_config_example.json` shows exact Claude Desktop wiring
+  - 9 new MCP tests (spy-based + handler execution coverage)
+- **Token usage dashboard** (`src/agent/usage.ts`):
+  - `PRICING` map keyed by model prefix (haiku/sonnet/opus) — future-proof for new model versions
+  - `UsageTracker` class: accumulates input/output/cache-write/cache-read tokens per turn, computes `estimatedCostUsd` and `cacheHitRate`
+  - `AgentLoop` integrates tracker; accumulates across all tool-use API calls in a single logical turn
+  - New `usage` SSE event emitted after each turn (web UI gets per-turn + session totals)
+  - Web `StatusBar`: cost pill (`$0.0023`); Web `Sidebar`: token counts, cache hit %, total cost
+  - TUI `StatusBar`: inline `$0.0023 | 82% cache` segment
+  - `GET /api/context` now includes session usage for hydration on connect
+  - 22 new usage tests
+- **GitHub repo**: private repo created at https://github.com/rwgb/koa; both `develop` and `feature/web-console-and-hardening` pushed
+- **Total test suite**: 84 tests, 7 test files, 0 typecheck errors, 0 lint errors
+
+### Decisions
+- **MCP exposes primitives only**: `AgentLoop` is deliberately NOT an MCP tool — it would create a recursive Claude-calls-Claude loop. MCP gives Claude Desktop direct access to bash, files, and Engram.
+- **Stdout discipline in `koa mcp`**: stdio transport owns stdout; all diagnostic output goes to stderr. No `console.log` in the mcp command path.
+- **UsageTracker as constructor dependency**: injected into `AgentLoop`, not a singleton — keeps tests isolated and leaves the door open for multi-session support.
+- **Pricing by prefix, not full model ID**: `claude-sonnet-4-99` auto-inherits Sonnet rates without a pricing map update.
+- **Per-logical-turn accumulation**: multiple API calls within one `turn()` (tool-use loop) are summed — shows meaningful "cost per user message", not confusing fractional sub-call costs.
+
+### Next Session
+- [ ] Engram integration — index koa with Engram, test E2E with live API key
+- [ ] Merge `feature/web-console-and-hardening` → `develop` via PR
+- [ ] Write full documentation (README, ARCHITECTURE.md, CONTRIBUTING.md, API reference)
+- [ ] Single `npm start` command that boots Express + Vite dev server together
+- [ ] Vite upgrade (resolves esbuild moderate advisory GHSA-67mh-4wv8-2f99)
+- [ ] Merge streaming `content` SSE events into a single assistant bubble in web UI
+
+---
+
 ## [2026-05-30] — Smart Model Routing, Spend Optimization, Pipeline QA
 
 ### Completed

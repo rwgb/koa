@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchStatus, streamChat } from './api.js';
-import type { AgentStatus, ChatItem, SseEvent } from './types.js';
+import type { AgentStatus, ChatItem, SessionUsageStats, SseEvent } from './types.js';
 import StatusBar from './components/StatusBar.js';
 import Sidebar from './components/Sidebar.js';
 import ChatPanel from './components/ChatPanel.js';
@@ -31,13 +31,17 @@ export default function App() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const [input, setInput] = useState('');
+  const [sessionUsage, setSessionUsage] = useState<SessionUsageStats | null>(null);
   const cancelRef = useRef<(() => void) | null>(null);
   // Track the tier of the most recent completed turn so assistant bubbles can be badged
   const lastTierRef = useRef<string>('sonnet');
 
   useEffect(() => {
     fetchStatus()
-      .then(setStatus)
+      .then(s => {
+        setStatus(s);
+        if (s.usage) setSessionUsage(s.usage);
+      })
       .catch(err => console.error('Failed to load status:', err));
 
     return () => {
@@ -72,6 +76,10 @@ export default function App() {
           );
           return;
         }
+        if (event.type === 'usage') {
+          setSessionUsage(event.session);
+          return;
+        }
         const item = sseEventToChatItem(event, lastTierRef.current);
         if (item) {
           setItems(prev => [...prev, item]);
@@ -81,7 +89,10 @@ export default function App() {
         setIsThinking(false);
         // Refresh status to pick up any context changes
         fetchStatus()
-          .then(setStatus)
+          .then(s => {
+            setStatus(s);
+            if (s.usage) setSessionUsage(s.usage);
+          })
           .catch(() => undefined);
       },
       (msg: string) => {
@@ -98,9 +109,9 @@ export default function App() {
 
   return (
     <div className="app">
-      <StatusBar status={status} isThinking={isThinking} />
+      <StatusBar status={status} isThinking={isThinking} usage={sessionUsage} />
       <div className="main">
-        <Sidebar context={status?.context ?? null} />
+        <Sidebar context={status?.context ?? null} usage={sessionUsage} />
         <ChatPanel
           items={items}
           input={input}

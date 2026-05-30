@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
-import type { AgentStatus } from '../types.js';
+import type { AgentStatus, SessionUsageStats } from '../types.js';
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 interface Props {
   status: AgentStatus | null;
   isThinking: boolean;
+  usage?: SessionUsageStats | null;
 }
 
-export default function StatusBar({ status, isThinking }: Props) {
+export default function StatusBar({ status, isThinking, usage }: Props) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -41,6 +42,9 @@ export default function StatusBar({ status, isThinking }: Props) {
             </span>
           )}
           <span className="status-bar__turns">turns: {status.turnCount}</span>
+          {usage && usage.estimatedCostUsd > 0 && (
+            <span className="status-bar__cost">${usage.estimatedCostUsd.toFixed(4)}</span>
+          )}
           <span className="status-bar__engram">
             <span
               className={`status-bar__engram-dot ${
