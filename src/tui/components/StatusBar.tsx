@@ -39,7 +39,7 @@ export function StatusBar({ model, turnCount, engramEnabled, isThinking, usage }
         </>
       )}
       <Box flexGrow={1} />
-      <Text dimColor>ctrl+c to exit</Text>
+      <Text dimColor>/exit or ctrl+c</Text>
     </Box>
   );
 }

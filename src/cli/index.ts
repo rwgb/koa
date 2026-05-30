@@ -9,6 +9,7 @@ import { bashTool } from '../agent/tools/bash.js';
 import { createFileTools } from '../agent/tools/files.js';
 import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
+import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
 import { loadConfig } from '../config/index.js';
@@ -20,6 +21,8 @@ function buildRegistry(engram: EngramClient, projectRoot: string, sb: SpiderBrai
   registry.register(bashTool);
   for (const tool of createFileTools(projectRoot)) registry.register(tool);
   registry.register(createEngramTool(engram));
+  registry.register(rememberTool);
+  registry.register(forgetTool);
   if (sb.isAvailable()) {
     for (const tool of createSpiderBrainTools(sb)) registry.register(tool);
   }

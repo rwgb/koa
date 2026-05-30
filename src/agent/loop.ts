@@ -12,6 +12,8 @@ import {
   buildSessionRecord,
   buildSessionPromptInjection,
 } from '../session/store.js';
+import { loadMemories, buildMemoryPromptInjection } from '../memory/store.js';
+import type { MemoryEntry } from '../memory/store.js';
 
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
@@ -30,6 +32,7 @@ export class AgentLoop {
   private config: KoaConfig;
   private state: AgentState;
   private usage: UsageTracker;
+  private memories: MemoryEntry[] = [];
 
   constructor(config: KoaConfig, registry: ToolRegistry, engram: EngramClient, usage: UsageTracker, sb: SpiderBrainClient) {
     this.config = config;
@@ -54,10 +57,13 @@ export class AgentLoop {
     }
     this.state.spiderBrainContext = await this.sb.getContext();
     this.state.lastSessionRecord = loadLastSession(this.config.projectPath);
+    this.memories = loadMemories();
   }
 
   private buildSystemPrompt(): string {
     const parts = [SYSTEM_BASE];
+    const memoryInjection = buildMemoryPromptInjection(this.memories);
+    if (memoryInjection) parts.push(memoryInjection);
     if (this.state.lastSessionRecord) {
       parts.push(buildSessionPromptInjection(this.state.lastSessionRecord));
     }
