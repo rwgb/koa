@@ -70,10 +70,19 @@ export interface SpiderBrainContext {
   clusterNames: string[];
 }
 
+export interface SessionRecord {
+  timestamp: string;
+  turnCount: number;
+  firstMessage: string;
+  recentMessages: string[];
+  projectPath: string;
+}
+
 export interface AgentState {
   messages: Anthropic.MessageParam[];
   engramContext: EngramContext;
   spiderBrainContext?: SpiderBrainContext;
+  lastSessionRecord?: SessionRecord | null;
   sessionId?: string;
   turnCount: number;
   lastModel?: string;

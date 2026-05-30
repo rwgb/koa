@@ -6,6 +6,12 @@ import type { SpiderBrainClient } from '../spiderbrain/client.js';
 import type { KoaConfig } from '../config/index.js';
 import { selectModel } from './router.js';
 import type { UsageTracker } from './usage.js';
+import {
+  loadLastSession,
+  saveSession,
+  buildSessionRecord,
+  buildSessionPromptInjection,
+} from '../session/store.js';
 
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
@@ -47,10 +53,14 @@ export class AgentLoop {
       await this.engram.startSession(this.state.engramContext.goal);
     }
     this.state.spiderBrainContext = await this.sb.getContext();
+    this.state.lastSessionRecord = loadLastSession(this.config.projectPath);
   }
 
   private buildSystemPrompt(): string {
     const parts = [SYSTEM_BASE];
+    if (this.state.lastSessionRecord) {
+      parts.push(buildSessionPromptInjection(this.state.lastSessionRecord));
+    }
     const engramInjection = this.engram.buildSystemPromptInjection(this.state.engramContext);
     if (engramInjection) parts.push(engramInjection);
     if (this.state.spiderBrainContext) {
@@ -182,12 +192,25 @@ export class AgentLoop {
   }
 
   async finalize(): Promise<void> {
-    if (!this.config.engramEnabled || this.state.turnCount === 0) return;
+    if (this.state.turnCount === 0) return;
 
-    const summary = `Session with ${this.state.turnCount} turns. Last message: ${
-      this.state.messages[this.state.messages.length - 1]?.role ?? 'unknown'
-    }`;
-    await this.engram.rememberSession(summary);
+    // Extract all user messages (role === 'user', string content only)
+    const userMessages = this.state.messages
+      .filter((m) => m.role === 'user' && typeof m.content === 'string')
+      .map((m) => m.content as string);
+
+    const record = buildSessionRecord(
+      this.config.projectPath,
+      this.state.turnCount,
+      userMessages,
+    );
+    saveSession(record);
+
+    if (this.config.engramEnabled) {
+      await this.engram.rememberSession(
+        `${record.turnCount} turns. Started: "${record.firstMessage}"`,
+      );
+    }
   }
 
   getState(): Readonly<AgentState> {
