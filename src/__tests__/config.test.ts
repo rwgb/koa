@@ -50,6 +50,36 @@ describe('loadConfig', () => {
     process.env['ANTHROPIC_API_KEY'] = 'sk-test-key';
     expect(loadConfig('/tmp').apiKey).toBe('sk-test-key');
   });
+
+  it('smartRouting defaults to false', () => {
+    delete process.env['KOA_SMART_ROUTING'];
+    expect(loadConfig('/tmp').smartRouting).toBe(false);
+  });
+
+  it('enables smartRouting when KOA_SMART_ROUTING=true', () => {
+    process.env['KOA_SMART_ROUTING'] = 'true';
+    expect(loadConfig('/tmp').smartRouting).toBe(true);
+  });
+
+  it('maxToolOutputChars defaults to 12000', () => {
+    delete process.env['KOA_MAX_TOOL_OUTPUT'];
+    expect(loadConfig('/tmp').maxToolOutputChars).toBe(12000);
+  });
+
+  it('respects KOA_MAX_TOOL_OUTPUT override', () => {
+    process.env['KOA_MAX_TOOL_OUTPUT'] = '5000';
+    expect(loadConfig('/tmp').maxToolOutputChars).toBe(5000);
+  });
+
+  it('compactAfterTurns defaults to 10', () => {
+    delete process.env['KOA_COMPACT_TURNS'];
+    expect(loadConfig('/tmp').compactAfterTurns).toBe(10);
+  });
+
+  it('respects KOA_COMPACT_TURNS override', () => {
+    process.env['KOA_COMPACT_TURNS'] = '20';
+    expect(loadConfig('/tmp').compactAfterTurns).toBe(20);
+  });
 });
 
 describe('getEngramBrainPath', () => {
