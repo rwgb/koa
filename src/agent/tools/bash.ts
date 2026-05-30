@@ -1,4 +1,4 @@
-import { execaCommand } from 'execa';
+import { execa } from 'execa';
 import type { Tool, ToolInput } from '../../types/index.js';
 
 export const bashTool: Tool = {
@@ -21,9 +21,11 @@ export const bashTool: Tool = {
   },
   async execute(input: ToolInput): Promise<string> {
     const command = input['command'] as string;
-    const timeout = (input['timeout'] as number | undefined) ?? 30_000;
+    const MAX_TIMEOUT = 300_000; // 5 minutes hard ceiling
+    const rawTimeout = (input['timeout'] as number | undefined) ?? 30_000;
+    const timeout = Math.min(Math.max(rawTimeout, 1_000), MAX_TIMEOUT);
 
-    const result = await execaCommand(command, {
+    const result = await execa('bash', ['-c', command], {
       reject: false,
       timeout,
       all: true,

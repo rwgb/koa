@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
+import Spinner from 'ink-spinner';
 
 interface Props {
   model: string;
@@ -21,7 +22,10 @@ export function StatusBar({ model, turnCount, engramEnabled, isThinking }: Props
       {isThinking && (
         <>
           <Text dimColor> | </Text>
-          <Text color="yellow">thinking...</Text>
+          <Text color="yellow">
+            <Spinner type="dots" />
+            {' thinking'}
+          </Text>
         </>
       )}
       <Box flexGrow={1} />

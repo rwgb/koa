@@ -1,8 +1,8 @@
-import { execaCommand } from 'execa';
+import { execa } from 'execa';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import type { EngramContext, HotFile } from '../types/index.js';
+import type { EngramContext } from '../types/index.js';
 import { ENGRAM_CLI } from '../config/index.js';
 
 export class EngramClient {
@@ -29,10 +29,7 @@ export class EngramClient {
   }
 
   private async run(args: string[]): Promise<string> {
-    const result = await execaCommand(
-      `python3 ${ENGRAM_CLI} ${args.map((a) => JSON.stringify(a)).join(' ')}`,
-      { reject: false },
-    );
+    const result = await execa('python3', [ENGRAM_CLI, ...args], { reject: false });
     return result.stdout ?? '';
   }
 
@@ -71,19 +68,20 @@ export class EngramClient {
 
   async query(terms: string): Promise<string> {
     if (!(await this.checkAvailable())) return '';
-    return this.run(['query', terms, '--project', this.projectPath]);
+    // '--' prevents flag-injection if `terms` starts with '-'
+    return this.run(['query', '--', terms, '--project', this.projectPath]);
   }
 
   async startSession(goal?: string): Promise<void> {
     if (!(await this.checkAvailable())) return;
     const args = ['session', 'start', '--project', this.projectPath];
-    if (goal) args.push('--goal', goal);
+    if (goal) args.push('--goal', '--', goal);
     await this.run(args);
   }
 
   async rememberSession(summary: string): Promise<void> {
     if (!(await this.checkAvailable())) return;
-    await this.run(['session', 'remember', '--project', this.projectPath, '--summary', summary]);
+    await this.run(['session', 'remember', '--project', this.projectPath, '--summary', '--', summary]);
   }
 
   buildSystemPromptInjection(ctx: EngramContext): string {

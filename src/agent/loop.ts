@@ -1,8 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AgentState, TurnResult, ToolUse } from '../types/index.js';
+import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { KoaConfig } from '../config/index.js';
+
+export interface TurnCallbacks {
+  onToolCall?: (name: string, input: ToolInput) => void;
+  onToolResult?: (name: string, result: string) => void;
+}
 
 const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with persistent project memory.
 You have access to tools for reading/writing files, running shell commands, and querying project history via Engram.
@@ -42,7 +47,7 @@ export class AgentLoop {
     return parts.join('\n\n');
   }
 
-  async turn(userMessage: string): Promise<TurnResult> {
+  async turn(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
     this.state.messages.push({ role: 'user', content: userMessage });
     this.state.turnCount++;
 
@@ -74,17 +79,21 @@ export class AgentLoop {
           const tool = this.registry.get(block.name);
           let result: string;
 
+          const toolInput = block.input as Record<string, unknown>;
+
           if (!tool) {
             result = `Error: unknown tool "${block.name}"`;
           } else {
+            callbacks?.onToolCall?.(block.name, toolInput);
             try {
-              result = await tool.execute(block.input as Record<string, unknown>);
+              result = await tool.execute(toolInput);
             } catch (err) {
               result = `Error: ${err instanceof Error ? err.message : String(err)}`;
             }
+            callbacks?.onToolResult?.(block.name, result);
           }
 
-          toolUses.push({ id: block.id, name: block.name, input: block.input as Record<string, unknown>, result });
+          toolUses.push({ id: block.id, name: block.name, input: toolInput, result });
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
         }
 
