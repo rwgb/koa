@@ -27,16 +27,27 @@ export function App({ loop, config, engramContext }: Props) {
   const [isThinking, setIsThinking] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
   const [sessionUsage, setSessionUsage] = useState<SessionUsageStats | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
 
-  useInput((input, key) => {
-    if (key.ctrl && input === 'c') {
-      loop.finalize().finally(() => exit());
-    }
+  const quit = useCallback(() => {
+    if (isExiting) return;
+    setIsExiting(true);
+    loop.finalize().finally(() => exit());
+  }, [isExiting, loop, exit]);
+
+  useInput((inputChar, key) => {
+    if (key.ctrl && inputChar === 'c') quit();
   });
 
   const handleSubmit = useCallback(
     async (value: string) => {
-      if (!value.trim() || isThinking) return;
+      if (!value.trim() || isThinking || isExiting) return;
+
+      const trimmed = value.trim().toLowerCase();
+      if (trimmed === '/exit' || trimmed === '/quit' || trimmed === 'exit' || trimmed === 'quit') {
+        quit();
+        return;
+      }
 
       const turn = turnCount + 1;
       setTurnCount(turn);
@@ -78,7 +89,7 @@ export function App({ loop, config, engramContext }: Props) {
           {messages.length === 0 && (
             <Box>
               <Text color="gray" dimColor>
-                Type a message to start. Koa has Engram memory for this project.
+                Type a message to start. Type /exit or press Ctrl+C to quit.
               </Text>
             </Box>
           )}
@@ -99,7 +110,7 @@ export function App({ loop, config, engramContext }: Props) {
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
-          placeholder="Ask Koa anything..."
+          placeholder="Ask Koa anything... (/exit to quit)"
         />
       </Box>
     </Box>
