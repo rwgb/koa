@@ -13,6 +13,58 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 
 ---
 
+## [2026-05-30] — SpiderBrain Integration + Full Web Console
+
+### Completed
+- **SpiderBrain backend integration** (`src/spiderbrain/client.ts`):
+  - Auto-detects `<project>-spiderbrain/` sibling dir; `SPIDERBRAIN_BRAIN` env var for override
+  - Reads `synganglion.json` directly (no subprocess) for fast `getContext()`
+  - `query`, `cascade`, `molt` via execa args arrays — no shell: true
+  - `<spiderbrain_context>` XML block injected into every system prompt alongside Engram
+  - 3 agent tools: `spiderbrain_query`, `spiderbrain_cascade`, `spiderbrain_molt`
+  - All commands (chat/web/mcp) auto-wire SpiderBrain when brain is indexed
+- **SpiderBrain brain built** for koa itself:
+  - `node build-brain.mjs --project . --brain ../koa-spiderbrain --prey "..."`
+  - 47 nodes, 3 clusters (web/shell/src), auto-detects correctly
+  - Top files by importance: `web/src/index.css`, `package.json`, `src/agent/loop.ts`
+- **Full-featured web console redesign**:
+  - 3-tab sidebar: **MEM** (Engram + usage) | **SB** (SpiderBrain masters/webscores/clusters) | **CFG** (settings)
+  - SpiderBrain tab: prey, masters with webscore badges (★ ≥ 9.0), hot files, cluster names; auto-selects when brain is indexed
+  - Settings tab: model, tier, Engram/SpiderBrain status, project path
+  - Amber `SB` dot in StatusBar
+  - Streaming content events merged into single assistant bubble
+  - Clear chat button; copy-to-clipboard on assistant messages
+- **Security fixes** (security pipeline):
+  - `escapeXml()` applied to all 6 data interpolation sites in `buildSystemPromptInjection()` — prevents prompt injection via tampered synganglion.json (HIGH)
+  - `SAFE_NODE_ID` regex tightened to exclude quote chars (HIGH)
+  - `MAX_QUERY_TERMS_CHARS = 500` cap on query subprocess input (MEDIUM)
+- **QA fixes** (QA pipeline):
+  - Sidebar tab default bug fixed: `useEffect` auto-switch instead of computed initial state
+  - 5 new edge-case tests added (empty graph, no masters, no timestamps, clean node ID, hot_files XML)
+- **Build**: 116 tests / 9 files / 0 typecheck / 0 lint errors; web 156 kB; pushed to GitHub
+
+### State at checkpoint
+- `feature/web-console-and-hardening` — fully up to date, pushed
+- koa SpiderBrain brain live at `../koa-spiderbrain`
+- All three frontends (TUI, web, MCP) are SpiderBrain-aware
+- `npm run build && cd web && npm run build` is all that's needed after a pull (no reinstall)
+- **Not yet E2E tested** — `koa config set api-key <key>` then `koa chat`
+
+### Decisions
+- **SpiderBrain reads synganglion.json directly** (not via subprocess query.mjs) for `getContext()` — faster, no process spawn overhead on every turn
+- **Brain auto-detection via sibling dir**: `<parent>/<project>-spiderbrain/` is the SpiderBrain v3 convention; matches without any config
+- **Amber accent for SpiderBrain**: distinct from Engram's cyan — visually separates the two memory layers in the UI
+- **Rebuild-only workflow**: `install.sh` is one-time setup; `npm run build` is all that's needed for updates
+
+### Next Session
+- [ ] E2E test: `koa config set api-key <key>` → `koa chat` (first live run)
+- [ ] Rebuild SpiderBrain brain after Engram index (`engram index .` first, then rebuild brain to capture more accurate recency)
+- [ ] PR: merge `feature/web-console-and-hardening` → `develop`
+- [ ] Add SpiderBrain docs to README and ARCHITECTURE.md
+- [ ] Consider `koa brain build` subcommand to wrap the build-brain.mjs call
+
+---
+
 ## [2026-05-30] — Credentials, MCP Server, Token Dashboard, Documentation
 
 ### Completed
