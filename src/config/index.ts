@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import path from 'path';
 import os from 'os';
+import { readCredentials } from './credentials.js';
 
 const ConfigSchema = z.object({
   model: z.string().default('claude-sonnet-4-6'),
@@ -17,13 +18,16 @@ export type KoaConfig = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(projectPath?: string): KoaConfig {
   const resolvedPath = projectPath ?? process.cwd();
+  // Env var takes precedence; credentials file is the persistent fallback.
+  const credentials = readCredentials();
+  const apiKey = process.env['ANTHROPIC_API_KEY'] ?? credentials['ANTHROPIC_API_KEY'];
 
   return ConfigSchema.parse({
     model: process.env['KOA_MODEL'] ?? 'claude-sonnet-4-6',
     maxTokens: process.env['KOA_MAX_TOKENS'] ? parseInt(process.env['KOA_MAX_TOKENS'], 10) : 8096,
     projectPath: resolvedPath,
     engramEnabled: process.env['KOA_ENGRAM'] !== 'false',
-    apiKey: process.env['ANTHROPIC_API_KEY'],
+    apiKey,
     smartRouting: process.env['KOA_SMART_ROUTING'] === 'true',
     maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
       ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)

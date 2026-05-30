@@ -11,6 +11,7 @@ import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { EngramClient } from '../engram/client.js';
 import { loadConfig } from '../config/index.js';
 import { UsageTracker } from '../agent/usage.js';
+import { writeCredential, deleteCredential, readCredentials, getCredentialsPath } from '../config/credentials.js';
 
 function buildRegistry(engram: EngramClient, projectRoot: string): ToolRegistry {
   const registry = new ToolRegistry();
@@ -126,6 +127,48 @@ program
     const { createMcpServer, startMcpServer } = await import('../server/mcp.js');
     const server = createMcpServer(registry, config.projectPath);
     await startMcpServer(server);
+  });
+
+const configCmd = program
+  .command('config')
+  .description('Manage Koa configuration and credentials');
+
+configCmd
+  .command('set <key> <value>')
+  .description('Persist a configuration value (e.g. api-key sk-ant-...)')
+  .action((key: string, value: string) => {
+    const credKey = key === 'api-key' ? 'ANTHROPIC_API_KEY' : key;
+    writeCredential(credKey, value);
+    console.log(`Saved ${key} to ${getCredentialsPath()}`);
+  });
+
+configCmd
+  .command('unset <key>')
+  .description('Remove a persisted configuration value')
+  .action((key: string) => {
+    const credKey = key === 'api-key' ? 'ANTHROPIC_API_KEY' : key;
+    deleteCredential(credKey);
+    console.log(`Removed ${key} from ${getCredentialsPath()}`);
+  });
+
+configCmd
+  .command('show')
+  .description('Show current configuration (credentials are masked)')
+  .action(() => {
+    const credentials = readCredentials();
+    const apiKey = process.env['ANTHROPIC_API_KEY'] ?? credentials['ANTHROPIC_API_KEY'];
+    const source = process.env['ANTHROPIC_API_KEY']
+      ? 'env'
+      : credentials['ANTHROPIC_API_KEY']
+        ? getCredentialsPath()
+        : 'not set';
+
+    const masked = apiKey
+      ? `${apiKey.slice(0, 10)}...${apiKey.slice(-4)}`
+      : '(not set)';
+
+    console.log(`ANTHROPIC_API_KEY  ${masked}  [${source}]`);
+    console.log(`Credentials file   ${getCredentialsPath()}`);
   });
 
 program.parse(process.argv);
