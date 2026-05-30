@@ -81,7 +81,7 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   // Serve built web UI; fall back gracefully when not yet built
   const webDist = path.join(__dirname, '../../web/dist');
   app.use(express.static(webDist));
-  app.get('*', (req, res) => {
+  app.get('/{*path}', (req, res) => {
     const index = path.join(webDist, 'index.html');
     res.sendFile(index, (err) => {
       if (err) {
