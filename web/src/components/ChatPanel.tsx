@@ -8,10 +8,11 @@ interface Props {
   setInput: (v: string) => void;
   onSubmit: () => void;
   isThinking: boolean;
+  classifyingTier?: string | null;
   onClear: () => void;
 }
 
-export default function ChatPanel({ items, input, setInput, onSubmit, isThinking, onClear }: Props) {
+export default function ChatPanel({ items, input, setInput, onSubmit, isThinking, classifyingTier, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -46,6 +47,10 @@ export default function ChatPanel({ items, input, setInput, onSubmit, isThinking
         )}
         <div ref={bottomRef} />
       </div>
+
+      {classifyingTier && (
+        <div className="classifying-badge">{classifyingTier}</div>
+      )}
 
       <div className="input-row">
         <span className="input-row__prompt">{'>'}</span>

@@ -33,7 +33,7 @@ export function readCredentials(): Record<string, string> {
 }
 
 export function writeCredential(key: string, value: string): void {
-  fs.mkdirSync(koaDir(), { recursive: true });
+  fs.mkdirSync(koaDir(), { recursive: true, mode: 0o700 });
 
   let existing: Record<string, string> = {};
   try {

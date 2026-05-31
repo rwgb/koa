@@ -16,6 +16,9 @@ export interface SessionUsageStats {
   estimatedCostUsd: number;
   cacheHitRate: number;
   turnsCount: number;
+  classifierCalls: number;
+  classifierInputTokens: number;
+  classifierOutputTokens: number;
 }
 
 export interface EngramContext {
@@ -38,12 +41,13 @@ export interface EngramSession {
 }
 
 export type ToolInput = Record<string, unknown>;
+export type ToolResultContent = string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>;
 
 export interface Tool {
   name: string;
   description: string;
   inputSchema: Anthropic.Tool['input_schema'];
-  execute(input: ToolInput): Promise<string>;
+  execute(input: ToolInput): Promise<ToolResultContent>;
 }
 
 export interface SpiderBrainMaster {
@@ -89,6 +93,7 @@ export interface TurnResult {
   model: string;
   tier: string;
   usage?: TurnUsage;
+  classifierLatencyMs?: number;
 }
 
 export interface ToolUse {

@@ -25,6 +25,7 @@ export function App({ loop, config, engramContext }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [isClassifying, setIsClassifying] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
   const [sessionUsage, setSessionUsage] = useState<SessionUsageStats | null>(null);
   const [isExiting, setIsExiting] = useState(false);
@@ -75,7 +76,10 @@ export function App({ loop, config, engramContext }: Props) {
       setIsThinking(true);
 
       try {
-        const result = await loop.turn(value);
+        const result = await loop.turn(value, {
+          onClassifying: () => setIsClassifying(true),
+          onClassified: () => setIsClassifying(false),
+        });
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: result.content, turn },
@@ -91,6 +95,7 @@ export function App({ loop, config, engramContext }: Props) {
           },
         ]);
       } finally {
+        setIsClassifying(false);
         setIsThinking(false);
       }
     },
@@ -119,6 +124,7 @@ export function App({ loop, config, engramContext }: Props) {
         turnCount={turnCount}
         engramEnabled={config.engramEnabled}
         isThinking={isThinking}
+        isClassifying={isClassifying}
         usage={sessionUsage}
       />
       <Box paddingX={1}>

@@ -11,6 +11,7 @@ function makeId(): string {
 export default function ChatPage() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState('');
+  const [classifyingTier, setClassifyingTier] = useState<string | null>(null);
   const cancelRef = useRef<(() => void) | null>(null);
   const lastTierRef = useRef<string>('sonnet');
 
@@ -38,6 +39,7 @@ export default function ChatPage() {
     setInput('');
     setIsThinking(true);
     setActiveTool(null);
+    setClassifyingTier(null);
 
     setItems(prev => [...prev, { kind: 'user', content: trimmed, id: makeId() }]);
 
@@ -58,7 +60,16 @@ export default function ChatPage() {
           setUsage(event.session);
           return;
         }
+        if (event.type === 'classifying') {
+          setClassifyingTier('…');
+          return;
+        }
+        if (event.type === 'classified') {
+          setClassifyingTier(`→ ${event.tier}`);
+          return;
+        }
         if (event.type === 'content') {
+          setClassifyingTier(null);
           setItems(prev => {
             const last = prev[prev.length - 1];
             if (last?.kind === 'assistant') {
@@ -85,6 +96,7 @@ export default function ChatPage() {
       () => {
         setIsThinking(false);
         setActiveTool(null);
+        setClassifyingTier(null);
         fetchStatus()
           .then(s => {
             setAgentStatus(s);
@@ -95,6 +107,7 @@ export default function ChatPage() {
       (msg: string) => {
         setIsThinking(false);
         setActiveTool(null);
+        setClassifyingTier(null);
         setItems(prev => [...prev, { kind: 'error', message: msg, id: makeId() }]);
       },
     );
@@ -109,6 +122,7 @@ export default function ChatPage() {
       setInput={setInput}
       onSubmit={handleSubmit}
       isThinking={isThinking}
+      classifyingTier={classifyingTier}
       onClear={() => setItems([])}
     />
   );

@@ -1,6 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type { Tool, ToolInput } from '../../types/index.js';
+import type { Tool, ToolInput, ToolResultContent } from '../../types/index.js';
+
+const IMAGE_TYPES: Record<string, 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
 
 function sandboxPath(rawPath: string, projectRoot: string): string {
   const resolved = path.resolve(rawPath);
@@ -117,5 +125,31 @@ export function createFileTools(projectRoot: string): Tool[] {
     },
   };
 
-  return [readFileTool, writeFileTool, editFileTool, grepTool];
+  const analyzeImageTool: Tool = {
+    name: 'analyze_image',
+    description:
+      'Read an image file from disk and return it for visual analysis. Accepts absolute paths anywhere on the filesystem (not restricted to project root). Supported types: jpg, jpeg, png, gif, webp.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Absolute path to the image file' },
+      },
+      required: ['path'],
+    },
+    async execute(input: ToolInput): Promise<ToolResultContent> {
+      const filePath = path.resolve(input['path'] as string);
+      const ext = path.extname(filePath).toLowerCase();
+      const mediaType = IMAGE_TYPES[ext];
+      if (!mediaType) {
+        return `Unsupported image type "${ext}". Supported: ${Object.keys(IMAGE_TYPES).join(', ')}`;
+      }
+      const data = await fs.readFile(filePath);
+      return [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: data.toString('base64') } },
+        { type: 'text', text: `Image loaded from ${filePath}` },
+      ];
+    },
+  };
+
+  return [readFileTool, writeFileTool, editFileTool, grepTool, analyzeImageTool];
 }

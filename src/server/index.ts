@@ -1,5 +1,8 @@
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -32,12 +35,56 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Constant-time token comparison: HMAC both values to a fixed length before comparing,
+// eliminating the length oracle that padding-based approaches suffer from.
+function tokenEqual(a: string, b: string): boolean {
+  const key = 'koa-token-verify';
+  const ha = crypto.createHmac('sha256', key).update(a).digest();
+  const hb = crypto.createHmac('sha256', key).update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts — try again later' },
+});
+
 export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173) {
   const app = express();
   // Allow requests only from the Vite dev server (dev) or same origin (prod built UI).
   // Never allow wildcard — the bash tool gives full shell access.
   app.use(cors({ origin: `http://localhost:${devPort}` }));
   app.use(express.json());
+
+  // Unauthenticated health check — does not reveal whether auth is configured
+  app.get('/api/ping', (_req, res) => {
+    res.json({ ok: true });
+  });
+
+  // Token verification — rate-limited to prevent brute-force
+  app.post('/api/auth', authRateLimit, (req: Request, res: Response) => {
+    const { token } = req.body as { token?: string };
+    if (!config.webToken) { res.json({ ok: true }); return; }
+    if (!token) { res.status(400).json({ error: 'token required' }); return; }
+    if (tokenEqual(token, config.webToken)) {
+      res.json({ ok: true });
+    } else {
+      res.status(401).json({ error: 'invalid token' });
+    }
+  });
+
+  // Bearer token auth for all /api/ routes when a token is configured
+  app.use('/api/', (req: Request, res: Response, next: NextFunction) => {
+    if (!config.webToken) { next(); return; }
+    const header = req.headers['authorization'];
+    const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    if (!token) { res.status(401).json({ error: 'Authorization required' }); return; }
+    if (tokenEqual(token, config.webToken)) { next(); return; }
+    res.status(401).json({ error: 'Invalid token' });
+  });
 
   let isBusy = false;
 
@@ -102,6 +149,8 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       .turn(message, {
         onToolCall: (name, input) => send({ type: 'tool_call', name, input }),
         onToolResult: (name, result) => send({ type: 'tool_result', name, result }),
+        onClassifying: () => send({ type: 'classifying' }),
+        onClassified: (tier) => send({ type: 'classified', tier }),
       })
       .then((result) => {
         send({ type: 'content', text: result.content });
@@ -113,6 +162,9 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
           turnCount: loop.getState().turnCount,
           model: result.model,
           tier: result.tier,
+          ...(result.classifierLatencyMs !== undefined
+            ? { classifierLatencyMs: result.classifierLatencyMs }
+            : {}),
         });
         if (!disconnected) res.end();
       })

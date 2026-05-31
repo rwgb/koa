@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.js';
+import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
@@ -23,10 +23,12 @@ import { generateStateDoc, generateJournalEntry } from '../project-memory/genera
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
   onToolResult?: (name: string, result: string) => void;
+  onClassifying?: () => void;
+  onClassified?: (tier: string) => void;
 }
 
 const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with persistent project memory.
-You have access to tools for reading/writing files, running shell commands, and querying project history via Engram.
+You have access to tools for reading/writing files, running shell commands, querying project history via Engram, and analyzing image files via the analyze_image tool.
 Be precise, concise, and always verify your work. Prefer editing existing files over creating new ones.`;
 
 /**
@@ -208,11 +210,14 @@ export class AgentLoop {
   }
 
   async turn(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
-    const { model: selectedModel, tier, cleanMessage } = selectModel(
+    if (this.config.smartRouting) callbacks?.onClassifying?.();
+    const { model: selectedModel, tier, cleanMessage, classifierLatencyMs, classifierUsage } = await selectModel(
       userMessage,
       this.state.messages.filter((m) => m.role === 'assistant').length,
       { model: this.config.model, smartRouting: this.config.smartRouting },
+      this.client,
     );
+    if (this.config.smartRouting) callbacks?.onClassified?.(tier);
 
     this.state.messages.push({ role: 'user', content: cleanMessage });
     this.state.turnCount++;
@@ -266,7 +271,7 @@ export class AgentLoop {
           if (block.type !== 'tool_use') continue;
 
           const tool = this.registry.get(block.name);
-          let result: string;
+          let result: ToolResultContent;
           const toolInput = block.input as Record<string, unknown>;
 
           if (!tool) {
@@ -278,16 +283,18 @@ export class AgentLoop {
             } catch (err) {
               result = `Error: ${err instanceof Error ? err.message : String(err)}`;
             }
-            callbacks?.onToolResult?.(block.name, result);
+            const displayResult = typeof result === 'string' ? result : `[${block.name} returned binary content]`;
+            callbacks?.onToolResult?.(block.name, displayResult);
           }
 
-          if (result.length > this.config.maxToolOutputChars) {
+          if (typeof result === 'string' && result.length > this.config.maxToolOutputChars) {
             result =
               result.slice(0, this.config.maxToolOutputChars) +
               `\n[truncated — ${result.length} total chars]`;
           }
 
-          toolUses.push({ id: block.id, name: block.name, input: toolInput, result });
+          const resultSummary = typeof result === 'string' ? result : `[binary content]`;
+          toolUses.push({ id: block.id, name: block.name, input: toolInput, result: resultSummary });
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
         }
 
@@ -302,6 +309,9 @@ export class AgentLoop {
     }
 
     this.usage.addTurn({ ...acc, model: selectedModel });
+    if (classifierUsage) {
+      this.usage.addClassifierCall(classifierUsage.inputTokens, classifierUsage.outputTokens);
+    }
     this.state.usage = this.usage.getStats();
     this.state.lastModel = selectedModel;
     this.state.lastTier = tier;
@@ -321,6 +331,7 @@ export class AgentLoop {
       model: selectedModel,
       tier,
       usage: { ...acc, model: selectedModel },
+      ...(classifierLatencyMs !== undefined ? { classifierLatencyMs } : {}),
     };
   }
 

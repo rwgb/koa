@@ -14,15 +14,20 @@ export interface SessionUsageStats {
   estimatedCostUsd: number;
   cacheHitRate: number;
   turnsCount: number;
+  classifierCalls?: number;
+  classifierInputTokens?: number;
+  classifierOutputTokens?: number;
 }
 
 export type SseEvent =
   | { type: 'tool_call'; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; name: string; result: string }
   | { type: 'content'; text: string }
-  | { type: 'done'; turnCount: number; model: string; tier: string }
+  | { type: 'done'; turnCount: number; model: string; tier: string; classifierLatencyMs?: number }
   | { type: 'usage'; turn: TurnUsage; session: SessionUsageStats }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string }
+  | { type: 'classifying' }
+  | { type: 'classified'; tier: string };
 
 export interface EngramContext {
   goal?: string;

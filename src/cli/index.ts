@@ -13,7 +13,7 @@ import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
-import { loadConfig } from '../config/index.js';
+import { loadConfig, generateWebToken, setWebToken } from '../config/index.js';
 import { UsageTracker } from '../agent/usage.js';
 import { writeCredential, deleteCredential, readCredentials, getCredentialsPath } from '../config/credentials.js';
 
@@ -163,9 +163,20 @@ const configCmd = program
   .description('Manage Koa configuration and credentials');
 
 configCmd
-  .command('set <key> <value>')
-  .description('Persist a configuration value (e.g. api-key sk-ant-...)')
-  .action((key: string, value: string) => {
+  .command('set <key> [value]')
+  .description('Persist a configuration value (e.g. api-key sk-ant-...). Omit value for web-token to auto-generate.')
+  .action((key: string, value: string | undefined) => {
+    if (key === 'web-token') {
+      const token = value ?? generateWebToken();
+      setWebToken(token);
+      console.log(`Web token saved to ${getCredentialsPath()}`);
+      if (!value) console.log(`Generated token: ${token}`);
+      return;
+    }
+    if (value === undefined) {
+      console.error(`Error: value required for key "${key}"`);
+      process.exit(1);
+    }
     const credKey = key === 'api-key' ? 'ANTHROPIC_API_KEY' : key;
     writeCredential(credKey, value);
     console.log(`Saved ${key} to ${getCredentialsPath()}`);
