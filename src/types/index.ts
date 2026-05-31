@@ -66,6 +66,13 @@ export interface SpiderBrainContext {
   clusterNames: string[];
 }
 
+export type ConfigModelTier = 'fast' | 'standard' | 'powerful';
+export const CONFIG_MODEL_MAP: Record<ConfigModelTier, string> = {
+  fast: 'claude-haiku-4-5-20251001',
+  standard: 'claude-sonnet-4-6',
+  powerful: 'claude-opus-4-7',
+};
+
 export interface ProjectMemory {
   project?: string;
   state?: string;

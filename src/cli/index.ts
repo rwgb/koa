@@ -50,14 +50,16 @@ program
   .command('chat', { isDefault: true })
   .description('Start an interactive chat session')
   .option('-p, --project <path>', 'Project path (defaults to cwd)')
-  .option('-m, --model <model>', 'Claude model to use')
+  .option('-m, --model <model>', 'Claude model to use (fast|standard|powerful or full model name)')
   .option('--no-engram', 'Disable Engram memory integration')
+  .option('--no-cache', 'Disable response cache')
   .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
   .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
-  .action(async (opts: { project?: string; model?: string; engram: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
+  .action(async (opts: { project?: string; model?: string; engram: boolean; cache: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
     const config = loadConfig(opts.project);
     if (opts.model) config.model = opts.model;
     if (!opts.engram) config.engramEnabled = false;
+    if (!opts.cache) config.noCache = true;
     if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
     if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
 
@@ -103,12 +105,14 @@ program
   .option('-p, --port <port>', 'Port to listen on', '3000')
   .option('--no-open', 'Do not open browser automatically')
   .option('--project <path>', 'Project path (defaults to cwd)')
-  .option('-m, --model <model>', 'Claude model to use')
+  .option('-m, --model <model>', 'Claude model to use (fast|standard|powerful or full model name)')
+  .option('--no-cache', 'Disable response cache')
   .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
   .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
-  .action(async (opts: { port: string; open: boolean; project?: string; model?: string; checkpointTurns?: number; checkpointMinutes?: number }) => {
+  .action(async (opts: { port: string; open: boolean; project?: string; model?: string; cache: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
     const config = loadConfig(opts.project);
     if (opts.model) config.model = opts.model;
+    if (!opts.cache) config.noCache = true;
     if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
     if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
 

@@ -1,5 +1,39 @@
 # Koa — DevLog
 
+## [2026-05-31] — API Cost Optimization (Phases 1–4)
+
+### Completed
+- **`src/types/index.ts`** — Added `ConfigModelTier` ('fast' | 'standard' | 'powerful') and `CONFIG_MODEL_MAP` for user-facing tier aliases.
+- **`src/config/index.ts`** — Tier alias translation in `loadConfig()` (`fast → haiku`, `standard → sonnet`, `powerful → opus`). Added `noCache: boolean` field (env: `KOA_NO_CACHE`, default false).
+- **`src/agent/cache.ts`** — New `ResponseCache` class: SHA-256 keyed, LRU eviction, 60s TTL (configurable via `KOA_CACHE_TTL_SECONDS`), 50-entry max, per-process in-memory only.
+- **`src/agent/loop.ts`** — Full refactor:
+  - `buildSystemPrompt()` → `buildSystemBlocks(userMessage)` returning `Anthropic.TextBlockParam[]` with **two cache breakpoints**: Block 1 (static persona + global memories, always cached), Block 2 (project memory — project doc, state, journals, handoff — stable within session, cached), Block 3 (dynamic — Engram, SpiderBrain if `isCodeQuery()`, Backlog if `hasBacklogSignals()` — no cache).
+  - `isCodeQuery(message)` — keyword gate for SpiderBrain injection (code/file/function/bug/type signals).
+  - `hasBacklogSignals(message)` — keyword gate for Backlog injection (task/plan/next/priority signals).
+  - `logUsage()` — logs per-turn token usage + cache hit % + estimated cost to stderr; also logs which context blocks were injected.
+  - Phase 4 response cache wired into `turn()`: cache lookup before API call; cache store after non-tool turns.
+- **`src/cli/index.ts`** — Added `--no-cache` flag to `chat` and `web` commands. Updated `--model` help text to document tier aliases.
+- **`src/__tests__/cost_optimization.test.ts`** — 11 new tests: `isCodeQuery` (true/false branches), `hasBacklogSignals` (true/false branches), `ResponseCache` (miss, hit, different keys, eviction, TTL expiry, key stability), `CONFIG_MODEL_MAP` values.
+- **`src/__tests__/auto_checkpoint.test.ts`** — Added `noCache: false` to `makeConfig()` to satisfy updated `KoaConfig` type.
+
+### Decisions
+- Two cache breakpoints (not three): Block 1 (static prefix) and Block 2 (project memory). Block 3 (dynamic) intentionally uncached — its content varies based on query type. Breakpoints apply to the system array; tool list retains its existing `cache_control` breakpoint.
+- Keyword-based context gates (not LLM classifier): a classifier call would cost more than the tokens it saves. Simple `includes()` checks cover the vast majority of cases.
+- Response cache is per-process (no disk persistence): avoids stale-data bugs; 60s TTL is sufficient for dashboard/polling use cases. Tool-calling turns are never cached (side-effectful).
+- Backlog placed in Block 3 (dynamic, not Block 2): keeps Block 2 stable across all turns, maximizing cache hit rate for the project memory breakpoint. Backlog only injected when user is asking planning/task questions.
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP: Xcode scaffold, KoaClient, settings, chat, push, Siri Shortcuts)
+
+### Learnings
+- Anthropic prompt cache requires multiple content blocks (not one big string) to get multiple breakpoints. Single-block approach loses the entire cache whenever any part of the prompt changes.
+- The `noCache` field needed to be added to existing `makeConfig()` test helpers — a reminder that adding required fields to config types requires updating all test factories.
+
+---
+
 ## [2026-05-31] — Fix: Remove git commit ntfy hook from Claude settings
 
 ### Completed

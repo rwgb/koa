@@ -52,6 +52,7 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     compactAfterTurns: 10,
     autoCheckpointTurns: 5,
     autoCheckpointMinutes: 15,
+    noCache: false,
     ...overrides,
   };
 }

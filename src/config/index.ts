@@ -18,6 +18,7 @@ const ConfigSchema = z.object({
   autoCheckpointTurns: z.number().default(5),
   autoCheckpointMinutes: z.number().default(15),
   webToken: z.string().optional(),
+  noCache: z.boolean().default(false),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -35,6 +36,7 @@ export interface KoaConfigFile {
   autoCheckpointTurns?: number;
   autoCheckpointMinutes?: number;
   engramEnabled?: boolean;
+  noCache?: boolean;
 }
 
 function readKoaConfigFile(): KoaConfigFile {
@@ -62,8 +64,16 @@ export function loadConfig(projectPath?: string): KoaConfig {
   const webToken = process.env['KOA_WEB_TOKEN'] ?? credentials['KOA_WEB_TOKEN'];
   const fileConfig = readKoaConfigFile();
 
+  const tierAliases: Record<string, string> = {
+    fast: 'claude-haiku-4-5-20251001',
+    standard: 'claude-sonnet-4-6',
+    powerful: 'claude-opus-4-7',
+  };
+  const rawModel = process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-sonnet-4-6';
+  const resolvedModel = tierAliases[rawModel] ?? rawModel;
+
   return ConfigSchema.parse({
-    model: process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-sonnet-4-6',
+    model: resolvedModel,
     maxTokens: process.env['KOA_MAX_TOKENS']
       ? parseInt(process.env['KOA_MAX_TOKENS'], 10)
       : (fileConfig.maxTokens ?? 8096),
@@ -89,6 +99,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       ? parseInt(process.env['KOA_CHECKPOINT_MINUTES'], 10)
       : (fileConfig.autoCheckpointMinutes ?? 15),
     webToken,
+    noCache: process.env['KOA_NO_CACHE'] === 'true' || (fileConfig.noCache ?? false),
   });
 }
 
