@@ -1,28 +1,30 @@
 import { NavLink } from 'react-router-dom';
+import { Icon } from './Icon.js';
+import type { IconName } from './Icon.js';
 
-const NAV_ITEMS = [
-  { to: '/chat', label: 'Chat', icon: '💬' },
-] as const;
+const NAV_ITEMS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/chat', label: 'Chat', icon: 'chat' },
+];
 
-const SECONDARY_ITEMS = [
-  { to: '/memory', label: 'Memory', icon: '🧠' },
-  { to: '/integrations', label: 'Integrations', icon: '🔌' },
-  { to: '/skills', label: 'Skills', icon: '🛠' },
-  { to: '/notifications', label: 'Notifications', icon: '📣' },
-  { to: '/activity', label: 'Activity', icon: '📊' },
-] as const;
+const SECONDARY_ITEMS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/memory',        label: 'Memory',        icon: 'memory' },
+  { to: '/integrations',  label: 'Integrations',  icon: 'plug' },
+  { to: '/skills',        label: 'Skills',        icon: 'wrench' },
+  { to: '/notifications', label: 'Notifications', icon: 'bell' },
+  { to: '/activity',      label: 'Activity',      icon: 'chart' },
+];
 
-const BOTTOM_ITEMS = [
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
-] as const;
+const BOTTOM_ITEMS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/settings', label: 'Settings', icon: 'gear' },
+];
 
-function RailLink({ to, label, icon }: { to: string; label: string; icon: string }) {
+function RailLink({ to, label, icon }: { to: string; label: string; icon: IconName }) {
   return (
     <NavLink
       to={to}
       className={({ isActive }) => `nav-rail__item${isActive ? ' nav-rail__item--active' : ''}`}
     >
-      <span className="nav-rail__icon">{icon}</span>
+      <Icon name={icon} size={16} className="nav-rail__icon" />
       <span className="nav-rail__label">{label}</span>
     </NavLink>
   );

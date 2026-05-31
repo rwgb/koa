@@ -6,6 +6,7 @@ import {
   testIntegration,
 } from '../api.js';
 import type { Integration, IntegrationDef, IntegrationType } from '../types.js';
+import { Icon } from '../components/Icon.js';
 
 // ── Integration catalog ───────────────────────────────────────────────────────
 
@@ -13,14 +14,14 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'anthropic',
     name: 'Anthropic API',
-    icon: '🤖',
+    icon: 'anthropic',
     description: 'Core model API key and spend visibility.',
     fields: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'sk-ant-...' }],
   },
   {
     type: 'github',
     name: 'GitHub',
-    icon: '🐙',
+    icon: 'github',
     description: 'Repo access, PR and issue tools.',
     fields: [
       { key: 'token', label: 'Personal Access Token', secret: true, placeholder: 'ghp_...' },
@@ -30,7 +31,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'slack',
     name: 'Slack',
-    icon: '💬',
+    icon: 'chat',
     description: 'Incoming and outgoing notifications via Slack.',
     fields: [
       { key: 'webhookUrl', label: 'Incoming Webhook URL', secret: true, placeholder: 'https://hooks.slack.com/...' },
@@ -41,7 +42,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'pushover',
     name: 'Pushover',
-    icon: '📱',
+    icon: 'phone',
     description: 'Mobile push alerts via Pushover.',
     fields: [
       { key: 'userKey', label: 'User Key', secret: true, placeholder: 'u...' },
@@ -51,7 +52,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'ntfy',
     name: 'ntfy.sh',
-    icon: '📣',
+    icon: 'bell',
     description: 'Push notifications via ntfy — no account required.',
     fields: [
       { key: 'topic', label: 'Topic', secret: false, placeholder: 'my_koa_topic' },
@@ -61,7 +62,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'smtp',
     name: 'SMTP Email',
-    icon: '📧',
+    icon: 'envelope',
     description: 'Email notifications via SMTP.',
     fields: [
       { key: 'host', label: 'SMTP Host', secret: false, placeholder: 'smtp.gmail.com' },
@@ -74,7 +75,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'homelab',
     name: 'Homelab',
-    icon: '🏠',
+    icon: 'server',
     description: 'Custom homelab/vCenter endpoint for VM status tools.',
     fields: [
       { key: 'baseUrl', label: 'Base URL', secret: false, placeholder: 'https://proxmox.local' },
@@ -84,7 +85,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'eset',
     name: 'ESET Web Analyzer',
-    icon: '🛡️',
+    icon: 'shield',
     description: 'URL and file analysis via ESET Web Analyzer API.',
     fields: [
       { key: 'apiKey', label: 'API Key', secret: true, placeholder: '' },
@@ -94,7 +95,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'custom_http',
     name: 'Custom HTTP',
-    icon: '🔗',
+    icon: 'link',
     description: 'Generic webhook or REST endpoint with configurable auth.',
     fields: [
       { key: 'baseUrl', label: 'Base URL', secret: false, placeholder: 'https://api.example.com' },
@@ -105,7 +106,7 @@ const CATALOG: IntegrationDef[] = [
   {
     type: 'mcp_server',
     name: 'MCP Server',
-    icon: '⚙️',
+    icon: 'gear',
     description: 'External Model Context Protocol tool server.',
     fields: [
       { key: 'serverUrl', label: 'Server URL', secret: false, placeholder: 'http://localhost:8080' },
@@ -197,9 +198,11 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
       <div className="slide-over-backdrop" onClick={onClose} />
       <div className="slide-over slide-over--open" ref={panelRef}>
         <div className="slide-over__header">
-          <span className="slide-over__icon">{def.icon}</span>
+          <span className="slide-over__icon"><Icon name={def.icon} size={18} /></span>
           <h2 className="slide-over__title">{def.name}</h2>
-          <button className="slide-over__close" onClick={onClose} aria-label="Close">✕</button>
+          <button className="slide-over__close" onClick={onClose} aria-label="Close">
+            <Icon name="x" size={14} />
+          </button>
         </div>
 
         <div className="slide-over__body">
@@ -222,7 +225,8 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
 
           {testResult && (
             <div className={`slide-over__test-result ${testResult.ok ? 'slide-over__test-result--ok' : 'slide-over__test-result--fail'}`}>
-              {testResult.ok ? '✓' : '✗'} {testResult.message}
+              <Icon name={testResult.ok ? 'check' : 'alert'} size={13} />
+              {testResult.message}
             </div>
           )}
 
@@ -243,8 +247,9 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
                       type="button"
                       className="intg-field__toggle"
                       onClick={() => setShowSecret(s => ({ ...s, [field.key]: !s[field.key] }))}
+                      aria-label={showSecret[field.key] ? 'Hide' : 'Show'}
                     >
-                      {showSecret[field.key] ? '🙈' : '👁'}
+                      <Icon name={showSecret[field.key] ? 'eye-off' : 'eye'} size={14} />
                     </button>
                   )}
                 </div>
@@ -291,7 +296,7 @@ function TypePicker({
       <div className="type-picker">
         <div className="type-picker__header">
           <h2>Add Integration</h2>
-          <button className="slide-over__close" onClick={onClose}>✕</button>
+          <button className="slide-over__close" onClick={onClose} aria-label="Close"><Icon name="x" size={14} /></button>
         </div>
         <div className="type-picker__list">
           {available.length === 0 && (
@@ -299,7 +304,7 @@ function TypePicker({
           )}
           {available.map(d => (
             <button key={d.type} className="type-picker__item" onClick={() => onPick(d.type)}>
-              <span className="type-picker__icon">{d.icon}</span>
+              <Icon name={d.icon} size={18} className="type-picker__icon" aria-hidden />
               <div className="type-picker__info">
                 <span className="type-picker__name">{d.name}</span>
                 <span className="type-picker__desc">{d.description}</span>
@@ -322,7 +327,7 @@ function IntegrationCard({
   onEdit: (integration: Integration) => void;
 }) {
   const def = CATALOG_MAP.get(integration.type as IntegrationType);
-  const icon = def?.icon ?? '🔌';
+  const icon = def?.icon ?? 'plug';
   const configSummary = Object.entries(integration.config)
     .filter(([, v]) => v && v !== '***')
     .map(([k, v]) => `${k}: ${v}`)
@@ -332,7 +337,7 @@ function IntegrationCard({
   return (
     <div className={`intg-card intg-card--${integration.status}`}>
       <div className="intg-card__top">
-        <span className="intg-card__icon">{icon}</span>
+        <Icon name={icon as import('../components/Icon.js').IconName} size={20} className="intg-card__icon" aria-hidden />
         <div className="intg-card__info">
           <span className="intg-card__name">{integration.name}</span>
           {configSummary && <span className="intg-card__summary">{configSummary}</span>}
@@ -421,7 +426,7 @@ export default function IntegrationsPage() {
 
       {integrations.length === 0 ? (
         <div className="intg-empty">
-          <span className="intg-empty__icon">🔌</span>
+          <Icon name="plug" size={32} className="intg-empty__icon" aria-hidden />
           <p>No integrations configured yet.</p>
           <button className="intg-btn intg-btn--primary" onClick={() => setShowPicker(true)}>
             Add your first integration

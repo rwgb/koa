@@ -1,18 +1,8 @@
-import { useEffect, useState } from 'react';
 import { useAgent } from '../context/AgentContext.js';
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const VERSION = '0.2.0';
 
 function StatusPill({ isThinking, activeTool }: { isThinking: boolean; activeTool: string | null }) {
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    if (!isThinking) return;
-    const id = setInterval(() => setFrame(f => (f + 1) % SPINNER_FRAMES.length), 80);
-    return () => clearInterval(id);
-  }, [isThinking]);
-
   if (!isThinking) {
     return (
       <span className="status-pill status-pill--idle">
@@ -26,14 +16,14 @@ function StatusPill({ isThinking, activeTool }: { isThinking: boolean; activeToo
     return (
       <span className="status-pill status-pill--active">
         <span className="status-pill__dot status-pill__dot--pulse" />
-        Running: {activeTool}
+        {activeTool}
       </span>
     );
   }
 
   return (
     <span className="status-pill status-pill--active">
-      <span className="status-pill__spinner">{SPINNER_FRAMES[frame]}</span>
+      <span className="status-pill__spinner" aria-hidden="true" />
       Thinking
     </span>
   );
@@ -44,10 +34,10 @@ export default function TopNav() {
 
   const tierColor =
     agentStatus?.activeTier === 'haiku'
-      ? '#22c55e'
+      ? 'var(--green)'
       : agentStatus?.activeTier === 'opus'
-        ? '#a855f7'
-        : '#3b82f6';
+        ? 'var(--purple)'
+        : 'var(--blue)';
 
   return (
     <header className="top-nav">
@@ -67,7 +57,7 @@ export default function TopNav() {
         {agentStatus && (
           <span
             className="top-nav__model-badge"
-            style={{ backgroundColor: tierColor }}
+            style={{ color: tierColor }}
             title={agentStatus.activeModel ?? agentStatus.model}
           >
             {agentStatus.activeTier ?? 'sonnet'}

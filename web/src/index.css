@@ -1,18 +1,29 @@
 :root {
-  --bg: #0d1117;
+  /* ── Background layers ── */
+  --bg:           #0d1117;
   --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --border: #30363d;
-  --text: #e6edf3;
+  --bg-tertiary:  #21262d;
+
+  /* ── Borders & surfaces ── */
+  --border:  #30363d;
+  --surface: #1c2128;
+
+  /* ── Text ── */
+  --text:       #e6edf3;
   --text-muted: #7d8590;
-  --blue: #58a6ff;
-  --green: #3fb950;
-  --yellow: #d29922;
-  --red: #f85149;
-  --cyan: #79c0ff;
-  --purple: #bc8cff;
-  --orange: #ffa657;
-  --amber: #f59e0b;
+
+  /* ── Accent (interactive) ── */
+  --accent: #58a6ff;
+
+  /* ── Semantic colours ── */
+  --blue:      #58a6ff;
+  --green:     #3fb950;
+  --yellow:    #d29922;
+  --red:       #f85149;
+  --cyan:      #79c0ff;
+  --purple:    #bc8cff;
+  --orange:    #ffa657;
+  --amber:     #f59e0b;
   --amber-dim: #92630a;
 }
 
@@ -175,10 +186,18 @@ body {
 }
 
 .status-pill__spinner {
-  font-size: 12px;
   display: inline-block;
-  width: 1ch;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
   flex-shrink: 0;
+  animation: status-spin 0.65s linear infinite;
+}
+
+@keyframes status-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ── Nav Rail ──────────────────────────────────────────────────── */
@@ -233,10 +252,13 @@ body {
 }
 
 .nav-rail__icon {
-  font-size: 14px;
-  width: 20px;
-  text-align: center;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  color: currentColor;
 }
 
 .nav-rail__label {
@@ -578,11 +600,22 @@ body {
   background: var(--bg);
 }
 
-.input-row__prompt {
-  color: var(--cyan);
+.input-row__send {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  font-weight: bold;
+  transition: color 0.15s;
 }
+
+.input-row__send:hover:not(:disabled) { color: var(--blue); }
+.input-row__send:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .input-row__input {
   flex: 1;
@@ -612,41 +645,81 @@ body {
   gap: 4px;
 }
 
-.bubble__label {
-  font-size: 11px;
-  font-weight: bold;
-  letter-spacing: 0.04em;
+.bubble--user {
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--cyan) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--cyan) 15%, transparent);
+  border-radius: 6px;
 }
 
-.bubble__label--user {
-  color: var(--cyan);
+.bubble--assistant {
+  padding: 8px 12px;
+  border-radius: 6px;
 }
 
-.bubble__label--tool-call {
-  color: var(--yellow);
-  cursor: pointer;
-  user-select: none;
+.bubble--tool {
+  padding: 4px 0;
+}
+
+.bubble--result {
+  padding: 4px 0;
+}
+
+.bubble--error {
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--red) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 20%, transparent);
+  border-radius: 6px;
+}
+
+.bubble__meta {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-bottom: 4px;
 }
 
-.bubble__label--tool-result {
-  color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bubble__label--error {
-  color: var(--red);
-}
-
-.bubble__toggle {
+.bubble__role {
   font-size: 10px;
-  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bubble__role--user { color: var(--cyan); }
+.bubble__role--assistant { color: var(--green); }
+.bubble__role--error { color: var(--red); }
+
+.bubble__tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: var(--yellow);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 3px 0;
+  text-align: left;
+  width: 100%;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+}
+
+.bubble__tool-header:hover { opacity: 1; }
+
+.bubble__tool-header--result { color: var(--text-muted); }
+
+.bubble__tool-icon { flex-shrink: 0; opacity: 0.8; }
+
+.bubble__tool-name {
+  flex: 1;
+  font-family: inherit;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bubble__content {
@@ -677,13 +750,6 @@ body {
   margin-top: 4px;
 }
 
-.bubble__label--assistant {
-  color: var(--green);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .bubble__tier-badge {
   display: inline-block;
   padding: 1px 5px;
@@ -692,9 +758,12 @@ body {
   font-weight: bold;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #fff;
   opacity: 0.9;
 }
+
+.bubble__tier-badge--haiku  { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); }
+.bubble__tier-badge--sonnet { background: color-mix(in srgb, var(--blue) 20%, transparent);  color: var(--blue); }
+.bubble__tier-badge--opus   { background: color-mix(in srgb, var(--purple) 20%, transparent); color: var(--purple); }
 
 /* ── StatusBar active-tier badge ───────────────────────────────── */
 
@@ -1582,9 +1651,10 @@ body {
 }
 
 .intg-card__icon {
-  font-size: 22px;
-  line-height: 1;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
+  color: var(--text-muted);
 }
 
 .intg-card__info {
@@ -1672,7 +1742,7 @@ body {
   flex: 1;
 }
 
-.intg-empty__icon { font-size: 40px; }
+.intg-empty__icon { width: 32px; height: 32px; color: var(--text-muted); opacity: 0.5; }
 
 /* ── Buttons ───────────────────────────────────────────────────── */
 
@@ -1773,7 +1843,7 @@ body {
   flex-shrink: 0;
 }
 
-.slide-over__icon { font-size: 20px; }
+.slide-over__icon { width: 18px; height: 18px; color: var(--text-muted); flex-shrink: 0; }
 
 .slide-over__title {
   flex: 1;
@@ -1819,6 +1889,9 @@ body {
   font-size: 12px;
   padding: 6px 10px;
   border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .slide-over__test-result--ok {
@@ -1963,7 +2036,7 @@ body {
 
 .type-picker__item:hover { background: var(--bg-tertiary); }
 
-.type-picker__icon { font-size: 20px; flex-shrink: 0; }
+.type-picker__icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--text-muted); }
 
 .type-picker__info {
   display: flex;

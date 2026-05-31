@@ -133,7 +133,7 @@ export interface IntegrationFieldDef {
 export interface IntegrationDef {
   type: IntegrationType;
   name: string;
-  icon: string;
+  icon: import('./components/Icon.js').IconName;
   description: string;
   fields: IntegrationFieldDef[];
 }
