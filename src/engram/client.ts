@@ -34,6 +34,11 @@ export class EngramClient {
     return result.stdout ?? '';
   }
 
+  private async runWithInput(args: string[], input: string): Promise<string> {
+    const result = await execa('python3', [ENGRAM_CLI, ...args], { reject: false, input });
+    return result.stdout ?? '';
+  }
+
   async sync(): Promise<void> {
     if (!(await this.checkAvailable())) return;
     await this.run(['sync', this.projectPath]);
@@ -44,23 +49,30 @@ export class EngramClient {
     if (!(await this.checkAvailable())) return empty;
 
     try {
-      const raw = await this.run(['context', '--project', this.projectPath, '--json']);
-      const parsed = JSON.parse(raw) as {
-        goal?: string;
-        hot_files?: Array<{ path: string; score: number; cluster?: string }>;
-        masters?: string[];
-        session_summary?: string;
-      };
+      // `status` gives goal and cluster overview
+      const statusOut = await this.run(['status', '--project', this.projectPath]);
+      const goalMatch = statusOut.match(/^Goal:\s+(.+)$/m);
+      const rawGoal = goalMatch?.[1]?.trim();
+      const goal = rawGoal && rawGoal !== '(not set)' ? rawGoal : undefined;
+
+      // `session history` gives decisions logged by previous sessions
+      const historyOut = await this.run([
+        'session', 'history',
+        '--project', this.projectPath,
+        '--limit', '1',
+      ]);
+      const decisions: string[] = [];
+      for (const line of historyOut.split('\n')) {
+        const m = line.match(/^\s+Decision:\s+(.+)$/);
+        if (m?.[1]) decisions.push(m[1].trim());
+      }
+      const sessionSummary = decisions.length > 0 ? decisions.join(' | ') : undefined;
 
       return {
-        ...(parsed.goal !== undefined ? { goal: parsed.goal } : {}),
-        hotFiles: (parsed.hot_files ?? []).map((f) => ({
-          path: f.path,
-          score: f.score,
-          ...(f.cluster !== undefined ? { cluster: f.cluster } : {}),
-        })),
-        masterFiles: parsed.masters ?? [],
-        ...(parsed.session_summary !== undefined ? { sessionSummary: parsed.session_summary } : {}),
+        ...(goal !== undefined ? { goal } : {}),
+        hotFiles: [],      // SpiderBrain handles structural hot-file context
+        masterFiles: [],
+        ...(sessionSummary !== undefined ? { sessionSummary } : {}),
       };
     } catch {
       return empty;
@@ -69,8 +81,8 @@ export class EngramClient {
 
   async query(terms: string): Promise<string> {
     if (!(await this.checkAvailable())) return '';
-    // '--' prevents flag-injection if `terms` starts with '-'
-    return this.run(['query', '--', terms, '--project', this.projectPath]);
+    // '--' prevents flag-injection when terms starts with '-'
+    return this.run(['query', '--project', this.projectPath, '--', terms]);
   }
 
   async startSession(goal?: string): Promise<void> {
@@ -99,7 +111,13 @@ export class EngramClient {
 
   async rememberSession(summary: string): Promise<void> {
     if (!(await this.checkAvailable())) return;
-    await this.run(['session', 'remember', '--project', this.projectPath, '--summary', '--', summary]);
+    // `session remember` is interactive (calls input() for decision/rationale/files).
+    // Pipe the answers via stdin: decision=summary, rationale=auto, files=blank.
+    const truncated = summary.slice(0, 500).replace(/\n/g, ' ');
+    await this.runWithInput(
+      ['session', 'remember', '--project', this.projectPath],
+      `${truncated}\n(auto-generated)\n\n`,
+    );
   }
 
   buildSystemPromptInjection(ctx: EngramContext): string {
