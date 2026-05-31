@@ -85,3 +85,17 @@ export function deleteIntegration(id: string): boolean {
   fs.writeFileSync(p, JSON.stringify(filtered, null, 2), { mode: 0o600 });
   return true;
 }
+
+// Sends a notification via the configured ntfy integration. No-ops silently if not configured.
+export async function sendNtfyNotification(title: string, body: string): Promise<void> {
+  const integration = loadIntegrations().find(i => i.type === 'ntfy' && i.status === 'connected');
+  if (!integration) return;
+  const topic = integration.config['topic'];
+  const baseUrl = integration.config['baseUrl'] || 'https://ntfy.sh';
+  if (!topic) return;
+  await fetch(`${baseUrl}/${topic}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', 'Title': title },
+    body,
+  });
+}

@@ -15,6 +15,7 @@ import {
   appendJournalEntry,
   readRecentJournals,
 } from '../project-memory/store.js';
+import { sendNtfyNotification } from '../integrations/store.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
 import { generateProjectDoc } from '../project-memory/generators/project-doc.js';
 import { generateStateDoc, generateJournalEntry } from '../project-memory/generators/state-doc.js';
@@ -349,6 +350,10 @@ export class AgentLoop {
     const stateMd = await generateStateDoc(summary, this.state.turnCount, this.config.apiKey);
     writeMarkdownFile(paths.stateMd, stateMd);
     if (this.state.projectMemory) this.state.projectMemory.state = stateMd;
+    void sendNtfyNotification(
+      'Koa checkpoint',
+      `Turn ${this.state.turnCount} — STATE.md updated`,
+    );
   }
 
   async finalize(): Promise<void> {
