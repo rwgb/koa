@@ -1,5 +1,83 @@
 # Koa — DevLog
 
+## [2026-05-31] — Roadmap Reconciliation: v6 Numbering Adopted
+
+### Completed
+- **Roadmap v6 FINAL evaluated** against full DEVLOG + project state.
+- **v6 CP numbering declared authoritative** going forward. All prior DEVLOG internal CPs (CP1–CP8, iOS as "CP9") were implementation milestones within the v0.2.0 foundation build — they collectively constitute **v6 CP0 (Foundation)**, which is now complete.
+- **STATE.md updated** to v6 pipeline (CP0 done → CP1 State Machine next).
+- **`main` branch created** from `develop`; `feature/admin-ui-phase1` merged. `v0.2.0` tag stands.
+- **No code changes** — documentation and git structure only.
+
+### Decisions
+- v6 roadmap document (`KOA CHECKPOINTS AND ROADMAP v6 FINAL.md`) is the single source of truth for product milestones going forward.
+- DEVLOG historical entries keep their original labels (CP1–CP9); they are not renamed. The reconciliation is forward-looking only.
+- "CP9: Apple platform clients" (DEVLOG) = v6-CP6 (iOS). It moves to its correct position in the v6 queue — after CP1–CP5 are complete.
+- Next action: lock the seven pre-CP1 decisions (task ID scheme, ops baseline, first-run import strategy, backup model) before writing any CP1 code.
+
+### Next Session
+- [ ] **v6-CP1: State Machine** — SQLite schema, migrations, task/project CRUD API, AgentLoop integration, STATE.md as generated output, ops baseline (JSON logging, `/api/health`, graceful shutdown, RUNBOOK.md), systemd unit
+
+### Learnings
+- The v6 roadmap was written with full knowledge of the DEVLOG work; it correctly absorbed everything into CP0. The only fix needed was updating STATE.md to match that framing.
+
+---
+
+## [2026-05-31] — Global Pipeline + Checkpoint Convention
+
+### Completed
+- **`~/.claude/CLAUDE.md`** — Added §15 (Development Pipeline Gates) and §16 (Self-Checkpoint Routine) as global defaults for all coding projects.
+  - §15 defines 5 sequential stages: Arch/Coding → UI/UX → QA → Security → Content/Docs
+  - §16 defines the self-checkpoint: DEVLOG + STATE.md + ntfy seal (`scripts/checkpoint.sh` or raw curl fallback)
+- **`memory/feedback_pipeline_and_checkpoint.md`** — New global feedback memory capturing the convention and rationale
+- **`memory/MEMORY.md`** — Index updated with pointer to new memory
+
+### Decisions
+- Conventions written to global `~/.claude/CLAUDE.md` (not project CLAUDE.md) so they apply to all future projects, not just koa
+- Raw curl fallback included in §16 for projects that don't have `scripts/checkpoint.sh`
+- Content/Docs added as a 5th pipeline stage (was previously 4-stage coding/UI/QA/security)
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP: Xcode scaffold, KoaClient, settings, chat, push, Siri Shortcuts)
+
+### Learnings
+- Global CLAUDE.md is the right place for cross-project behavioral conventions; project memory is for project-specific state
+
+---
+
+## [2026-05-31] — Web UI Rework: SVG Icon System + Bubble Layout
+
+### Completed
+- **`web/src/components/Icon.tsx`** — New file. Inline SVG icon system with 26 named icons (16×16 viewBox, `stroke="currentColor"`, `fill="none"`, `strokeWidth={1.5}`). Strongly typed `IconName` union. Covers all UI needs: nav, chat, integrations, tool calls, alerts.
+- **`web/src/components/NavRail.tsx`** — All emoji icon strings replaced with `IconName` literals. `icon` prop type changed from `string` to `IconName`. Rendered via `<Icon>` component.
+- **`web/src/components/TopNav.tsx`** — Removed `SPINNER_FRAMES` array, frame state, and `setInterval` effect. Replaced braille character spinner with `<span className="status-pill__spinner" />` (pure CSS border-spin animation). Model badge inline hex colors → CSS vars.
+- **`web/src/components/ChatPanel.tsx`** — Added SVG send button (`<Icon name="send">`). Clear button now uses `<Icon name="trash">`. Removed `>` prompt span.
+- **`web/src/components/MessageBubble.tsx`** — Complete rewrite. New layout: `bubble__meta` row (role label + tier badge + copy button), then `bubble__content`. Distinct variants: `bubble--user` (cyan tint), `bubble--assistant`, `bubble--tool`/`bubble--result` (collapsible with chevron), `bubble--error` (red tint). Tier badges color-coded per model tier.
+- **`web/src/pages/IntegrationsPage.tsx`** — All catalog icons updated to `IconName` values (10 types). SlideOver header, TypePicker, IntegrationCard, empty state, show/hide toggles, test result indicators, and close buttons all use `<Icon>`.
+- **`web/src/index.css`** — Added: `bubble--*` variants, `bubble__meta`, `bubble__role--*`, `bubble__tool-header`, `bubble__tier-badge--haiku/sonnet/opus`, `input-row__send`, `status-pill__spinner` (CSS animation), SVG-sized `.nav-rail__icon` / `.intg-card__icon` / `.type-picker__icon` / `.slide-over__icon`. Removed dead `.input-row__prompt`.
+- **`web/src/types.ts`** — `IntegrationDef.icon` type narrowed from `string` to `import('./components/Icon.js').IconName`.
+
+### Decisions
+- Inline SVG over icon font or external library: zero runtime deps, tree-shakes to only used icons, consistent stroke style across all 26 icons.
+- 16×16 viewBox with `strokeWidth={1.5}`: matches GitHub's Octicons visual weight; renders crisply at 12–32px sizes.
+- CSS border-spin for status pill instead of JS frame animation: one fewer `setInterval`, no re-renders, smoother at 60fps.
+- Bubble rewrite preserves all `kind` variants but uses semantic class names instead of label-based layout — cleaner DOM, easier to style per-variant without overrides.
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP: Xcode scaffold, KoaClient, settings, chat, push, Siri Shortcuts)
+- [ ] Optional: SkillsPage marketplace card icon cleanup (Phase 8), stub page audit (Phase 9)
+
+### Learnings
+- `IntegrationDef.icon` typed to `IconName` requires a cross-file import in `types.ts` (`import('./components/Icon.js').IconName`) — valid TypeScript import type pattern, no circular dep.
+
+---
+
 ## [2026-05-31] — API Cost Optimization (Phases 1–4)
 
 ### Completed
