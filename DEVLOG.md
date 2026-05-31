@@ -1,5 +1,41 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP1: Admin UI Phase 1 — Router, nav rail, settings, status pill
+
+### Completed
+- **React Router v7 shell**: `App.tsx` is now a router tree; `/` redirects to `/chat`. Routes: `/chat`, `/memory`, `/integrations`, `/skills`, `/notifications`, `/activity`, `/settings`.
+- **RootLayout** (`web/src/layouts/RootLayout.tsx`): Top nav + nav rail + `<Outlet>`. Wraps `AgentProvider` so status pill works on any page.
+- **AgentContext** (`web/src/context/AgentContext.tsx`): Shared React context lifting `isThinking`, `activeTool`, `usage`, `agentStatus`. `ChatPage` sets these via context; `TopNav` reads them. Initial status fetched on provider mount.
+- **TopNav** (`web/src/components/TopNav.tsx`): Three-state status pill (`● Idle` / `● Thinking` / `● Running: bash`), Koa wordmark + version badge, session cost, model tier badge.
+- **NavRail** (`web/src/components/NavRail.tsx`): Fixed 220px left rail with active-link highlighting via React Router `NavLink`.
+- **ChatPage** (`web/src/pages/ChatPage.tsx`): Full-width (old sidebar removed per spec). All agent state changes go through `AgentContext` setters so TopNav pill stays live.
+- **SettingsPage** (`web/src/pages/SettingsPage.tsx`): Reads `GET /api/admin/config`; renders Agent, Auto-checkpoint, Memory, API Key, Project sections as read-only.
+- **Backend** (`src/server/index.ts`): Added `GET /api/admin/config` on `/api/admin/` prefix. Returns sanitised config (`apiKeySet: bool`, no raw key).
+- **Stub pages**: Memory, Integrations, Skills, Notifications, Activity — placeholder with icon + phase note.
+- **CSS rework**: `.app-shell` / `.app-content` grid replaces `.app` / `.main`. New styles for TopNav, status pill, nav rail, settings page, stub pages.
+
+### Decisions
+- Old `Sidebar` component kept in `web/src/components/Sidebar.tsx` but not rendered (moved to Memory page in Phase 2).
+- Old `StatusBar` component kept but superseded by `TopNav`. Will delete after Phase 2 confirms nothing needs it.
+- Settings page is read-only for Phase 1 — editing config via UI is Phase 2 scope.
+- `AgentContext` initialises via `fetchStatus()` on mount (single fetch, not poll). ChatPage drives live updates via SSE.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 2: Memory page — Engram panel (brain status, hot files, session goal), project memory files, persistent facts CRUD
+- [ ] Phase 2: Activity page — session log table, cost dashboard
+- [ ] Phase 2: Add PUT /api/admin/config to make Settings page editable
+- [ ] Phase 2: Add `/api/admin/memory/files` and `/api/admin/memory/facts` endpoints
+- [ ] Old Sidebar component cleanup once Memory page is done
+
+### Learnings
+- React Router v7 `<NavLink>` className prop accepts a function `({ isActive }) => string` — clean for nav rail active states.
+- Lifting agent state to `AgentContext` at `RootLayout` level is the right pattern for cross-route live status; avoids prop drilling and keeps ChatPage self-contained.
+
+---
+
 ## [2026-05-31] — CP0: Pipeline kickoff, lint fix, PR #1 merge → 0.2.0
 
 ### Completed
