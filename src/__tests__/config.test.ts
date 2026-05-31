@@ -83,15 +83,23 @@ describe('loadConfig', () => {
 });
 
 describe('getEngramBrainPath', () => {
-  it('builds a slug-based path under ~/.engram/brains/', () => {
+  it('uses only the project basename as the slug (matches Engram Python logic)', () => {
     const result = getEngramBrainPath('/Users/ralph/projects/koa');
-    expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'Users-ralph-projects-koa', 'brain.db'));
+    expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 
-  it('strips leading/trailing hyphens from slug', () => {
-    const result = getEngramBrainPath('/foo/bar');
-    expect(result).toContain('foo-bar');
-    const slug = path.basename(path.dirname(result));
-    expect(slug).not.toMatch(/^-|-$/);
+  it('lowercases the basename', () => {
+    const result = getEngramBrainPath('/projects/MyProject');
+    expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'myproject', 'brain.db'));
+  });
+
+  it('replaces spaces in basename with hyphens', () => {
+    const result = getEngramBrainPath('/Users/ralph/active projects/koa');
+    expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
+  });
+
+  it('maps a project with spaces in its own name correctly', () => {
+    const result = getEngramBrainPath('/projects/my cool app');
+    expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'my-cool-app', 'brain.db'));
   });
 });

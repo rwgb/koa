@@ -41,7 +41,8 @@ export function loadConfig(projectPath?: string): KoaConfig {
 }
 
 export function getEngramBrainPath(projectPath: string): string {
-  const slug = projectPath.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  // Matches Engram's Python slug: Path(project_path).name.lower().replace(" ", "-")
+  const slug = path.basename(projectPath).toLowerCase().replace(/\s+/g, '-');
   return path.join(os.homedir(), '.engram', 'brains', slug, 'brain.db');
 }
 

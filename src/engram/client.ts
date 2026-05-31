@@ -21,10 +21,8 @@ export class EngramClient {
   }
 
   private brainExists(): boolean {
-    const slug = this.projectPath
-      .replace(/[^a-zA-Z0-9]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
+    // Matches Engram's Python slug: Path(project_path).name.lower().replace(" ", "-")
+    const slug = path.basename(this.projectPath).toLowerCase().replace(/\s+/g, '-');
     const brainPath = path.join(os.homedir(), '.engram', 'brains', slug, 'brain.db');
     return fs.existsSync(brainPath);
   }
