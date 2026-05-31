@@ -1,5 +1,44 @@
 # Koa — DevLog
 
+## [2026-05-31] — Runtime Bug Fix Session
+
+### Completed
+- **`maybeCompact()` → 400 "unexpected tool_use_id"** (`src/agent/loop.ts`):
+  Prior partial fix dropped leading `tool_result` messages but broke at `assistant` messages, leaving conversations starting with assistant role — also a 400. Extracted `compactMessages()` as a pure exported function that walks forward to the first plain user string message (always a safe boundary). 7 regression tests cover all slice positions exhaustively.
+- **`EngramClient` — three broken CLI call signatures** (`src/engram/client.ts`):
+  - `getContext()` called `context --project ... --json` — command doesn't work that way (requires a file path, no `--json` flag). Rewrote to use `status` (parses goal) + `session history --limit 1` (parses decisions).
+  - `query()` had `['query', '--', terms, '--project', path]` — `--project` after `--` made argparse treat it as part of the search string. Fixed to `['query', '--project', path, '--', terms]`.
+  - `rememberSession()` called `session remember --summary -- text` — command is interactive (`input()` calls), `--summary` doesn't exist. Fixed to pipe `decision\nrationale\n\n` via stdin using execa's `input` option.
+- **Engram brain slug mismatch** (`src/engram/client.ts`, `src/config/index.ts`):
+  Both `brainExists()` and `getEngramBrainPath()` slugified the full absolute path (producing `Users-ralph-brynard-active-projects-koa`) but Engram Python uses `Path(p).name.lower().replace(" ","-")` (basename only → `koa`). `checkAvailable()` always returned `false`, silently short-circuiting every client method. Fixed to match Python. Updated 4 config tests.
+- **TUI hang on `/exit` and Ctrl+C** (`src/tui/App.tsx`, `src/cli/index.ts`):
+  Three causes: (1) `finalize()` called twice (in `App.tsx` quit + in `cli/index.ts` after `waitUntilExit()`); (2) no `process.exit(0)` after Ink exits — Anthropic SDK HTTP keep-alive held the event loop open; (3) no timeout on finalize so slow networks caused indefinite freeze. Fixed: 15s `Promise.race` in `quit()`, `process.exit(0)` in `cli/index.ts`, duplicate finalize removed.
+- **Engram index noise** (brain DB):
+  274 of 331 nodes were `.claude/worktrees/` entries from Claude Code agent worktrees, polluting every query result. Added `.claude` to `engram.config.json` ignore list, wiped brain DB, rebuilt from scratch — now 66 clean nodes across 4 clusters (src/web/root/docs). Set project goal/prey. Updated `engram_query` tool description to clarify file-path search scope.
+
+### Decisions
+- **`compactMessages()` exported as pure function**: makes the logic directly testable without class instantiation or mocking. The exhaustive slice-position test would be impractical otherwise.
+- **`rememberSession()` uses stdin piping**: `session remember` is an interactive CLI designed for human use. Piping to stdin is the correct non-invasive way to drive it without forking Engram's code.
+- **Wipe + full re-index over incremental sync**: Engram's `sync` is additive-only — it cannot prune nodes that no longer match the ignore list. Only `index` (full rebuild) achieves a clean state.
+- **Deferred SDK upgrade**: `@anthropic-ai/sdk` `0.40 → 0.100` eliminates the punycode/node-fetch deprecation warning but is a 60-version jump with potential API surface changes. Noted but not done yet.
+
+### Issues Found
+- **Engram FTS is file-path only** — not code content, not session decisions. `engram_query("maybeCompact")` returns nothing even though the function exists. Tool description updated to reflect this; Koa should use it for file-name lookups only.
+- **`engram_query` still returns 0.0 scores** — all results have mass 0.0. No files have crossed the master threshold. Likely needs more sessions to accumulate mass. Not a bug.
+
+### Next Session
+- [ ] Merge PR #1 (feature/web-console-and-hardening → develop)
+- [ ] E2E verification: goal visible in sidebar, STATE.md written on exit, journal appended, Engram decisions recalled next session
+- [ ] Upgrade `@anthropic-ai/sdk` to `^0.100.1` — review changelog for breaking changes first
+- [ ] README: document `/checkpoint`, auto-molt, project memory files
+
+### Learnings
+- The Anthropic SDK holds HTTP keep-alive connections — `process.exit(0)` is required for clean CLI exit; Ink's `exit()` alone is insufficient.
+- Engram's `--` sentinel must come AFTER all named flags: `['query', '--project', path, '--', terms]`. Putting it first makes argparse eat subsequent flags as positional arguments.
+- Engram brain slugs use `Path(project_path).name` (basename only), not the full path. Any integration that computes a slug must match this or `checkAvailable()` will silently fail.
+
+---
+
 ## [2026-05-30] — Layered Memory System + Agent Pipeline + Tests
 
 ### Completed
