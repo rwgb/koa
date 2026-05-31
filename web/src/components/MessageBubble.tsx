@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ChatItem } from '../types.js';
+import { Icon } from './Icon.js';
 
 interface Props {
   item: ChatItem;
@@ -18,8 +19,10 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'user') {
     return (
-      <div className="bubble">
-        <span className="bubble__label bubble__label--user">▶ You</span>
+      <div className="bubble bubble--user">
+        <div className="bubble__meta">
+          <span className="bubble__role bubble__role--user">You</span>
+        </div>
         <div className="bubble__content">{item.content}</div>
       </div>
     );
@@ -27,31 +30,21 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'assistant') {
     const tier = item.tier ?? 'sonnet';
-    const badgeStyle: Record<string, string> = {
-      haiku: '#22c55e',
-      sonnet: '#3b82f6',
-      opus: '#a855f7',
-    };
-    const badgeColor = badgeStyle[tier] ?? badgeStyle['sonnet']!;
     return (
-      <div className="bubble bubble--hoverable">
-        <span className="bubble__label bubble__label--assistant">
-          ◀ Koa
-          <span
-            className="bubble__tier-badge"
-            style={{ backgroundColor: badgeColor }}
-            title={`Model tier: ${tier}`}
-          >
-            {tier}
-          </span>
+      <div className="bubble bubble--assistant bubble--hoverable">
+        <div className="bubble__meta">
+          <span className="bubble__role bubble__role--assistant">Koa</span>
+          <span className={`bubble__tier-badge bubble__tier-badge--${tier}`}>{tier}</span>
           <button
             className="message__copy-btn"
             onClick={() => handleCopy(item.content)}
-            title="Copy message"
+            aria-label="Copy message"
           >
-            {copied ? <span className="message__copy-flash">Copied!</span> : '[copy]'}
+            {copied
+              ? <span className="message__copy-flash">Copied</span>
+              : <Icon name="copy" size={12} />}
           </button>
-        </span>
+        </div>
         <div className="bubble__content" style={{ whiteSpace: 'pre-wrap' }}>
           {item.content}
         </div>
@@ -61,21 +54,18 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'tool_call') {
     return (
-      <div className="bubble">
-        <span
-          className="bubble__label bubble__label--tool-call"
+      <div className="bubble bubble--tool">
+        <button
+          className="bubble__tool-header"
           onClick={() => setExpanded(e => !e)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && setExpanded(v => !v)}
+          aria-expanded={expanded}
         >
-          ⚙ tool: {item.name}
-          <span className="bubble__toggle">{expanded ? '▲' : '▼'}</span>
-        </span>
+          <Icon name="wrench" size={12} className="bubble__tool-icon" />
+          <span className="bubble__tool-name">{item.name}</span>
+          <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} />
+        </button>
         {expanded && (
-          <pre className="bubble__pre">
-            {JSON.stringify(item.input, null, 2)}
-          </pre>
+          <pre className="bubble__pre">{JSON.stringify(item.input, null, 2)}</pre>
         )}
       </div>
     );
@@ -83,17 +73,16 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'tool_result') {
     return (
-      <div className="bubble">
-        <span
-          className="bubble__label bubble__label--tool-result"
+      <div className="bubble bubble--result">
+        <button
+          className="bubble__tool-header bubble__tool-header--result"
           onClick={() => setExpanded(e => !e)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={e => e.key === 'Enter' && setExpanded(v => !v)}
+          aria-expanded={expanded}
         >
-          ✓ result: {item.name}
-          <span className="bubble__toggle">{expanded ? '▲' : '▼'}</span>
-        </span>
+          <Icon name="check" size={12} className="bubble__tool-icon" />
+          <span className="bubble__tool-name">{item.name}</span>
+          <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} />
+        </button>
         {expanded && (
           <pre className="bubble__pre">{item.result}</pre>
         )}
@@ -103,8 +92,11 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'error') {
     return (
-      <div className="bubble">
-        <span className="bubble__label bubble__label--error">✗ error</span>
+      <div className="bubble bubble--error">
+        <div className="bubble__meta">
+          <Icon name="alert" size={12} />
+          <span className="bubble__role bubble__role--error">Error</span>
+        </div>
         <div className="bubble__content bubble__content--error">{item.message}</div>
       </div>
     );

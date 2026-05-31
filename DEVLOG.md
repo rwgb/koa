@@ -1,5 +1,465 @@
 # Koa — DevLog
 
+## [2026-05-31] — Roadmap Reconciliation: v6 Numbering Adopted
+
+### Completed
+- **Roadmap v6 FINAL evaluated** against full DEVLOG + project state.
+- **v6 CP numbering declared authoritative** going forward. All prior DEVLOG internal CPs (CP1–CP8, iOS as "CP9") were implementation milestones within the v0.2.0 foundation build — they collectively constitute **v6 CP0 (Foundation)**, which is now complete.
+- **STATE.md updated** to v6 pipeline (CP0 done → CP1 State Machine next).
+- **`main` branch created** from `develop`; `feature/admin-ui-phase1` merged. `v0.2.0` tag stands.
+- **No code changes** — documentation and git structure only.
+
+### Decisions
+- v6 roadmap document (`KOA CHECKPOINTS AND ROADMAP v6 FINAL.md`) is the single source of truth for product milestones going forward.
+- DEVLOG historical entries keep their original labels (CP1–CP9); they are not renamed. The reconciliation is forward-looking only.
+- "CP9: Apple platform clients" (DEVLOG) = v6-CP6 (iOS). It moves to its correct position in the v6 queue — after CP1–CP5 are complete.
+- Next action: lock the seven pre-CP1 decisions (task ID scheme, ops baseline, first-run import strategy, backup model) before writing any CP1 code.
+
+### Next Session
+- [ ] **v6-CP1: State Machine** — SQLite schema, migrations, task/project CRUD API, AgentLoop integration, STATE.md as generated output, ops baseline (JSON logging, `/api/health`, graceful shutdown, RUNBOOK.md), systemd unit
+
+### Learnings
+- The v6 roadmap was written with full knowledge of the DEVLOG work; it correctly absorbed everything into CP0. The only fix needed was updating STATE.md to match that framing.
+
+---
+
+## [2026-05-31] — Global Pipeline + Checkpoint Convention
+
+### Completed
+- **`~/.claude/CLAUDE.md`** — Added §15 (Development Pipeline Gates) and §16 (Self-Checkpoint Routine) as global defaults for all coding projects.
+  - §15 defines 5 sequential stages: Arch/Coding → UI/UX → QA → Security → Content/Docs
+  - §16 defines the self-checkpoint: DEVLOG + STATE.md + ntfy seal (`scripts/checkpoint.sh` or raw curl fallback)
+- **`memory/feedback_pipeline_and_checkpoint.md`** — New global feedback memory capturing the convention and rationale
+- **`memory/MEMORY.md`** — Index updated with pointer to new memory
+
+### Decisions
+- Conventions written to global `~/.claude/CLAUDE.md` (not project CLAUDE.md) so they apply to all future projects, not just koa
+- Raw curl fallback included in §16 for projects that don't have `scripts/checkpoint.sh`
+- Content/Docs added as a 5th pipeline stage (was previously 4-stage coding/UI/QA/security)
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP: Xcode scaffold, KoaClient, settings, chat, push, Siri Shortcuts)
+
+### Learnings
+- Global CLAUDE.md is the right place for cross-project behavioral conventions; project memory is for project-specific state
+
+---
+
+## [2026-05-31] — Web UI Rework: SVG Icon System + Bubble Layout
+
+### Completed
+- **`web/src/components/Icon.tsx`** — New file. Inline SVG icon system with 26 named icons (16×16 viewBox, `stroke="currentColor"`, `fill="none"`, `strokeWidth={1.5}`). Strongly typed `IconName` union. Covers all UI needs: nav, chat, integrations, tool calls, alerts.
+- **`web/src/components/NavRail.tsx`** — All emoji icon strings replaced with `IconName` literals. `icon` prop type changed from `string` to `IconName`. Rendered via `<Icon>` component.
+- **`web/src/components/TopNav.tsx`** — Removed `SPINNER_FRAMES` array, frame state, and `setInterval` effect. Replaced braille character spinner with `<span className="status-pill__spinner" />` (pure CSS border-spin animation). Model badge inline hex colors → CSS vars.
+- **`web/src/components/ChatPanel.tsx`** — Added SVG send button (`<Icon name="send">`). Clear button now uses `<Icon name="trash">`. Removed `>` prompt span.
+- **`web/src/components/MessageBubble.tsx`** — Complete rewrite. New layout: `bubble__meta` row (role label + tier badge + copy button), then `bubble__content`. Distinct variants: `bubble--user` (cyan tint), `bubble--assistant`, `bubble--tool`/`bubble--result` (collapsible with chevron), `bubble--error` (red tint). Tier badges color-coded per model tier.
+- **`web/src/pages/IntegrationsPage.tsx`** — All catalog icons updated to `IconName` values (10 types). SlideOver header, TypePicker, IntegrationCard, empty state, show/hide toggles, test result indicators, and close buttons all use `<Icon>`.
+- **`web/src/index.css`** — Added: `bubble--*` variants, `bubble__meta`, `bubble__role--*`, `bubble__tool-header`, `bubble__tier-badge--haiku/sonnet/opus`, `input-row__send`, `status-pill__spinner` (CSS animation), SVG-sized `.nav-rail__icon` / `.intg-card__icon` / `.type-picker__icon` / `.slide-over__icon`. Removed dead `.input-row__prompt`.
+- **`web/src/types.ts`** — `IntegrationDef.icon` type narrowed from `string` to `import('./components/Icon.js').IconName`.
+
+### Decisions
+- Inline SVG over icon font or external library: zero runtime deps, tree-shakes to only used icons, consistent stroke style across all 26 icons.
+- 16×16 viewBox with `strokeWidth={1.5}`: matches GitHub's Octicons visual weight; renders crisply at 12–32px sizes.
+- CSS border-spin for status pill instead of JS frame animation: one fewer `setInterval`, no re-renders, smoother at 60fps.
+- Bubble rewrite preserves all `kind` variants but uses semantic class names instead of label-based layout — cleaner DOM, easier to style per-variant without overrides.
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP: Xcode scaffold, KoaClient, settings, chat, push, Siri Shortcuts)
+- [ ] Optional: SkillsPage marketplace card icon cleanup (Phase 8), stub page audit (Phase 9)
+
+### Learnings
+- `IntegrationDef.icon` typed to `IconName` requires a cross-file import in `types.ts` (`import('./components/Icon.js').IconName`) — valid TypeScript import type pattern, no circular dep.
+
+---
+
+## [2026-05-31] — API Cost Optimization (Phases 1–4)
+
+### Completed
+- **`src/types/index.ts`** — Added `ConfigModelTier` ('fast' | 'standard' | 'powerful') and `CONFIG_MODEL_MAP` for user-facing tier aliases.
+- **`src/config/index.ts`** — Tier alias translation in `loadConfig()` (`fast → haiku`, `standard → sonnet`, `powerful → opus`). Added `noCache: boolean` field (env: `KOA_NO_CACHE`, default false).
+- **`src/agent/cache.ts`** — New `ResponseCache` class: SHA-256 keyed, LRU eviction, 60s TTL (configurable via `KOA_CACHE_TTL_SECONDS`), 50-entry max, per-process in-memory only.
+- **`src/agent/loop.ts`** — Full refactor:
+  - `buildSystemPrompt()` → `buildSystemBlocks(userMessage)` returning `Anthropic.TextBlockParam[]` with **two cache breakpoints**: Block 1 (static persona + global memories, always cached), Block 2 (project memory — project doc, state, journals, handoff — stable within session, cached), Block 3 (dynamic — Engram, SpiderBrain if `isCodeQuery()`, Backlog if `hasBacklogSignals()` — no cache).
+  - `isCodeQuery(message)` — keyword gate for SpiderBrain injection (code/file/function/bug/type signals).
+  - `hasBacklogSignals(message)` — keyword gate for Backlog injection (task/plan/next/priority signals).
+  - `logUsage()` — logs per-turn token usage + cache hit % + estimated cost to stderr; also logs which context blocks were injected.
+  - Phase 4 response cache wired into `turn()`: cache lookup before API call; cache store after non-tool turns.
+- **`src/cli/index.ts`** — Added `--no-cache` flag to `chat` and `web` commands. Updated `--model` help text to document tier aliases.
+- **`src/__tests__/cost_optimization.test.ts`** — 11 new tests: `isCodeQuery` (true/false branches), `hasBacklogSignals` (true/false branches), `ResponseCache` (miss, hit, different keys, eviction, TTL expiry, key stability), `CONFIG_MODEL_MAP` values.
+- **`src/__tests__/auto_checkpoint.test.ts`** — Added `noCache: false` to `makeConfig()` to satisfy updated `KoaConfig` type.
+
+### Decisions
+- Two cache breakpoints (not three): Block 1 (static prefix) and Block 2 (project memory). Block 3 (dynamic) intentionally uncached — its content varies based on query type. Breakpoints apply to the system array; tool list retains its existing `cache_control` breakpoint.
+- Keyword-based context gates (not LLM classifier): a classifier call would cost more than the tokens it saves. Simple `includes()` checks cover the vast majority of cases.
+- Response cache is per-process (no disk persistence): avoids stale-data bugs; 60s TTL is sufficient for dashboard/polling use cases. Tool-calling turns are never cached (side-effectful).
+- Backlog placed in Block 3 (dynamic, not Block 2): keeps Block 2 stable across all turns, maximizing cache hit rate for the project memory breakpoint. Backlog only injected when user is asking planning/task questions.
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP: Xcode scaffold, KoaClient, settings, chat, push, Siri Shortcuts)
+
+### Learnings
+- Anthropic prompt cache requires multiple content blocks (not one big string) to get multiple breakpoints. Single-block approach loses the entire cache whenever any part of the prompt changes.
+- The `noCache` field needed to be added to existing `makeConfig()` test helpers — a reminder that adding required fields to config types requires updating all test factories.
+
+---
+
+## [2026-05-31] — Fix: Remove git commit ntfy hook from Claude settings
+
+### Completed
+- **`.claude/settings.json`** — Removed `PostToolUse` Bash hook that fired an ntfy notification on every `git commit`. Hook was sending commit hash/message to ntfy on each Claude commit, duplicating the checkpoint signal and firing outside the intended checkpoint flow.
+- **Memory** — Added `feedback_no_commit_notifications.md` to project memory so this pattern is not re-introduced.
+
+### Decisions
+- Notifications belong exclusively in `AgentLoop.checkpoint()` → `sendNtfyNotification()`, triggered by the checkpoint word or auto-checkpoint timer. Not in Claude Code hooks.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] API Cost Optimization (Phases 1–4): prompt caching, model tiering, selective context injection, response cache
+- [ ] CP9: Apple platform clients (iOS MVP)
+
+---
+
+## [2026-05-31] — CP8: Integration tests + notification rule editing + custom skills wiring
+
+### Completed
+- **`src/server/index.ts`** — Implemented real connection tests for GitHub (`GET /user` → returns `Connected as <login>`), Slack (webhook POST → ok/fail), and Pushover (`/users/validate.json` → valid credentials check). ntfy was already implemented. All other types still return a graceful "not implemented" fallback.
+- **`web/src/pages/NotificationsPage.tsx`** — Added rule editing: `RuleRow` now has an Edit button; clicking it replaces that row inline with a pre-filled `RuleForm`. Renamed `AddRuleForm` → `RuleForm` with optional `initialRule` prop; shows "Update Rule" vs "Add Rule" label accordingly. `handleAddRule` → `handleSaveRule` with upsert logic (update by id if exists, append if new).
+- **`src/agent/tools/custom_skill_tool.ts`** — New file. `createCustomSkillTool(skill)` factory creates a real `Tool` from a `CustomSkillDef`: bash type substitutes `{{input.key}}` template vars and runs via `child_process.exec` (30s timeout); http type issues a `fetch` request to the configured URL/method; mcp type returns a stub message pending MCP proxy support.
+- **`src/cli/index.ts`** — `buildRegistry()` now calls `loadCustomSkills()` at startup and registers each one via `createCustomSkillTool()`. Custom skills are live immediately on next server start without code changes.
+
+### Decisions
+- GitHub test uses `token` auth header (not `Bearer`) — GitHub PATs require `token` prefix for v3 REST API.
+- Pushover validation hits `/users/validate.json` which checks credentials without sending a notification — cleaner than a real send for a test.
+- Slack test sends a real message to the webhook — no dry-run API exists for incoming webhooks; this is the only way to validate.
+- `RuleForm` inline replacement (same row position) preferred over a modal — less disruptive; user sees the rule they're editing in context.
+- Custom skill bash execution uses `child_process.exec` (shell: true implicitly) — the command template is operator-defined, not user-supplied at runtime, so shell expansion is acceptable and matches user expectations.
+- MCP proxy stubbed — requires a live MCP server reference; out of scope for CP8.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP)
+
+---
+
+## [2026-05-31] — CP7: Layered memory + agent coordination
+
+### Completed
+- **`src/project-memory/paths.ts`** — `projectMemoryDir()` (slug + md5 hash), `projectMemoryPaths()` returning typed paths for all five files. Stable hash via Node `crypto.createHash('md5')`, `KOA_HOME` env override.
+- **`src/project-memory/store.ts`** — `ensureProjectMemoryDir()` (recursive mkdir, 700), `readMarkdownFile()` (null on ENOENT), `writeMarkdownFile()` (atomic tmp+rename, 600), `appendJournalEntry()`, `readRecentJournals()`, `writeHandoff()`.
+- **`src/project-memory/generators/project-doc.ts`** — `generateProjectDoc()`: Haiku call → PROJECT.md (# PROJECT heading, 300–500 words, tech stack/arch/conventions/entry points). Fire-and-forget on first session.
+- **`src/project-memory/generators/state-doc.ts`** — `generateStateDoc()` (## In Progress + ## Next sections) and `generateJournalEntry()` (dated session log). Both called in `finalize()`.
+- **`src/agent/loop.ts`** — `initialize()` ensures project mem dir, reads PROJECT/STATE/BACKLOG/HANDOFF/journals; fires background PROJECT.md gen if absent; sets up auto-checkpoint timer. `buildSystemPrompt()` injects `<project_memory>`, `<project_state>`, `<recent_sessions>`, `<backlog>`, `<handoff>` XML blocks. `finalize()` awaits background gen (10s timeout), writes STATE.md + journal, calls `engram.rememberSession()`. `checkpoint()` writes STATE.md + fires ntfy. `_autoCheckpoint()` with deduplication guard.
+- **`src/spiderbrain/client.ts`** — `isStale()` (7-day mtime check), `autoMolt()` (fire-and-forget, `isProjectDir()` guard, stderr logging), `_moltPromise` deduplication.
+- **`src/engram/client.ts`** — `autoIndex()` (fire-and-forget when brain absent, stderr logging), `_indexPromise` deduplication.
+- **`src/agent/tools/agent_dispatch_tool.ts`** — `createAgentDispatchTool()`: allowlist-validated `dispatch_agent` tool; reads `~/claudeAgents/tools/agent-templates/<name>.md`; writes HANDOFF.md (RUNNING → PASS/FAIL); calls Haiku via SDK (no execa shell). Registered in CLI.
+- **`src/cli/index.ts`** — registers `dispatch_agent`; `autoCheckpointTurns`/`autoCheckpointMinutes` CLI flags.
+- **`src/types/index.ts`** — `ProjectMemory` interface with journals; `AgentState.projectMemory`; `SessionRecord` fully retired.
+- **`src/session/store.ts`** — deleted; directory removed; no references remain.
+- **`src/__tests__/project_memory.test.ts`** — 20 tests: paths hash stability, store CRUD, journal append, writeHandoff structure.
+- **`src/__tests__/agent_dispatch.test.ts`** — 12 tests: allowlist validation, error paths, template-missing path.
+- **`src/__tests__/auto_checkpoint.test.ts`** — 31 tests: guard conditions, stderr logging, turn-based trigger, time-based trigger, finalize clears timer.
+- **`scripts/checkpoint.sh`** — bash checkpoint script: validates DEVLOG freshness, sends ntfy notification, exits non-zero on failure.
+- **`src/agent/tools/files.ts`** — `analyze_image` tool: reads any image by absolute path, returns base64 image content block. Supports jpg/png/gif/webp.
+
+### Security Review
+- `dispatch_agent`: agent name validated against allowlist before any FS/exec; task/context passed as SDK message args (not shell); template path built from hardcoded TEMPLATES_DIR + validated name (no traversal).
+- `autoMolt`: `isProjectDir()` guard prevents creating stale brain dirs in home/tmp.
+- All project memory files: atomic writes (tmp+rename) prevent corrupt STATE.md on crash.
+- XML escaping in `buildSystemPrompt()` prevents brain file content from injecting into system prompt.
+
+### Decisions
+- Haiku for all LLM calls in memory layer (project doc, state, journal) — cost optimization.
+- `finalize()` awaits `_projectDocGeneration` with 10s timeout — guarantees first-session PROJECT.md without blocking chat startup.
+- `session/store.ts` retired entirely — journal layer supersedes it; no dual tracking.
+- `autoMolt()` / `autoIndex()` log to stderr — MCP mode owns stdout.
+- `dispatch_agent` uses Anthropic SDK directly (not `claude --print` subprocess) — avoids PATH dependency, consistent auth.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] CP8: Integration fixes + custom skills wiring
+
+---
+
+## [2026-05-31] — CP6: Smart routing hybrid Haiku classifier
+
+### Completed
+- **`src/agent/router.ts`** — added `classifyWithHaiku()` async function: calls `claude-haiku-4-5-20251001` with a single-digit system prompt, parses `1/2/3` to `simple/moderate/complex`, falls back to `moderate` on any error; uses `AbortSignal.timeout(HAIKU_CLASSIFIER_TIMEOUT_MS)`. Made `selectModel()` async; fast-path unchanged for override and regex simple/complex cases; moderate case now refines via `classifyWithHaiku`. Returns `source` (override/regex-fast-path/haiku-classifier/config) and optional `classifierLatencyMs`/`classifierUsage` on the moderate path.
+- **`src/config/index.ts`** — added `HAIKU_CLASSIFIER_TIMEOUT_MS = 3000` constant.
+- **`src/agent/loop.ts`** — awaits `selectModel()`, passes `this.client`; emits `onClassifying`/`onClassified` callbacks around the classifier call; folds classifier token usage into `UsageTracker.addClassifierCall()`; returns `classifierLatencyMs` in `TurnResult`.
+- **`src/agent/usage.ts`** — added `addClassifierCall()` method and `classifierCalls/classifierInputTokens/classifierOutputTokens` fields to `SessionUsageStats`; classifier cost folds into `estimatedCostUsd` using haiku pricing.
+- **`src/types/index.ts`** — added `classifierLatencyMs?` to `TurnResult`; added classifier fields to `SessionUsageStats`.
+- **`src/server/events.ts`** — added `classifying` and `classified` SSE event types; `done` event includes optional `classifierLatencyMs`.
+- **`src/server/index.ts`** — emits `classifying`/`classified` SSE events via new `TurnCallbacks`; passes `classifierLatencyMs` in `done` event.
+- **`src/tui/App.tsx`** + **`StatusBar.tsx`** — added `isClassifying` state; passes `onClassifying`/`onClassified` callbacks to `loop.turn()`; StatusBar shows `classifying…` (cyan) before `thinking…` (yellow); both clear on finally.
+- **`web/src/types.ts`** — updated `SseEvent` union with new events; updated `SessionUsageStats` with optional classifier fields.
+- **`web/src/pages/ChatPage.tsx`** — handles `classifying`/`classified` SSE events; shows `classifyingTier` badge that clears on `content`/done/error.
+- **`web/src/components/ChatPanel.tsx`** — accepts and renders `classifyingTier` badge.
+- **`src/__tests__/router.test.ts`** — 15 new tests (205 total): `classifyWithHaiku` (7 cases), `selectModel` moderate path (8 cases); existing `selectModel` tests updated to `await` async signature.
+
+### Security Review (Phase 6)
+- Classifier prompt contains raw message text only — no session state, memory, or file contents.
+- Same API key surface as main agent — no new credential.
+- Response parsed defensively (first char only, fallback to moderate on anything unexpected).
+- `AbortSignal.timeout(3000)` enforced — classifier cannot block indefinitely.
+- Classifier response content not logged — only the resolved tier label appears in debug output.
+
+### Observability (Phase 7)
+- `[router]` debug lines emitted to stderr when `KOA_DEBUG=1` — format: `tier=X source=Y [latency=Zms]`.
+- Classifier token usage tracked separately in `UsageTracker` — visible in admin usage panel.
+- `classifierLatencyMs` in `TurnResult` and `done` SSE event — ready for admin UI P95 display.
+
+### Decisions
+- `classifyWithHaiku` returns `{ complexity, inputTokens, outputTokens }` rather than just complexity, so the loop can attribute tokens to the right cost bucket without a second call.
+- `source` field on `selectModel` return enables precise debug logging without adding a global logger dependency.
+- `AbortSignal.timeout()` chosen over manual `setTimeout`+`clearTimeout` — cleaner and handles the "never settle" case automatically.
+- `isClassifying` and `isThinking` are separate states in the TUI — allows showing `classifying…` before the model is chosen, then transitioning to `thinking…` once streaming begins.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] CP7: Layered memory + agent coordination (TASKS.md Phases 1–10)
+
+---
+
+## [2026-05-31] — CP5: Bearer token auth for web console
+
+### Completed
+- **`src/config/index.ts`** — added `webToken` field to KoaConfig + schema; loaded from `KOA_WEB_TOKEN` env or credentials file; added `generateWebToken()` (32 random bytes hex) and `setWebToken()` helpers
+- **`src/cli/index.ts`** — `koa config set web-token [token]` auto-generates a token when value is omitted
+- **`src/config/credentials.ts`** — `~/.koa/` dir now created with `mode: 0o700` (was world-readable)
+- **`src/server/index.ts`** — `tokenEqual()` helper using HMAC-then-timingSafeEqual (avoids length oracle); rate-limited `POST /api/auth` (10 req/15 min); bearer middleware on all `/api/` routes; `GET /api/ping` is unauthenticated but no longer leaks auth config status
+- **`web/src/api.ts`** — `authFetch()` wrapper injects `Authorization: Bearer` on all calls; `pingServer()` probes `/api/context` to detect 401; `verifyToken()` and `setStoredToken()` / `getStoredToken()` for localStorage management
+- **`web/src/App.tsx`** — auth gate: on mount pings server, shows token setup screen if 401 and no valid stored token; loading spinner while checking; `koa config set web-token` instruction shown inline
+- **`web/src/index.css`** — auth gate + spinner styles
+
+### Security findings resolved
+- HIGH: replaced padding-based timingSafeEqual (length oracle) with HMAC approach in both comparison sites
+- HIGH: added express-rate-limit to `/api/auth`
+- MEDIUM: `/api/ping` no longer leaks auth configuration status
+- LOW: `~/.koa/` directory mode hardened to 0o700
+
+### Next Session
+- [ ] CP6: Smart routing hybrid Haiku classifier
+
+---
+
+## [2026-05-31] — Bug fixes + backlog planning
+
+### Completed
+- **SpiderBrain auto-molt path bug** — `koa` run from `~` was trying to mkdir `/Users/ralph.brynard-spiderbrain` (home dir as projectPath → wrong sibling path). Fixed by adding `isProjectDir()` guard: skips auto-molt when `brainDir` is null and cwd has no project markers (`.git`, `package.json`, etc.)
+- **Image analysis support** — Added `analyze_image` tool to `src/agent/tools/files.ts`: reads any image by absolute path, returns base64 `image` content block. Widened `Tool.execute` return type to `ToolResultContent = string | Array<TextBlockParam | ImageBlockParam>`. Updated loop to handle non-string results cleanly. Updated `SYSTEM_BASE` to mention the capability. Rebuilt + reinstalled binary.
+- **Backlog review** — Full inventory of pending work; established burn order
+
+### Next Session
+- [ ] Bearer token auth on `/api/` routes
+- [ ] Smart routing hybrid Haiku classifier
+- [ ] Layered memory + agent coordination (TASKS.md Phases 1–10)
+- [ ] Real connection tests for integrations
+- [ ] Wire custom skills into ToolRegistry
+- [ ] Apple platform clients
+
+---
+
+## [2026-05-31] — CP4: Admin UI Phase 4 — Skills page
+
+### Completed
+- **`src/skills/store.ts`** — new module: `loadCustomSkills`, `saveCustomSkill` (atomic tmp+rename, chmod 600), `deleteCustomSkill`. Persists to `~/.koa/custom-skills.json`. Uses `KOA_HOME` env override consistent with other stores.
+- **`src/agent/loop.ts`** — added `getTools()` method: wraps `registry.getAll()` into `{ name, description }[]` for the admin API.
+- **3 new server endpoints** in `src/server/index.ts`:
+  - `GET /api/admin/skills` — returns `{ installed, marketplace }`. Installed list merges `loop.getTools()` with custom skills (source tagged "built-in" vs "custom"). Marketplace catalog (8 entries, hardcoded) filtered to exclude already-installed names.
+  - `POST /api/admin/skills/custom` — upsert custom skill; validates name regex `/^[a-z][a-z0-9_]{1,49}$/`, returns 400 on failure.
+  - `DELETE /api/admin/skills/custom/:name` — removes skill by name.
+- **Frontend types** (`web/src/types.ts`) — added: `InstalledSkill`, `MarketplaceSkill`, `SkillsResponse`, `CustomSkillDef`.
+- **API helpers** (`web/src/api.ts`) — added: `fetchSkills`, `saveCustomSkill`, `deleteCustomSkill`.
+- **SkillsPage** (`web/src/pages/SkillsPage.tsx`) — full implementation replacing stub:
+  - Section A: Installed skills table (name+desc, source badge, active badge, delete with confirm guard for custom skills).
+  - Section B: Marketplace grid (2 columns, icon+name+desc+requires chips). "Install" pre-fills builder form.
+  - Section C: Custom Skill Builder collapsible form (collapsed by default, expands on "New Custom Skill +"). Type-conditional config fields (bash: command template, http: url+method, mcp: serverName+toolName). Save shows restart notice inline; cancels correctly.
+- **CSS** (`web/src/index.css`) — ~260 lines of `.skill-*` styles appended: page, section, table, badges, marketplace grid, cards, chips, install button, builder, form rows, action buttons, notice banners.
+- All checks pass: `tsc --noEmit` (0 errors), `npm test` (190/190), `vite build` (clean).
+
+### Decisions
+- Custom skill validation on both frontend (pattern attribute + JS check) and backend (regex) for defense in depth.
+- `saveCustomSkill` uses tmp-file + rename for atomicity; avoids partial JSON on crash.
+- Marketplace "Install" button pre-fills builder (not a 1-click install) — skills need config before they can run, so forcing through the builder is the right UX.
+- `deleteCustomSkill` is silent on missing names (idempotent) — consistent with REST semantics.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 3 follow-up: real connection tests for GitHub (token validation), Slack (webhook ping), Pushover
+- [ ] Phase 3 follow-up: notification rule editing (currently delete-only)
+- [ ] Bearer token auth for `/api/` routes (prerequisite for Apple platform clients)
+- [ ] Custom skills: wire bash/http/mcp skill defs into the actual ToolRegistry at server start
+- [ ] HTTPS/TLS docs in `docs/DEPLOYMENT.md`
+
+### Learnings
+- `getTools()` on `AgentLoop` is the right seam — it keeps the server layer from importing ToolRegistry directly.
+- CSS `grid-template-columns: repeat(2, 1fr)` for the marketplace gives a cleaner two-column layout than `auto-fill/minmax` when the count is always small.
+
+---
+
+## [2026-05-31] — CP3: Admin UI Phase 3 — Integrations, Notifications, editable Settings
+
+### Completed
+- **`src/integrations/store.ts`** — new module: `loadIntegrations`, `saveIntegration`, `deleteIntegration`, `maskSecrets`, `mergeConfig`. Supports 10 integration types; secrets masked on read, preserved on write when value is `***`. Persists to `~/.koa/integrations.json` (chmod 600).
+- **`src/notifications/store.ts`** — new module: `loadRules`, `saveRules`, `loadQuietHours`, `saveQuietHours`. Persists to `~/.koa/notifications.json` (chmod 600).
+- **`src/config/index.ts`** — expanded `readKoaConfigFile` to handle all mutable fields (model, maxTokens, smartRouting, maxToolOutputChars, compactAfterTurns, autoCheckpointTurns, autoCheckpointMinutes, engramEnabled). Added `writeKoaConfigFile`. `loadConfig` now respects file config for all fields (env vars still take precedence).
+- **8 new server endpoints** in `src/server/index.ts`:
+  - `PUT /api/admin/config` — persists mutable config fields; updates in-memory config immediately
+  - `GET /api/admin/integrations` — lists all integrations, secrets masked
+  - `PUT /api/admin/integrations/:id` — upsert with secret-preserving merge
+  - `DELETE /api/admin/integrations/:id` — remove
+  - `POST /api/admin/integrations/:id/test` — real connection test for ntfy; stub for others
+  - `GET /api/admin/notifications` — returns rules + quietHours
+  - `PUT /api/admin/notifications/rules` — saves rules array
+  - `PUT /api/admin/notifications/quiet-hours` — saves quiet hours
+  - `POST /api/admin/notifications/test` — real test notification send for ntfy; stub for others
+- **IntegrationsPage** (`web/src/pages/IntegrationsPage.tsx`) — full implementation:
+  - 2-column responsive card grid with status badges (Connected/Not configured/Error)
+  - Slide-over panel: icon, description, per-field inputs with show/hide toggles for secrets, test connection, save, disconnect
+  - Type picker modal for adding new integrations (lists unconfigured catalog types)
+  - 10-type catalog: Anthropic API, GitHub, Slack, Pushover, ntfy.sh, SMTP, Homelab, ESET, Custom HTTP, MCP Server
+- **NotificationsPage** (`web/src/pages/NotificationsPage.tsx`) — full implementation:
+  - Channels panel: lists connected notification-capable integrations with test send button
+  - Rules table: event, channel, condition columns with add/delete
+  - Add rule inline form: event dropdown, channel dropdown, optional condition input
+  - Quiet hours section: enable toggle + time range pickers, persisted to disk
+- **SettingsPage** (`web/src/pages/SettingsPage.tsx`) — editable sections added:
+  - Auto-checkpoint turns/minutes, compact-after-turns, smart routing toggle all editable via form
+  - `Edit` button reveals inline form; `Save` calls `PUT /api/admin/config`; shows "Saved ✓" flash
+  - Restart note shown for settings that need it
+- **Frontend types** (`web/src/types.ts`) — added: `Integration`, `IntegrationType`, `IntegrationFieldDef`, `IntegrationDef`, `NotificationRule`, `QuietHours`, `NotificationsResponse`
+- **API helpers** (`web/src/api.ts`) — added 9 functions: `updateAdminConfig`, `fetchIntegrations`, `saveIntegration`, `deleteIntegration`, `testIntegration`, `fetchNotifications`, `saveNotificationRules`, `saveQuietHours`, `testNotification`
+- **CSS** (`web/src/index.css`) — ~400 lines of new styles: `.intg-*` (page, grid, card, badge, field, slide-over, type-picker), `.notif-*` (page, section, channel, rule, add-form, quiet-hours), settings edit form styles
+- **Cleanup** — deleted `web/src/components/Sidebar.tsx` and `web/src/components/StatusBar.tsx` (unused since Phase 1)
+- Build: `tsc --noEmit`, `vite build`, and `npm test` all pass (190/190, 0 errors)
+
+### Decisions
+- Secret fields masked to `***` on `GET /api/admin/integrations`; PUT preserves existing value when submitted value is `***`. Avoids exposing credentials to the browser while allowing edits.
+- Integration `id` equals `type` for well-known integrations (prevents duplicates). Custom HTTP and MCP Server could support multiple instances in the future with a uuid id.
+- Settings page edits only the four in-memory-safe fields (autoCheckpointTurns, autoCheckpointMinutes, compactAfterTurns, smartRouting). Model and other env-var-driven settings require restart — note shown in UI.
+- Notification rules stored as a flat array; no normalization needed for the current scale.
+- ntfy is the only integration with a real connection test and test send implemented; others return stub responses. Full implementations left for when those integrations are actually needed.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 4: Skills page — built-in tool table, skill marketplace (static catalog), custom skill builder form
+- [ ] Phase 3 follow-up: real connection tests for GitHub (token validation), Slack (webhook ping), Pushover
+- [ ] Phase 3 follow-up: notification rule editing (currently delete-only)
+- [ ] Phase 3 follow-up: notification rule template field (message template with `{{variables}}`)
+- [ ] Bearer token auth for `/api/` routes (prerequisite for Apple platform clients)
+- [ ] HTTPS/TLS docs in `docs/DEPLOYMENT.md`
+
+### Learnings
+- Slide-over panels work well with `position: fixed` + CSS `transform: translateX(100%)` → `translateX(0)` — no JS animation needed.
+- `mergeConfig` pattern (preserve `***` secret values) is the right UX for credential forms in single-user local apps — simpler than HSM-style encrypt/decrypt.
+
+---
+
+## [2026-05-31] — CP2: Admin UI Phase 2 — Memory page, Activity page, 8 new API endpoints
+
+### Completed
+- **8 new admin API endpoints** added to `src/server/index.ts`:
+  - `GET /api/admin/memory/engram` — returns live Engram + SpiderBrain context from `AgentState`
+  - `GET /api/admin/memory/files` — reads PROJECT.md, STATE.md, BACKLOG.md, HANDOFF.md from project memory dir
+  - `PUT /api/admin/memory/files/:file` — atomic write to any of the four project memory files
+  - `GET /api/admin/memory/facts` — lists persistent facts from `~/.koa/memory.json`
+  - `POST /api/admin/memory/facts` — adds a fact
+  - `DELETE /api/admin/memory/facts` — removes a fact by content match (body `{ fact }`)
+  - `POST /api/admin/brain/rebuild` — triggers SpiderBrain `molt()` via new `loop.rebuildBrain()` method
+  - `GET /api/admin/activity/sessions` — reads all journal `.md` files from project memory `journal/` dir
+- **`AgentLoop.rebuildBrain()`** — new public method wrapping `this.sb.molt()`, exposed for the server to call
+- **MemoryPage** (`web/src/pages/MemoryPage.tsx`) — full implementation:
+  - Engram panel: brain online/offline badge, session goal, hot files with score + cluster, master files, SpiderBrain masters
+  - Project files panel: tabs for all four project memory files (read-only display, edit/create button opens inline textarea, atomic save)
+  - Facts CRUD: list with add input + delete with confirmation guard
+  - Rebuild brain button in page header
+- **ActivityPage** (`web/src/pages/ActivityPage.tsx`) — full implementation:
+  - Current session usage card grid: turns, tokens in/out, cache read/write, cache hit rate, estimated cost
+  - Session journal accordion: reads per-day `.md` entries, expand/collapse per entry
+  - Anthropic pricing reference table (labelled as estimates)
+- **Frontend types** (`web/src/types.ts`) — added: `MemoryEntry`, `ProjectFileEntry`, `MemoryFilesResponse`, `EngramMemoryResponse`, `JournalSession`, `ActivitySessionsResponse`
+- **API helpers** (`web/src/api.ts`) — added 8 functions: `fetchMemoryEngram`, `fetchMemoryFiles`, `updateMemoryFile`, `fetchFacts`, `addFact`, `deleteFact`, `rebuildBrain`, `fetchActivitySessions`
+- **CSS** (`web/src/index.css`) — ~350 lines of new styles: `.mem-*` utility classes (sections, badges, file list, tabs, editor, buttons, facts), `.activity-*` classes (session accordion, usage grid, pricing table)
+- Build: `tsc --noEmit` and `npm test` both pass (190/190, 0 errors)
+
+### Decisions
+- `DELETE /api/admin/memory/facts` uses request body (not URL path param) to avoid URL-encoding issues with fact strings that may contain slashes or special chars.
+- `rebuildBrain()` returns the molt output string — surfaced in the Memory page header after a rebuild.
+- Activity page shows journal files as read-only accordion (no edit needed — these are auto-generated session logs).
+- Pricing table uses hardcoded estimates, labelled as such; not fetched from Anthropic API.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 3: Integrations page — connector card grid, slide-over panel, config persistence to `~/.koa/integrations.json`
+- [ ] Phase 3: Notifications rules engine — channels, quiet hours
+- [ ] Phase 2 follow-up: Settings page — make editable (PUT /api/admin/config)
+- [ ] Old Sidebar component cleanup now that Memory page is complete
+
+### Learnings
+- `color-mix(in srgb, var(--x) 15%, transparent)` is the right pattern for dim tinted backgrounds without needing alpha hex vars — supported in all modern browsers.
+- Accordion pattern with a single `expanded` string state (date key) is cleaner than a `Set<string>` for the journal entries.
+
+---
+
+## [2026-05-31] — CP1: Admin UI Phase 1 — Router, nav rail, settings, status pill
+
+### Completed
+- **React Router v7 shell**: `App.tsx` is now a router tree; `/` redirects to `/chat`. Routes: `/chat`, `/memory`, `/integrations`, `/skills`, `/notifications`, `/activity`, `/settings`.
+- **RootLayout** (`web/src/layouts/RootLayout.tsx`): Top nav + nav rail + `<Outlet>`. Wraps `AgentProvider` so status pill works on any page.
+- **AgentContext** (`web/src/context/AgentContext.tsx`): Shared React context lifting `isThinking`, `activeTool`, `usage`, `agentStatus`. `ChatPage` sets these via context; `TopNav` reads them. Initial status fetched on provider mount.
+- **TopNav** (`web/src/components/TopNav.tsx`): Three-state status pill (`● Idle` / `● Thinking` / `● Running: bash`), Koa wordmark + version badge, session cost, model tier badge.
+- **NavRail** (`web/src/components/NavRail.tsx`): Fixed 220px left rail with active-link highlighting via React Router `NavLink`.
+- **ChatPage** (`web/src/pages/ChatPage.tsx`): Full-width (old sidebar removed per spec). All agent state changes go through `AgentContext` setters so TopNav pill stays live.
+- **SettingsPage** (`web/src/pages/SettingsPage.tsx`): Reads `GET /api/admin/config`; renders Agent, Auto-checkpoint, Memory, API Key, Project sections as read-only.
+- **Backend** (`src/server/index.ts`): Added `GET /api/admin/config` on `/api/admin/` prefix. Returns sanitised config (`apiKeySet: bool`, no raw key).
+- **Stub pages**: Memory, Integrations, Skills, Notifications, Activity — placeholder with icon + phase note.
+- **CSS rework**: `.app-shell` / `.app-content` grid replaces `.app` / `.main`. New styles for TopNav, status pill, nav rail, settings page, stub pages.
+
+### Decisions
+- Old `Sidebar` component kept in `web/src/components/Sidebar.tsx` but not rendered (moved to Memory page in Phase 2).
+- Old `StatusBar` component kept but superseded by `TopNav`. Will delete after Phase 2 confirms nothing needs it.
+- Settings page is read-only for Phase 1 — editing config via UI is Phase 2 scope.
+- `AgentContext` initialises via `fetchStatus()` on mount (single fetch, not poll). ChatPage drives live updates via SSE.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 2: Memory page — Engram panel (brain status, hot files, session goal), project memory files, persistent facts CRUD
+- [ ] Phase 2: Activity page — session log table, cost dashboard
+- [ ] Phase 2: Add PUT /api/admin/config to make Settings page editable
+- [ ] Phase 2: Add `/api/admin/memory/files` and `/api/admin/memory/facts` endpoints
+- [ ] Old Sidebar component cleanup once Memory page is done
+
+### Learnings
+- React Router v7 `<NavLink>` className prop accepts a function `({ isActive }) => string` — clean for nav rail active states.
+- Lifting agent state to `AgentContext` at `RootLayout` level is the right pattern for cross-route live status; avoids prop drilling and keeps ChatPage self-contained.
+
+---
+
 ## [2026-05-31] — CP0: Pipeline kickoff, lint fix, PR #1 merge → 0.2.0
 
 ### Completed

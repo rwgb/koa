@@ -16,6 +16,9 @@ export interface SessionUsageStats {
   estimatedCostUsd: number;
   cacheHitRate: number;
   turnsCount: number;
+  classifierCalls: number;
+  classifierInputTokens: number;
+  classifierOutputTokens: number;
 }
 
 export interface EngramContext {
@@ -38,12 +41,13 @@ export interface EngramSession {
 }
 
 export type ToolInput = Record<string, unknown>;
+export type ToolResultContent = string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>;
 
 export interface Tool {
   name: string;
   description: string;
   inputSchema: Anthropic.Tool['input_schema'];
-  execute(input: ToolInput): Promise<string>;
+  execute(input: ToolInput): Promise<ToolResultContent>;
 }
 
 export interface SpiderBrainMaster {
@@ -61,6 +65,13 @@ export interface SpiderBrainContext {
   hotFiles: string[];
   clusterNames: string[];
 }
+
+export type ConfigModelTier = 'fast' | 'standard' | 'powerful';
+export const CONFIG_MODEL_MAP: Record<ConfigModelTier, string> = {
+  fast: 'claude-haiku-4-5-20251001',
+  standard: 'claude-sonnet-4-6',
+  powerful: 'claude-opus-4-7',
+};
 
 export interface ProjectMemory {
   project?: string;
@@ -89,6 +100,7 @@ export interface TurnResult {
   model: string;
   tier: string;
   usage?: TurnUsage;
+  classifierLatencyMs?: number;
 }
 
 export interface ToolUse {

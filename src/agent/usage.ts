@@ -49,6 +49,9 @@ export class UsageTracker {
   private estimatedCostUsd = 0;
   private cacheHitRate = 0;
   private turnsCount = 0;
+  private classifierCalls = 0;
+  private classifierInputTokens = 0;
+  private classifierOutputTokens = 0;
 
   addTurn(usage: TurnUsage): void {
     this.inputTokens += usage.inputTokens;
@@ -70,6 +73,15 @@ export class UsageTracker {
     this.cacheHitRate = denominator === 0 ? 0 : this.cacheReadTokens / denominator;
   }
 
+  addClassifierCall(inputTokens: number, outputTokens: number): void {
+    this.classifierCalls++;
+    this.classifierInputTokens += inputTokens;
+    this.classifierOutputTokens += outputTokens;
+    // Classifier cost folds into estimatedCostUsd using haiku pricing
+    const pricing = getPricing('claude-haiku');
+    this.estimatedCostUsd += (inputTokens * pricing.inputPerM + outputTokens * pricing.outputPerM) / 1_000_000;
+  }
+
   getStats(): SessionUsageStats {
     return {
       inputTokens: this.inputTokens,
@@ -79,6 +91,9 @@ export class UsageTracker {
       estimatedCostUsd: this.estimatedCostUsd,
       cacheHitRate: this.cacheHitRate,
       turnsCount: this.turnsCount,
+      classifierCalls: this.classifierCalls,
+      classifierInputTokens: this.classifierInputTokens,
+      classifierOutputTokens: this.classifierOutputTokens,
     };
   }
 
@@ -90,5 +105,8 @@ export class UsageTracker {
     this.estimatedCostUsd = 0;
     this.cacheHitRate = 0;
     this.turnsCount = 0;
+    this.classifierCalls = 0;
+    this.classifierInputTokens = 0;
+    this.classifierOutputTokens = 0;
   }
 }

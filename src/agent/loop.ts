@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.js';
+import crypto from 'crypto';
+import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
@@ -15,18 +16,35 @@ import {
   appendJournalEntry,
   readRecentJournals,
 } from '../project-memory/store.js';
+import { sendNtfyNotification } from '../integrations/store.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
 import { generateProjectDoc } from '../project-memory/generators/project-doc.js';
 import { generateStateDoc, generateJournalEntry } from '../project-memory/generators/state-doc.js';
+import { ResponseCache } from './cache.js';
 
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
   onToolResult?: (name: string, result: string) => void;
+  onClassifying?: () => void;
+  onClassified?: (tier: string) => void;
 }
 
 const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with persistent project memory.
-You have access to tools for reading/writing files, running shell commands, and querying project history via Engram.
+You have access to tools for reading/writing files, running shell commands, querying project history via Engram, and analyzing image files via the analyze_image tool.
 Be precise, concise, and always verify your work. Prefer editing existing files over creating new ones.`;
+
+// Approximate per-token pricing (USD) for cost estimation in logUsage.
+const PRICING: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
+  haiku: { input: 0.0000008, cacheWrite: 0.000001, cacheRead: 0.00000008, output: 0.000004 },
+  sonnet: { input: 0.000003, cacheWrite: 0.00000375, cacheRead: 0.0000003, output: 0.000015 },
+  opus: { input: 0.000015, cacheWrite: 0.00001875, cacheRead: 0.0000015, output: 0.000075 },
+};
+
+function pricingFor(model: string) {
+  if (model.includes('haiku')) return PRICING['haiku']!;
+  if (model.includes('opus')) return PRICING['opus']!;
+  return PRICING['sonnet']!;
+}
 
 /**
  * Trims a message history to at most `window` entries, always starting at the
@@ -56,6 +74,38 @@ function escapeXml(s: string): string {
     .replace(/'/g, '&apos;');
 }
 
+export function isCodeQuery(message: string): boolean {
+  const signals = ['function', 'file', 'module', 'error', 'bug', 'src/', 'import', 'class', 'type', '.ts', '.js', '.py', 'test', 'lint', 'build', 'compile'];
+  const lower = message.toLowerCase();
+  return signals.some((s) => lower.includes(s));
+}
+
+export function hasBacklogSignals(message: string): boolean {
+  const signals = ['task', 'backlog', 'plan', 'next', 'todo', 'priority', 'should we', "what's left", 'checkpoint'];
+  const lower = message.toLowerCase();
+  return signals.some((s) => lower.includes(s));
+}
+
+function logUsage(
+  acc: { inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number },
+  model: string,
+  context: { spiderBrain: boolean; backlog: boolean; state: boolean; handoff: boolean },
+): void {
+  const total = acc.inputTokens + acc.cacheReadTokens;
+  const cachePct = total > 0 ? Math.round((acc.cacheReadTokens / total) * 100) : 0;
+  const p = pricingFor(model);
+  const cost =
+    acc.inputTokens * p.input +
+    acc.cacheWriteTokens * p.cacheWrite +
+    acc.cacheReadTokens * p.cacheRead +
+    acc.outputTokens * p.output;
+
+  process.stderr.write(
+    `[koa] tokens — input: ${acc.inputTokens} | cached: ${acc.cacheReadTokens} (${cachePct}%) | output: ${acc.outputTokens} | est_cost: $${cost.toFixed(4)}\n` +
+    `[koa] context — spiderbrain: ${context.spiderBrain ? 'YES' : 'NO'} | backlog: ${context.backlog ? 'YES' : 'NO'} | state: ${context.state ? 'YES' : 'NO'} | handoff: ${context.handoff ? 'YES' : 'NO'}\n`,
+  );
+}
+
 export class AgentLoop {
   private client: Anthropic;
   private registry: ToolRegistry;
@@ -65,6 +115,7 @@ export class AgentLoop {
   private state: AgentState;
   private usage: UsageTracker;
   private memories: MemoryEntry[] = [];
+  private responseCache = new ResponseCache();
   private _projectDocGeneration?: Promise<void>;
   private _checkpointInProgress = false;
   private _checkpointTimer: ReturnType<typeof setInterval> | undefined = undefined;
@@ -144,41 +195,80 @@ export class AgentLoop {
     }
   }
 
-  private buildSystemPrompt(): string {
-    const parts = [SYSTEM_BASE];
-
+  /**
+   * Builds layered system prompt as multiple content blocks with cache breakpoints:
+   *   Block 1 (cached): static persona + global memories — never changes
+   *   Block 2 (cached): project memory (project doc, state, journals, handoff) — stable within session
+   *   Block 3 (no cache): dynamic context (Engram, SpiderBrain if code query, Backlog if planning)
+   */
+  private buildSystemBlocks(userMessage: string): {
+    blocks: Anthropic.TextBlockParam[];
+    injectedSpiderBrain: boolean;
+    injectedBacklog: boolean;
+    hasState: boolean;
+    hasHandoff: boolean;
+  } {
+    // Block 1: static prefix — persona + global Engram memories
+    const staticParts = [SYSTEM_BASE];
     const memoryInjection = buildMemoryPromptInjection(this.memories);
-    if (memoryInjection) parts.push(memoryInjection);
+    if (memoryInjection) staticParts.push(memoryInjection);
 
-    // Working memory — project context, state, journals
-    if (this.state.projectMemory) {
-      const pm = this.state.projectMemory;
-      if (pm.project) {
-        parts.push(`<project_memory>\n${escapeXml(pm.project)}\n</project_memory>`);
-      }
-      if (pm.state) {
-        parts.push(`<project_state>\n${escapeXml(pm.state)}\n</project_state>`);
-      }
+    const block1: Anthropic.TextBlockParam = {
+      type: 'text',
+      text: staticParts.join('\n\n'),
+      cache_control: { type: 'ephemeral' },
+    };
+
+    // Block 2: stable project memory (no backlog — that's dynamic)
+    const pm = this.state.projectMemory;
+    const pmParts: string[] = [];
+    if (pm) {
+      if (pm.project) pmParts.push(`<project_memory>\n${escapeXml(pm.project)}\n</project_memory>`);
+      if (pm.state) pmParts.push(`<project_state>\n${escapeXml(pm.state)}\n</project_state>`);
       if (pm.journals && pm.journals.length > 0) {
-        parts.push(`<recent_sessions>\n${pm.journals.map(escapeXml).join('\n\n---\n\n')}\n</recent_sessions>`);
+        pmParts.push(`<recent_sessions>\n${pm.journals.map(escapeXml).join('\n\n---\n\n')}\n</recent_sessions>`);
       }
-      if (pm.backlog) {
-        parts.push(`<backlog>\n${escapeXml(pm.backlog)}\n</backlog>`);
-      }
-      if (pm.handoff) {
-        parts.push(`<handoff>\n${escapeXml(pm.handoff)}\n</handoff>`);
-      }
+      if (pm.handoff) pmParts.push(`<handoff>\n${escapeXml(pm.handoff)}\n</handoff>`);
     }
+
+    // Block 3: dynamic context — varies per turn
+    const injectSpiderBrain = isCodeQuery(userMessage);
+    const injectBacklog = !!(pm?.backlog && hasBacklogSignals(userMessage));
+    const dynamicParts: string[] = [];
 
     const engramInjection = this.engram.buildSystemPromptInjection(this.state.engramContext);
-    if (engramInjection) parts.push(engramInjection);
+    if (engramInjection) dynamicParts.push(engramInjection);
 
-    if (this.state.spiderBrainContext) {
+    if (injectSpiderBrain && this.state.spiderBrainContext) {
       const sbInjection = this.sb.buildSystemPromptInjection(this.state.spiderBrainContext);
-      if (sbInjection) parts.push(sbInjection);
+      if (sbInjection) dynamicParts.push(sbInjection);
     }
 
-    return parts.join('\n\n');
+    if (injectBacklog && pm?.backlog) {
+      dynamicParts.push(`<backlog>\n${escapeXml(pm.backlog)}\n</backlog>`);
+    }
+
+    const blocks: Anthropic.TextBlockParam[] = [block1];
+
+    if (pmParts.length > 0) {
+      blocks.push({
+        type: 'text',
+        text: pmParts.join('\n\n'),
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+
+    if (dynamicParts.length > 0) {
+      blocks.push({ type: 'text', text: dynamicParts.join('\n\n') });
+    }
+
+    return {
+      blocks,
+      injectedSpiderBrain: injectSpiderBrain,
+      injectedBacklog: injectBacklog,
+      hasState: !!(pm?.state),
+      hasHandoff: !!(pm?.handoff),
+    };
   }
 
   private maybeCompact(): void {
@@ -207,26 +297,22 @@ export class AgentLoop {
   }
 
   async turn(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
-    const { model: selectedModel, tier, cleanMessage } = selectModel(
+    if (this.config.smartRouting) callbacks?.onClassifying?.();
+    const { model: selectedModel, tier, cleanMessage, classifierLatencyMs, classifierUsage } = await selectModel(
       userMessage,
       this.state.messages.filter((m) => m.role === 'assistant').length,
       { model: this.config.model, smartRouting: this.config.smartRouting },
+      this.client,
     );
+    if (this.config.smartRouting) callbacks?.onClassified?.(tier);
 
     this.state.messages.push({ role: 'user', content: cleanMessage });
     this.state.turnCount++;
 
-    const toolUses: ToolUse[] = [];
-    let finalContent = '';
-    let stopReason = 'end_turn';
+    const { blocks, injectedSpiderBrain, injectedBacklog, hasState, hasHandoff } =
+      this.buildSystemBlocks(cleanMessage);
 
-    const system: Array<Anthropic.TextBlockParam> = [
-      {
-        type: 'text' as const,
-        text: this.buildSystemPrompt(),
-        cache_control: { type: 'ephemeral' as const },
-      },
-    ];
+    const system = blocks;
 
     const tools = this.registry.toAnthropicTools();
     if (tools.length > 0) {
@@ -236,7 +322,31 @@ export class AgentLoop {
       };
     }
 
+    // Phase 4: check response cache (skip if noCache flag set)
+    const systemHash = crypto.createHash('sha256').update(blocks[0]!.text).digest('hex').slice(0, 16);
+    const cacheKey = ResponseCache.key(systemHash, cleanMessage);
+    if (!this.config.noCache) {
+      const cached = this.responseCache.get(cacheKey);
+      if (cached) {
+        process.stderr.write(`[koa] cache HIT\n`);
+        this.state.messages.push({ role: 'assistant', content: [{ type: 'text', text: cached }] });
+        return {
+          content: cached,
+          toolUses: [],
+          stopReason: 'end_turn',
+          model: selectedModel,
+          tier,
+          usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, model: selectedModel },
+          ...(classifierLatencyMs !== undefined ? { classifierLatencyMs } : {}),
+        };
+      }
+    }
+
     const acc = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+
+    const toolUses: ToolUse[] = [];
+    let finalContent = '';
+    let stopReason = 'end_turn';
 
     let continueLoop = true;
     while (continueLoop) {
@@ -265,7 +375,7 @@ export class AgentLoop {
           if (block.type !== 'tool_use') continue;
 
           const tool = this.registry.get(block.name);
-          let result: string;
+          let result: ToolResultContent;
           const toolInput = block.input as Record<string, unknown>;
 
           if (!tool) {
@@ -277,16 +387,18 @@ export class AgentLoop {
             } catch (err) {
               result = `Error: ${err instanceof Error ? err.message : String(err)}`;
             }
-            callbacks?.onToolResult?.(block.name, result);
+            const displayResult = typeof result === 'string' ? result : `[${block.name} returned binary content]`;
+            callbacks?.onToolResult?.(block.name, displayResult);
           }
 
-          if (result.length > this.config.maxToolOutputChars) {
+          if (typeof result === 'string' && result.length > this.config.maxToolOutputChars) {
             result =
               result.slice(0, this.config.maxToolOutputChars) +
               `\n[truncated — ${result.length} total chars]`;
           }
 
-          toolUses.push({ id: block.id, name: block.name, input: toolInput, result });
+          const resultSummary = typeof result === 'string' ? result : `[binary content]`;
+          toolUses.push({ id: block.id, name: block.name, input: toolInput, result: resultSummary });
           toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
         }
 
@@ -301,10 +413,25 @@ export class AgentLoop {
     }
 
     this.usage.addTurn({ ...acc, model: selectedModel });
+    if (classifierUsage) {
+      this.usage.addClassifierCall(classifierUsage.inputTokens, classifierUsage.outputTokens);
+    }
     this.state.usage = this.usage.getStats();
     this.state.lastModel = selectedModel;
     this.state.lastTier = tier;
     this.maybeCompact();
+
+    logUsage(acc, selectedModel, {
+      spiderBrain: injectedSpiderBrain,
+      backlog: injectedBacklog,
+      state: hasState,
+      handoff: hasHandoff,
+    });
+
+    // Store in response cache only when no tool calls occurred (tool results are side-effectful)
+    if (!this.config.noCache && toolUses.length === 0 && finalContent) {
+      this.responseCache.set(cacheKey, finalContent);
+    }
 
     if (
       this.config.autoCheckpointTurns > 0 &&
@@ -320,6 +447,7 @@ export class AgentLoop {
       model: selectedModel,
       tier,
       usage: { ...acc, model: selectedModel },
+      ...(classifierLatencyMs !== undefined ? { classifierLatencyMs } : {}),
     };
   }
 
@@ -349,6 +477,10 @@ export class AgentLoop {
     const stateMd = await generateStateDoc(summary, this.state.turnCount, this.config.apiKey);
     writeMarkdownFile(paths.stateMd, stateMd);
     if (this.state.projectMemory) this.state.projectMemory.state = stateMd;
+    void sendNtfyNotification(
+      'Koa checkpoint',
+      `Turn ${this.state.turnCount} — STATE.md updated`,
+    );
   }
 
   async finalize(): Promise<void> {
@@ -392,5 +524,13 @@ export class AgentLoop {
 
   getState(): Readonly<AgentState> {
     return this.state;
+  }
+
+  getTools(): Array<{ name: string; description: string }> {
+    return this.registry.getAll().map((t) => ({ name: t.name, description: t.description }));
+  }
+
+  async rebuildBrain(): Promise<string> {
+    return this.sb.molt();
   }
 }

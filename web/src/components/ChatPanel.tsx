@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { ChatItem } from '../types.js';
 import MessageBubble from './MessageBubble.js';
+import { Icon } from './Icon.js';
 
 interface Props {
   items: ChatItem[];
@@ -8,10 +9,11 @@ interface Props {
   setInput: (v: string) => void;
   onSubmit: () => void;
   isThinking: boolean;
+  classifyingTier?: string | null;
   onClear: () => void;
 }
 
-export default function ChatPanel({ items, input, setInput, onSubmit, isThinking, onClear }: Props) {
+export default function ChatPanel({ items, input, setInput, onSubmit, isThinking, classifyingTier, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,8 +32,8 @@ export default function ChatPanel({ items, input, setInput, onSubmit, isThinking
       <div className="chat__header">
         <span className="chat__header-title">Chat</span>
         {items.length > 0 && (
-          <button className="chat__clear-btn" onClick={onClear} title="Clear conversation">
-            [clear]
+          <button className="chat__clear-btn" onClick={onClear} aria-label="Clear conversation">
+            <Icon name="trash" size={13} />
           </button>
         )}
       </div>
@@ -47,8 +49,11 @@ export default function ChatPanel({ items, input, setInput, onSubmit, isThinking
         <div ref={bottomRef} />
       </div>
 
+      {classifyingTier && (
+        <div className="classifying-badge">Routing{classifyingTier !== '…' ? ` → ${classifyingTier}` : '…'}</div>
+      )}
+
       <div className="input-row">
-        <span className="input-row__prompt">{'>'}</span>
         <input
           className="input-row__input"
           type="text"
@@ -56,9 +61,17 @@ export default function ChatPanel({ items, input, setInput, onSubmit, isThinking
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={isThinking}
-          placeholder="Ask Koa anything..."
+          placeholder="Ask Koa anything…"
           autoFocus
         />
+        <button
+          className="input-row__send"
+          onClick={onSubmit}
+          disabled={isThinking || !input.trim()}
+          aria-label="Send message"
+        >
+          <Icon name="send" size={15} />
+        </button>
       </div>
     </div>
   );

@@ -191,3 +191,130 @@ src/session/
 | Agent allowlist validated before exec | Security: prevents Koa from being convinced to run arbitrary agent names |
 | `session/store.ts` retired, not extended | The new journal layer supersedes it entirely; keeping both would duplicate session tracking |
 | `autoMolt()` / `autoIndex()` log to stderr only | MCP mode owns stdout; stderr is safe for diagnostics in all three frontends |
+
+---
+
+## Backlog — Apple Platform Clients
+
+> Added: 2026-05-31
+> Spec reference: `docs/ADMIN-UI-SPEC.md` (admin UI), conversation on 2026-05-31 (Apple platforms)
+> Priority: after Admin UI Phase 1 foundations are complete
+
+### Prerequisites (server-side — must land before any native client ships)
+
+- [ ] Add bearer token auth to Express server (owner: coder) — All `/api/` routes require an `Authorization: Bearer <token>` header. Token stored in credentials file via `koa config set web-token <token>`. Unauthenticated requests return HTTP 401. AC: `curl` without token returns 401; `curl` with correct token passes; existing web console sends token on every request.
+
+- [ ] HTTPS / TLS termination (owner: ops) — Document Tailscale or nginx TLS setup in `docs/DEPLOYMENT.md`. Koa itself does not need to terminate TLS — document the recommended reverse proxy pattern. AC: README has a "Exposing Koa externally" section covering Tailscale + nginx approaches.
+
+- [ ] APNs push notification support (owner: coder) — Add `POST /api/admin/push/register` endpoint to store a device APNs token. Add `POST /api/admin/push/send` internal helper that fires a push via the `apn` npm package. Wire into notification rules engine (from Admin UI spec). AC: Test push lands on a registered device; invalid token is silently dropped (not an error).
+
+- [ ] `?format=brief` response mode (owner: coder) — Add optional query param to `POST /api/chat`. When set, appends a system instruction capping the response to ~2 sentences. Intended for watchOS. AC: Response with `?format=brief` is meaningfully shorter than without; no change to normal chat behaviour.
+
+---
+
+### Phase A: iOS App (MVP)
+
+- [ ] Project scaffold — New Xcode project: `KoaApp` (iOS 17+, SwiftUI). Add to repo under `clients/ios/`. AC: Project builds and runs on simulator.
+
+- [ ] API client layer — Swift `KoaClient` struct wrapping `URLSession`. Methods: `fetchStatus()`, `streamChat(message:onEvent:onComplete:onError:)` using chunked transfer / SSE parsing, `checkpoint()`. Auth header injected from Keychain-stored token. AC: Unit tests for SSE line parsing; integration test against local server.
+
+- [ ] Settings screen — Enter server URL + bearer token, stored in Keychain. Test connection button. AC: Valid creds → green checkmark; bad token → error message.
+
+- [ ] Chat screen — SwiftUI chat bubbles, markdown rendering (via `AttributedString`), streaming support (text appends as SSE `content` events arrive), tool call trace rows (collapsed by default, tappable to expand), thinking indicator. AC: Full chat round-trip works on device.
+
+- [ ] Status indicator — Live polling (or SSE keep-alive) showing idle/busy/tool-name in the nav bar. AC: Indicator updates within 1s of state change.
+
+- [ ] Push notifications — Register APNs token with server on first launch. Receive and display notification banners. AC: Notification rule fires → banner appears on locked device.
+
+- [ ] Siri Shortcuts (`AppIntents`) — Expose "Ask Koa" intent accepting a free-text prompt. Returns Koa's response as output (usable in Shortcuts automations). AC: Intent appears in Shortcuts app; triggers a real agent turn.
+
+- [ ] Background task handling — Use `URLSessionConfiguration.background` for long-running chat requests. App goes to background mid-stream → request continues → push notification on complete. AC: Lock screen mid-turn; notification arrives with response.
+
+---
+
+### Phase B: watchOS App (Companion)
+
+> Requires iOS app to be complete first (watchOS app is a companion target).
+
+- [ ] Companion target — Add watchOS target to Xcode project. Share `KoaClient` and model types via a Swift Package or shared framework. AC: Builds for watchOS simulator.
+
+- [ ] Watch face complication — `CLKComplicationDataSource` showing: Koa status (idle/busy), today's session cost (e.g. `$0.02`), last task summary (short string). Refreshes every 15 minutes via background task. AC: Complication visible on watch face in simulator; data matches server state.
+
+- [ ] Quick prompts glance — WatchKit app with a list of 5 configurable pre-set prompts (e.g. "Check homelab", "What's my task list?", "Any errors?"). Tap → fires chat turn → response displayed as short text + notification when done. AC: Tap-to-send works; response arrives within watch session or as notification.
+
+- [ ] Dictation input — Free-text prompt via `WKTextInputMode.plain` dictation. Sends to `POST /api/chat?format=brief`. AC: Dictated message round-trips; response displayed in watch UI.
+
+- [ ] Notification replies — When a Koa push arrives on the watch, offer an inline reply action that sends the reply back as a chat message. AC: Reply from notification triggers a new agent turn.
+
+---
+
+### Phase C: tvOS App (Dashboard)
+
+> Lower priority. Build after iOS + watchOS are stable.
+
+- [ ] tvOS target — Add tvOS target. Shared `KoaClient`. AC: Builds for tvOS simulator.
+
+- [ ] Dashboard screen — Full-screen ambient display: SpiderBrain hot files, current session status, today's cost chart, last 3 session summaries. Refreshes every 30s. Designed for always-on display. AC: Layout renders correctly on 1080p tvOS simulator; focus engine navigates cleanly with Siri Remote.
+
+- [ ] Notification banners — APNs notifications appear as tvOS banners. No reply needed. AC: Test push appears as banner on tvOS.
+
+- [ ] Voice query (Siri Remote mic) — Short prompt via Siri Remote microphone button → `POST /api/chat?format=brief` → response displayed as overlay. AC: Voice input triggers agent turn; response overlay appears within 10s.
+
+---
+
+### Key Decisions (recorded at backlog creation)
+
+| Decision | Rationale |
+|---|---|
+| Tailscale preferred over open port | Already fits homelab pattern; zero infra changes to Koa server |
+| Bearer token auth (not session/cookie) | Stateless; works cleanly for native clients and CLI alike |
+| iOS first, watchOS companion, tvOS last | Highest value → lowest; watchOS shares iOS codebase; tvOS is nice-to-have |
+| `?format=brief` server-side (not client-side truncation) | Model produces a better short answer than truncating a long one |
+| APNs over polling for mobile notifications | Battery life; background polling is restricted on iOS 17+ |
+| watchOS: no persistent SSE connection | Platform restriction; use push + one-shot requests instead |
+
+---
+
+## Backlog — API Cost Optimization
+
+> Added: 2026-05-31
+> Spec reference: `docs/tasks/api-cost-optimization.md`
+> Trigger: Hit API spend limit at $100/month; 16.8M tokens/week at 21% prompt cache hit rate
+> Priority: High — fix before next billing period
+
+### Phase 1: Prompt Caching (largest lever — do first)
+
+- [ ] Cache system prompt prefix with `cache_control: { type: "ephemeral" }` in `buildSystemPrompt()` in `src/agent/loop.ts` (owner: coder) — Static persona + tool list as first cache breakpoint. AC: `cache_read_input_tokens > 0` on second turn of same session.
+
+- [ ] Cache project memory blocks as a second cache breakpoint (owner: coder) — PROJECT.md / STATE.md / BACKLOG.md blocks injected before dynamic SpiderBrain context. AC: Memory blocks carry `cache_control`; SpiderBrain context injected after.
+
+- [ ] Add `logUsage()` helper to `src/agent/loop.ts` (owner: coder) — Logs `input | cached (%) | output | est_cost` to stderr on every turn. AC: Log appears every turn; no stdout pollution.
+
+### Phase 2: Model Tiering
+
+- [ ] Add `ModelTier` type and `MODEL_MAP` to `src/types/index.ts` (owner: coder) — `fast` → Haiku, `standard` → Sonnet, `powerful` → Opus. AC: `tsc --noEmit` passes.
+
+- [ ] Audit all `messages.create()` calls; switch internal/non-user-facing calls to Haiku (owner: coder) — Generators (project-doc, state-doc, journal), smart routing classifier, agent dispatch. AC: Every call tagged with tier comment; generators confirmed on Haiku.
+
+- [ ] Add optional `model?: ModelTier` to `AgentConfig`; wire `--model` CLI flag (owner: coder) — Defaults to `standard`. AC: `koa chat --model fast` uses Haiku for all turns.
+
+### Phase 3: Selective Context Injection
+
+- [ ] Add `isCodeQuery()` gate for SpiderBrain context injection in `buildSystemPrompt()` (owner: coder) — Keyword-based; no LLM call. AC: Unit test covers code and non-code query branches.
+
+- [ ] Add planning-signal gate for BACKLOG.md injection (owner: coder) — Only inject on task/plan/priority signals. AC: Ordinary turns skip BACKLOG; unit test covers gate.
+
+- [ ] Extend `logUsage()` to log which context blocks were injected per turn (owner: coder) — AC: `spiderbrain: YES|NO | backlog: YES|NO` in stderr log.
+
+### Phase 4: Local Response Cache (lower priority)
+
+- [ ] Create `src/agent/cache.ts` — In-memory LRU, SHA-256 key, 60s TTL, 50-entry max (owner: coder) — AC: Unit tests for hit/miss/eviction/TTL; `--no-cache` flag bypasses.
+
+- [ ] Wire cache into `AgentLoop.turn()` — Skip API call on hit; never cache tool-call turns (owner: coder) — AC: Cache hit returns in <5ms; tool turns never cached.
+
+### Acceptance Criteria (overall)
+
+- [ ] Prompt cache hit rate ≥60% in a 10-turn session (up from 21%)
+- [ ] Weekly spend down ≥40% at equivalent usage
+- [ ] All internal LLM calls on Haiku
+- [ ] `npm test` — 0 failures, 0 lint, 0 typecheck errors

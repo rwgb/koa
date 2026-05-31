@@ -11,9 +11,11 @@ import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
 import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
+import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
+import { loadCustomSkills } from '../skills/store.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
-import { loadConfig } from '../config/index.js';
+import { loadConfig, generateWebToken, setWebToken } from '../config/index.js';
 import { UsageTracker } from '../agent/usage.js';
 import { writeCredential, deleteCredential, readCredentials, getCredentialsPath } from '../config/credentials.js';
 
@@ -30,6 +32,7 @@ function buildRegistry(
   registry.register(rememberTool);
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
+  for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
   if (sb.isAvailable()) {
     for (const tool of createSpiderBrainTools(sb)) registry.register(tool);
   }
@@ -47,14 +50,16 @@ program
   .command('chat', { isDefault: true })
   .description('Start an interactive chat session')
   .option('-p, --project <path>', 'Project path (defaults to cwd)')
-  .option('-m, --model <model>', 'Claude model to use')
+  .option('-m, --model <model>', 'Claude model to use (fast|standard|powerful or full model name)')
   .option('--no-engram', 'Disable Engram memory integration')
+  .option('--no-cache', 'Disable response cache')
   .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
   .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
-  .action(async (opts: { project?: string; model?: string; engram: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
+  .action(async (opts: { project?: string; model?: string; engram: boolean; cache: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
     const config = loadConfig(opts.project);
     if (opts.model) config.model = opts.model;
     if (!opts.engram) config.engramEnabled = false;
+    if (!opts.cache) config.noCache = true;
     if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
     if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
 
@@ -100,12 +105,14 @@ program
   .option('-p, --port <port>', 'Port to listen on', '3000')
   .option('--no-open', 'Do not open browser automatically')
   .option('--project <path>', 'Project path (defaults to cwd)')
-  .option('-m, --model <model>', 'Claude model to use')
+  .option('-m, --model <model>', 'Claude model to use (fast|standard|powerful or full model name)')
+  .option('--no-cache', 'Disable response cache')
   .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
   .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
-  .action(async (opts: { port: string; open: boolean; project?: string; model?: string; checkpointTurns?: number; checkpointMinutes?: number }) => {
+  .action(async (opts: { port: string; open: boolean; project?: string; model?: string; cache: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
     const config = loadConfig(opts.project);
     if (opts.model) config.model = opts.model;
+    if (!opts.cache) config.noCache = true;
     if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
     if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
 
@@ -163,9 +170,20 @@ const configCmd = program
   .description('Manage Koa configuration and credentials');
 
 configCmd
-  .command('set <key> <value>')
-  .description('Persist a configuration value (e.g. api-key sk-ant-...)')
-  .action((key: string, value: string) => {
+  .command('set <key> [value]')
+  .description('Persist a configuration value (e.g. api-key sk-ant-...). Omit value for web-token to auto-generate.')
+  .action((key: string, value: string | undefined) => {
+    if (key === 'web-token') {
+      const token = value ?? generateWebToken();
+      setWebToken(token);
+      console.log(`Web token saved to ${getCredentialsPath()}`);
+      if (!value) console.log(`Generated token: ${token}`);
+      return;
+    }
+    if (value === undefined) {
+      console.error(`Error: value required for key "${key}"`);
+      process.exit(1);
+    }
     const credKey = key === 'api-key' ? 'ANTHROPIC_API_KEY' : key;
     writeCredential(credKey, value);
     console.log(`Saved ${key} to ${getCredentialsPath()}`);

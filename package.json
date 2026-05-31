@@ -30,6 +30,7 @@
     "cors": "^2.8.6",
     "execa": "^9.4.0",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
     "ink": "^5.1.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",

@@ -83,11 +83,19 @@ export class SpiderBrainClient {
     }
   }
 
+  private isProjectDir(): boolean {
+    const markers = ['.git', 'package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'setup.py'];
+    return markers.some(m => fs.existsSync(path.join(this.projectPath, m)));
+  }
+
   autoMolt(): Promise<void> {
     if (this._moltPromise) return this._moltPromise;
 
     const scriptPath = path.join(SCRIPTS_DIR, 'molt.mjs');
     if (!fs.existsSync(scriptPath)) return Promise.resolve();
+
+    // Don't create a new brain for non-project directories (e.g. home dir)
+    if (!this.brainDir && !this.isProjectDir()) return Promise.resolve();
 
     const parent = path.dirname(this.projectPath);
     const name = path.basename(this.projectPath);

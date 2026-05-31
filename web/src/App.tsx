@@ -1,127 +1,104 @@
-import { useEffect, useRef, useState } from 'react';
-import { fetchStatus, streamChat } from './api.js';
-import type { AgentStatus, ChatItem, SessionUsageStats, SpiderBrainContext, SseEvent } from './types.js';
-import StatusBar from './components/StatusBar.js';
-import Sidebar from './components/Sidebar.js';
-import ChatPanel from './components/ChatPanel.js';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import RootLayout from './layouts/RootLayout.js';
+import ChatPage from './pages/ChatPage.js';
+import MemoryPage from './pages/MemoryPage.js';
+import IntegrationsPage from './pages/IntegrationsPage.js';
+import SkillsPage from './pages/SkillsPage.js';
+import NotificationsPage from './pages/NotificationsPage.js';
+import ActivityPage from './pages/ActivityPage.js';
+import SettingsPage from './pages/SettingsPage.js';
+import { pingServer, verifyToken, getStoredToken, setStoredToken } from './api.js';
 
-function makeId(): string {
-  return Math.random().toString(36).slice(2, 10);
-}
+type AuthState = 'loading' | 'ready' | 'needs-token';
 
 export default function App() {
-  const [items, setItems] = useState<ChatItem[]>([]);
-  const [status, setStatus] = useState<AgentStatus | null>(null);
-  const [isThinking, setIsThinking] = useState(false);
-  const [input, setInput] = useState('');
-  const [sessionUsage, setSessionUsage] = useState<SessionUsageStats | null>(null);
-  const [spiderBrain, setSpiderBrain] = useState<SpiderBrainContext | null>(null);
-  const cancelRef = useRef<(() => void) | null>(null);
-  // Track the tier of the most recent completed turn so assistant bubbles can be badged
-  const lastTierRef = useRef<string>('sonnet');
+  const [authState, setAuthState] = useState<AuthState>('loading');
+  const [tokenInput, setTokenInput] = useState('');
+  const [tokenError, setTokenError] = useState('');
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    fetchStatus()
-      .then(s => {
-        setStatus(s);
-        if (s.usage) setSessionUsage(s.usage);
-        setSpiderBrain(s.spiderBrain ?? null);
-      })
-      .catch(err => console.error('Failed to load status:', err));
+    (async () => {
+      try {
+        const { auth } = await pingServer();
+        if (!auth) { setAuthState('ready'); return; }
 
-    return () => {
-      cancelRef.current?.();
-    };
+        const stored = getStoredToken();
+        if (stored && await verifyToken(stored)) {
+          setAuthState('ready');
+        } else {
+          setAuthState('needs-token');
+        }
+      } catch {
+        // Server unreachable — still show app, individual calls will surface errors
+        setAuthState('ready');
+      }
+    })();
   }, []);
 
-  const handleSubmit = () => {
-    const trimmed = input.trim();
-    if (!trimmed || isThinking) return;
+  async function handleTokenSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setTokenError('');
+    setChecking(true);
+    const ok = await verifyToken(tokenInput.trim());
+    setChecking(false);
+    if (ok) {
+      setStoredToken(tokenInput.trim());
+      setAuthState('ready');
+    } else {
+      setTokenError('Invalid token — check your credentials file and try again.');
+    }
+  }
 
-    cancelRef.current?.();
-
-    setInput('');
-    setIsThinking(true);
-
-    setItems(prev => [
-      ...prev,
-      { kind: 'user', content: trimmed, id: makeId() },
-    ]);
-
-    const cancel = streamChat(
-      trimmed,
-      (event: SseEvent) => {
-        if (event.type === 'done') {
-          lastTierRef.current = event.tier;
-          setStatus(prev =>
-            prev
-              ? { ...prev, turnCount: event.turnCount, activeModel: event.model, activeTier: event.tier }
-              : prev,
-          );
-          return;
-        }
-        if (event.type === 'usage') {
-          setSessionUsage(event.session);
-          return;
-        }
-        if (event.type === 'content') {
-          setItems(prev => {
-            const last = prev[prev.length - 1];
-            if (last?.kind === 'assistant') {
-              return [...prev.slice(0, -1), { ...last, content: last.content + event.text }];
-            }
-            return [...prev, { kind: 'assistant', content: event.text, id: makeId(), tier: lastTierRef.current }];
-          });
-          return;
-        }
-        if (event.type === 'tool_call') {
-          setItems(prev => [...prev, { kind: 'tool_call', name: event.name, input: event.input, id: makeId() }]);
-          return;
-        }
-        if (event.type === 'tool_result') {
-          setItems(prev => [...prev, { kind: 'tool_result', name: event.name, result: event.result, id: makeId() }]);
-          return;
-        }
-        if (event.type === 'error') {
-          setItems(prev => [...prev, { kind: 'error', message: event.message, id: makeId() }]);
-        }
-      },
-      () => {
-        setIsThinking(false);
-        fetchStatus()
-          .then(s => {
-            setStatus(s);
-            if (s.usage) setSessionUsage(s.usage);
-            setSpiderBrain(s.spiderBrain ?? null);
-          })
-          .catch(() => undefined);
-      },
-      (msg: string) => {
-        setIsThinking(false);
-        setItems(prev => [
-          ...prev,
-          { kind: 'error', message: msg, id: makeId() },
-        ]);
-      },
+  if (authState === 'loading') {
+    return (
+      <div className="auth-loading">
+        <div className="auth-spinner" />
+      </div>
     );
+  }
 
-    cancelRef.current = cancel;
-  };
+  if (authState === 'needs-token') {
+    return (
+      <div className="auth-gate">
+        <div className="auth-card">
+          <div className="auth-logo">Koa</div>
+          <h2>Authentication required</h2>
+          <p>Enter your web token to continue. Generate one with <code>koa config set web-token</code>.</p>
+          <form onSubmit={handleTokenSubmit}>
+            <input
+              type="password"
+              className="auth-input"
+              placeholder="Paste token…"
+              value={tokenInput}
+              onChange={e => setTokenInput(e.target.value)}
+              autoFocus
+            />
+            {tokenError && <p className="auth-error">{tokenError}</p>}
+            <button className="auth-btn" type="submit" disabled={checking || !tokenInput.trim()}>
+              {checking ? 'Verifying…' : 'Connect'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="app">
-      <StatusBar status={status} isThinking={isThinking} usage={sessionUsage} spiderBrain={spiderBrain} />
-      <div className="main">
-        <Sidebar context={status?.context ?? null} usage={sessionUsage} spiderBrain={spiderBrain} status={status} />
-        <ChatPanel
-          items={items}
-          input={input}
-          setInput={setInput}
-          onSubmit={handleSubmit}
-          isThinking={isThinking}
-          onClear={() => setItems([])}
-        />
-      </div>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RootLayout />}>
+          <Route index element={<Navigate to="/chat" replace />} />
+          <Route path="chat" element={<ChatPage />} />
+          <Route path="memory" element={<MemoryPage />} />
+          <Route path="integrations" element={<IntegrationsPage />} />
+          <Route path="skills" element={<SkillsPage />} />
+          <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="activity" element={<ActivityPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   );
 }
