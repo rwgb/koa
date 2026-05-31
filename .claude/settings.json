@@ -9,19 +9,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "(jq -r '.tool_input.file_path // empty' | grep -qE '\\.tsx\\?$') && cd \"/Users/ralph.brynard/active projects/koa\" && npm run build 2>&1 || true",
+            "command": "(jq -r '.tool_input.file_path // empty' | grep -qE '\\.tsx?$') && cd \"/Users/ralph.brynard/active projects/koa\" && npm run build 2>&1 || true",
             "statusMessage": "Building Koa..."
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "if": "Bash(git commit*)",
-            "command": "HASH=$(git log --format=%h -1 2>/dev/null); MSG=$(git log --format=%s -1 2>/dev/null); BRANCH=$(git branch --show-current 2>/dev/null); curl -s -o /dev/null -H \"Title: koa: ${HASH} committed\" -H \"Tags: white_check_mark\" -d \"${BRANCH}: ${MSG}\" https://ntfy.sh/undaunting_underpants 2>/dev/null || true",
-            "async": true
           }
         ]
       }

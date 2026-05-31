@@ -1,5 +1,23 @@
 # Koa — DevLog
 
+## [2026-05-31] — Fix: Remove git commit ntfy hook from Claude settings
+
+### Completed
+- **`.claude/settings.json`** — Removed `PostToolUse` Bash hook that fired an ntfy notification on every `git commit`. Hook was sending commit hash/message to ntfy on each Claude commit, duplicating the checkpoint signal and firing outside the intended checkpoint flow.
+- **Memory** — Added `feedback_no_commit_notifications.md` to project memory so this pattern is not re-introduced.
+
+### Decisions
+- Notifications belong exclusively in `AgentLoop.checkpoint()` → `sendNtfyNotification()`, triggered by the checkpoint word or auto-checkpoint timer. Not in Claude Code hooks.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] API Cost Optimization (Phases 1–4): prompt caching, model tiering, selective context injection, response cache
+- [ ] CP9: Apple platform clients (iOS MVP)
+
+---
+
 ## [2026-05-31] — CP8: Integration tests + notification rule editing + custom skills wiring
 
 ### Completed
