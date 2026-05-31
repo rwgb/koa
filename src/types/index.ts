@@ -1,11 +1,21 @@
 import type Anthropic from '@anthropic-ai/sdk';
 
-export interface KoaConfig {
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
   model: string;
-  maxTokens: number;
-  projectPath: string;
-  engramEnabled: boolean;
-  apiKey?: string;
+}
+
+export interface SessionUsageStats {
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  estimatedCostUsd: number;
+  cacheHitRate: number;
+  turnsCount: number;
 }
 
 export interface EngramContext {
@@ -36,17 +46,49 @@ export interface Tool {
   execute(input: ToolInput): Promise<string>;
 }
 
+export interface SpiderBrainMaster {
+  id: string;
+  webscore: number;
+  cluster: string;
+  role?: string;
+  fanIn: number;
+}
+
+export interface SpiderBrainContext {
+  available: boolean;
+  prey: string;
+  masters: SpiderBrainMaster[];
+  hotFiles: string[];
+  clusterNames: string[];
+}
+
+export interface ProjectMemory {
+  project?: string;
+  state?: string;
+  backlog?: string;
+  handoff?: string;
+  journals?: string[];
+}
+
 export interface AgentState {
   messages: Anthropic.MessageParam[];
   engramContext: EngramContext;
+  spiderBrainContext?: SpiderBrainContext;
+  projectMemory?: ProjectMemory;
   sessionId?: string;
   turnCount: number;
+  lastModel?: string;
+  lastTier?: string;
+  usage: SessionUsageStats;
 }
 
 export interface TurnResult {
   content: string;
   toolUses: ToolUse[];
   stopReason: string;
+  model: string;
+  tier: string;
+  usage?: TurnUsage;
 }
 
 export interface ToolUse {

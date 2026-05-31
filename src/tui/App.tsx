@@ -6,7 +6,7 @@ import { Sidebar } from './components/Sidebar.js';
 import { StatusBar } from './components/StatusBar.js';
 import type { AgentLoop } from '../agent/loop.js';
 import type { KoaConfig } from '../config/index.js';
-import type { EngramContext } from '../types/index.js';
+import type { EngramContext, SessionUsageStats } from '../types/index.js';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -26,16 +26,47 @@ export function App({ loop, config, engramContext }: Props) {
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [turnCount, setTurnCount] = useState(0);
+  const [sessionUsage, setSessionUsage] = useState<SessionUsageStats | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
 
-  useInput((input, key) => {
-    if (key.ctrl && input === 'c') {
-      loop.finalize().finally(() => exit());
-    }
+  const quit = useCallback(() => {
+    if (isExiting) return;
+    setIsExiting(true);
+    // 15s ceiling so a slow network never causes an indefinite hang on exit
+    Promise.race([
+      loop.finalize(),
+      new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+    ]).finally(() => exit());
+  }, [isExiting, loop, exit]);
+
+  useInput((inputChar, key) => {
+    if (key.ctrl && inputChar === 'c') quit();
   });
 
   const handleSubmit = useCallback(
     async (value: string) => {
-      if (!value.trim() || isThinking) return;
+      if (!value.trim() || isThinking || isExiting) return;
+
+      const trimmed = value.trim().toLowerCase();
+      if (trimmed === '/exit' || trimmed === '/quit' || trimmed === 'exit' || trimmed === 'quit') {
+        quit();
+        return;
+      }
+
+      if (trimmed === '/checkpoint') {
+        setInput('');
+        setIsThinking(true);
+        try {
+          await loop.checkpoint();
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: 'Checkpoint saved. STATE.md updated.', turn: turnCount },
+          ]);
+        } finally {
+          setIsThinking(false);
+        }
+        return;
+      }
 
       const turn = turnCount + 1;
       setTurnCount(turn);
@@ -49,6 +80,7 @@ export function App({ loop, config, engramContext }: Props) {
           ...prev,
           { role: 'assistant', content: result.content, turn },
         ]);
+        setSessionUsage(loop.getState().usage);
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -62,7 +94,7 @@ export function App({ loop, config, engramContext }: Props) {
         setIsThinking(false);
       }
     },
-    [loop, isThinking, turnCount],
+    [loop, isThinking, isExiting, turnCount, quit],
   );
 
   return (
@@ -76,7 +108,7 @@ export function App({ loop, config, engramContext }: Props) {
           {messages.length === 0 && (
             <Box>
               <Text color="gray" dimColor>
-                Type a message to start. Koa has Engram memory for this project.
+                Type a message to start. Type /exit or press Ctrl+C to quit.
               </Text>
             </Box>
           )}
@@ -87,6 +119,7 @@ export function App({ loop, config, engramContext }: Props) {
         turnCount={turnCount}
         engramEnabled={config.engramEnabled}
         isThinking={isThinking}
+        usage={sessionUsage}
       />
       <Box paddingX={1}>
         <Box marginRight={1}>
@@ -96,7 +129,7 @@ export function App({ loop, config, engramContext }: Props) {
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
-          placeholder="Ask Koa anything..."
+          placeholder="Ask Koa anything... (/exit · /checkpoint)"
         />
       </Box>
     </Box>

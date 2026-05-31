@@ -5,7 +5,9 @@ export function createEngramTool(engram: EngramClient): Tool {
   return {
     name: 'engram_query',
     description:
-      'Search project memory (Engram) for context about files, decisions, or history. Use this to recall what was previously worked on.',
+      'Search the Engram project index by file-path keyword (e.g. "router", "loop", "spiderbrain"). ' +
+      'Returns matching source files with their cluster and dependency counts. ' +
+      'Use this to locate relevant files by name — NOT for searching code content or session decisions.',
     inputSchema: {
       type: 'object',
       properties: {
