@@ -73,6 +73,35 @@ export interface AdminConfig {
   apiKeySet: boolean;
 }
 
+export interface MemoryEntry {
+  fact: string;
+  timestamp: string;
+}
+
+export interface ProjectFileEntry {
+  content: string | null;
+}
+
+export interface MemoryFilesResponse {
+  files: Record<string, ProjectFileEntry>;
+  dir: string;
+}
+
+export interface EngramMemoryResponse {
+  engram: EngramContext;
+  spiderBrain: SpiderBrainContext | null;
+  engramEnabled: boolean;
+}
+
+export interface JournalSession {
+  date: string;
+  content: string;
+}
+
+export interface ActivitySessionsResponse {
+  sessions: JournalSession[];
+}
+
 // Discriminated union of everything that can appear in the chat timeline
 export type ChatItem =
   | { kind: 'user'; content: string; id: string }

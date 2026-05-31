@@ -393,4 +393,8 @@ export class AgentLoop {
   getState(): Readonly<AgentState> {
     return this.state;
   }
+
+  async rebuildBrain(): Promise<string> {
+    return this.sb.molt();
+  }
 }

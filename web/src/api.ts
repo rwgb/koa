@@ -1,4 +1,12 @@
-import type { AdminConfig, AgentStatus, SseEvent } from './types.js';
+import type {
+  AdminConfig,
+  AgentStatus,
+  SseEvent,
+  MemoryEntry,
+  MemoryFilesResponse,
+  EngramMemoryResponse,
+  ActivitySessionsResponse,
+} from './types.js';
 
 export async function fetchStatus(): Promise<AgentStatus> {
   const res = await fetch('/api/context');
@@ -12,6 +20,65 @@ export async function fetchAdminConfig(): Promise<AdminConfig> {
   const res = await fetch('/api/admin/config');
   if (!res.ok) throw new Error(`Failed to fetch config: ${res.status}`);
   return res.json() as Promise<AdminConfig>;
+}
+
+export async function fetchMemoryEngram(): Promise<EngramMemoryResponse> {
+  const res = await fetch('/api/admin/memory/engram');
+  if (!res.ok) throw new Error(`Failed to fetch engram: ${res.status}`);
+  return res.json() as Promise<EngramMemoryResponse>;
+}
+
+export async function fetchMemoryFiles(): Promise<MemoryFilesResponse> {
+  const res = await fetch('/api/admin/memory/files');
+  if (!res.ok) throw new Error(`Failed to fetch memory files: ${res.status}`);
+  return res.json() as Promise<MemoryFilesResponse>;
+}
+
+export async function updateMemoryFile(file: string, content: string): Promise<void> {
+  const res = await fetch(`/api/admin/memory/files/${file}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`Failed to update file: ${res.status}`);
+}
+
+export async function fetchFacts(): Promise<MemoryEntry[]> {
+  const res = await fetch('/api/admin/memory/facts');
+  if (!res.ok) throw new Error(`Failed to fetch facts: ${res.status}`);
+  const data = (await res.json()) as { facts: MemoryEntry[] };
+  return data.facts;
+}
+
+export async function addFact(fact: string): Promise<void> {
+  const res = await fetch('/api/admin/memory/facts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fact }),
+  });
+  if (!res.ok) throw new Error(`Failed to add fact: ${res.status}`);
+}
+
+export async function deleteFact(fact: string): Promise<void> {
+  const res = await fetch('/api/admin/memory/facts', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fact }),
+  });
+  if (!res.ok) throw new Error(`Failed to delete fact: ${res.status}`);
+}
+
+export async function rebuildBrain(): Promise<string> {
+  const res = await fetch('/api/admin/brain/rebuild', { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to rebuild brain: ${res.status}`);
+  const data = (await res.json()) as { output?: string };
+  return data.output ?? '';
+}
+
+export async function fetchActivitySessions(): Promise<ActivitySessionsResponse> {
+  const res = await fetch('/api/admin/activity/sessions');
+  if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
+  return res.json() as Promise<ActivitySessionsResponse>;
 }
 
 export function streamChat(

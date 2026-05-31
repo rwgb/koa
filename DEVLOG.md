@@ -1,5 +1,53 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP2: Admin UI Phase 2 — Memory page, Activity page, 8 new API endpoints
+
+### Completed
+- **8 new admin API endpoints** added to `src/server/index.ts`:
+  - `GET /api/admin/memory/engram` — returns live Engram + SpiderBrain context from `AgentState`
+  - `GET /api/admin/memory/files` — reads PROJECT.md, STATE.md, BACKLOG.md, HANDOFF.md from project memory dir
+  - `PUT /api/admin/memory/files/:file` — atomic write to any of the four project memory files
+  - `GET /api/admin/memory/facts` — lists persistent facts from `~/.koa/memory.json`
+  - `POST /api/admin/memory/facts` — adds a fact
+  - `DELETE /api/admin/memory/facts` — removes a fact by content match (body `{ fact }`)
+  - `POST /api/admin/brain/rebuild` — triggers SpiderBrain `molt()` via new `loop.rebuildBrain()` method
+  - `GET /api/admin/activity/sessions` — reads all journal `.md` files from project memory `journal/` dir
+- **`AgentLoop.rebuildBrain()`** — new public method wrapping `this.sb.molt()`, exposed for the server to call
+- **MemoryPage** (`web/src/pages/MemoryPage.tsx`) — full implementation:
+  - Engram panel: brain online/offline badge, session goal, hot files with score + cluster, master files, SpiderBrain masters
+  - Project files panel: tabs for all four project memory files (read-only display, edit/create button opens inline textarea, atomic save)
+  - Facts CRUD: list with add input + delete with confirmation guard
+  - Rebuild brain button in page header
+- **ActivityPage** (`web/src/pages/ActivityPage.tsx`) — full implementation:
+  - Current session usage card grid: turns, tokens in/out, cache read/write, cache hit rate, estimated cost
+  - Session journal accordion: reads per-day `.md` entries, expand/collapse per entry
+  - Anthropic pricing reference table (labelled as estimates)
+- **Frontend types** (`web/src/types.ts`) — added: `MemoryEntry`, `ProjectFileEntry`, `MemoryFilesResponse`, `EngramMemoryResponse`, `JournalSession`, `ActivitySessionsResponse`
+- **API helpers** (`web/src/api.ts`) — added 8 functions: `fetchMemoryEngram`, `fetchMemoryFiles`, `updateMemoryFile`, `fetchFacts`, `addFact`, `deleteFact`, `rebuildBrain`, `fetchActivitySessions`
+- **CSS** (`web/src/index.css`) — ~350 lines of new styles: `.mem-*` utility classes (sections, badges, file list, tabs, editor, buttons, facts), `.activity-*` classes (session accordion, usage grid, pricing table)
+- Build: `tsc --noEmit` and `npm test` both pass (190/190, 0 errors)
+
+### Decisions
+- `DELETE /api/admin/memory/facts` uses request body (not URL path param) to avoid URL-encoding issues with fact strings that may contain slashes or special chars.
+- `rebuildBrain()` returns the molt output string — surfaced in the Memory page header after a rebuild.
+- Activity page shows journal files as read-only accordion (no edit needed — these are auto-generated session logs).
+- Pricing table uses hardcoded estimates, labelled as such; not fetched from Anthropic API.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 3: Integrations page — connector card grid, slide-over panel, config persistence to `~/.koa/integrations.json`
+- [ ] Phase 3: Notifications rules engine — channels, quiet hours
+- [ ] Phase 2 follow-up: Settings page — make editable (PUT /api/admin/config)
+- [ ] Old Sidebar component cleanup now that Memory page is complete
+
+### Learnings
+- `color-mix(in srgb, var(--x) 15%, transparent)` is the right pattern for dim tinted backgrounds without needing alpha hex vars — supported in all modern browsers.
+- Accordion pattern with a single `expanded` string state (date key) is cleaner than a `Set<string>` for the journal entries.
+
+---
+
 ## [2026-05-31] — CP1: Admin UI Phase 1 — Router, nav rail, settings, status pill
 
 ### Completed
