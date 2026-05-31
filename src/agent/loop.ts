@@ -28,6 +28,25 @@ const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with 
 You have access to tools for reading/writing files, running shell commands, and querying project history via Engram.
 Be precise, concise, and always verify your work. Prefer editing existing files over creating new ones.`;
 
+/**
+ * Trims a message history to at most `window` entries, always starting at the
+ * first plain user text message so that no orphaned tool_result blocks or
+ * leading assistant messages are left — both of which cause 400 errors.
+ */
+export function compactMessages(
+  messages: Anthropic.MessageParam[],
+  window: number,
+): Anthropic.MessageParam[] {
+  if (messages.length <= window) return messages;
+  let start = messages.length - window;
+  while (start < messages.length) {
+    const msg = messages[start]!;
+    if (msg.role === 'user' && typeof msg.content === 'string') break;
+    start++;
+  }
+  return messages.slice(start);
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -155,33 +174,10 @@ export class AgentLoop {
   }
 
   private maybeCompact(): void {
-    const window = this.config.compactAfterTurns * 2;
-    if (this.state.messages.length <= window) return;
-
-    let sliced = this.state.messages.slice(-window);
-
-    // A slice may cut the assistant `tool_use` message while keeping the
-    // following user `tool_result` message, producing orphaned tool_result
-    // blocks that cause a 400 from the API.  Drop leading messages until the
-    // history starts with either a plain user text message or an assistant
-    // message — never with a tool_result-only user message.
-    while (sliced.length > 0) {
-      const first = sliced[0]!;
-      if (
-        first.role === 'user' &&
-        Array.isArray(first.content) &&
-        first.content.length > 0 &&
-        first.content.every((b: { type: string }) => b.type === 'tool_result')
-      ) {
-        // This user message is all tool_results with no preceding tool_use —
-        // drop it (and the assistant message that would have caused it, if any)
-        sliced = sliced.slice(1);
-      } else {
-        break;
-      }
-    }
-
-    this.state.messages = sliced;
+    this.state.messages = compactMessages(
+      this.state.messages,
+      this.config.compactAfterTurns * 2,
+    );
   }
 
   private buildConversationSummary(): string {
