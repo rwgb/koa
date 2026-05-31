@@ -6,6 +6,10 @@ import type {
   MemoryFilesResponse,
   EngramMemoryResponse,
   ActivitySessionsResponse,
+  Integration,
+  NotificationsResponse,
+  NotificationRule,
+  QuietHours,
 } from './types.js';
 
 export async function fetchStatus(): Promise<AgentStatus> {
@@ -79,6 +83,88 @@ export async function fetchActivitySessions(): Promise<ActivitySessionsResponse>
   const res = await fetch('/api/admin/activity/sessions');
   if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
   return res.json() as Promise<ActivitySessionsResponse>;
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+export async function updateAdminConfig(updates: Partial<AdminConfig>): Promise<void> {
+  const res = await fetch('/api/admin/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`Failed to update config: ${res.status}`);
+}
+
+// ── Integrations ──────────────────────────────────────────────────────────────
+
+export async function fetchIntegrations(): Promise<Integration[]> {
+  const res = await fetch('/api/admin/integrations');
+  if (!res.ok) throw new Error(`Failed to fetch integrations: ${res.status}`);
+  const data = (await res.json()) as { integrations: Integration[] };
+  return data.integrations;
+}
+
+export async function saveIntegration(id: string, payload: {
+  type: string;
+  name: string;
+  config: Record<string, string>;
+}): Promise<Integration> {
+  const res = await fetch(`/api/admin/integrations/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to save integration: ${res.status}`);
+  const data = (await res.json()) as { integration: Integration };
+  return data.integration;
+}
+
+export async function deleteIntegration(id: string): Promise<void> {
+  const res = await fetch(`/api/admin/integrations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete integration: ${res.status}`);
+}
+
+export async function testIntegration(id: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`/api/admin/integrations/${encodeURIComponent(id)}/test`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to test integration: ${res.status}`);
+  return res.json() as Promise<{ ok: boolean; message: string }>;
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export async function fetchNotifications(): Promise<NotificationsResponse> {
+  const res = await fetch('/api/admin/notifications');
+  if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`);
+  return res.json() as Promise<NotificationsResponse>;
+}
+
+export async function saveNotificationRules(rules: NotificationRule[]): Promise<void> {
+  const res = await fetch('/api/admin/notifications/rules', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rules }),
+  });
+  if (!res.ok) throw new Error(`Failed to save rules: ${res.status}`);
+}
+
+export async function saveQuietHours(qh: QuietHours): Promise<void> {
+  const res = await fetch('/api/admin/notifications/quiet-hours', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(qh),
+  });
+  if (!res.ok) throw new Error(`Failed to save quiet hours: ${res.status}`);
+}
+
+export async function testNotification(channel: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch('/api/admin/notifications/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ channel }),
+  });
+  if (!res.ok) throw new Error(`Failed to send test: ${res.status}`);
+  return res.json() as Promise<{ ok: boolean; message: string }>;
 }
 
 export function streamChat(

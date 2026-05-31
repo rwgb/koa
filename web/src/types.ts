@@ -102,6 +102,58 @@ export interface ActivitySessionsResponse {
   sessions: JournalSession[];
 }
 
+// ── Integrations ──────────────────────────────────────────────────────────────
+
+export type IntegrationType =
+  | 'anthropic' | 'github' | 'slack' | 'pushover' | 'ntfy'
+  | 'smtp' | 'homelab' | 'eset' | 'custom_http' | 'mcp_server';
+
+export interface Integration {
+  id: string;
+  type: IntegrationType | string;
+  name: string;
+  status: 'connected' | 'not_configured' | 'error';
+  config: Record<string, string>;
+  errorMsg?: string;
+}
+
+export interface IntegrationFieldDef {
+  key: string;
+  label: string;
+  secret: boolean;
+  placeholder?: string;
+  hint?: string;
+}
+
+export interface IntegrationDef {
+  type: IntegrationType;
+  name: string;
+  icon: string;
+  description: string;
+  fields: IntegrationFieldDef[];
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+export interface NotificationRule {
+  id: string;
+  event: string;
+  channel: string;
+  condition?: string;
+  template?: string;
+}
+
+export interface QuietHours {
+  enabled: boolean;
+  from: string;
+  to: string;
+}
+
+export interface NotificationsResponse {
+  rules: NotificationRule[];
+  quietHours: QuietHours;
+}
+
 // Discriminated union of everything that can appear in the chat timeline
 export type ChatItem =
   | { kind: 'user'; content: string; id: string }

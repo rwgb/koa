@@ -1,5 +1,65 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP3: Admin UI Phase 3 — Integrations, Notifications, editable Settings
+
+### Completed
+- **`src/integrations/store.ts`** — new module: `loadIntegrations`, `saveIntegration`, `deleteIntegration`, `maskSecrets`, `mergeConfig`. Supports 10 integration types; secrets masked on read, preserved on write when value is `***`. Persists to `~/.koa/integrations.json` (chmod 600).
+- **`src/notifications/store.ts`** — new module: `loadRules`, `saveRules`, `loadQuietHours`, `saveQuietHours`. Persists to `~/.koa/notifications.json` (chmod 600).
+- **`src/config/index.ts`** — expanded `readKoaConfigFile` to handle all mutable fields (model, maxTokens, smartRouting, maxToolOutputChars, compactAfterTurns, autoCheckpointTurns, autoCheckpointMinutes, engramEnabled). Added `writeKoaConfigFile`. `loadConfig` now respects file config for all fields (env vars still take precedence).
+- **8 new server endpoints** in `src/server/index.ts`:
+  - `PUT /api/admin/config` — persists mutable config fields; updates in-memory config immediately
+  - `GET /api/admin/integrations` — lists all integrations, secrets masked
+  - `PUT /api/admin/integrations/:id` — upsert with secret-preserving merge
+  - `DELETE /api/admin/integrations/:id` — remove
+  - `POST /api/admin/integrations/:id/test` — real connection test for ntfy; stub for others
+  - `GET /api/admin/notifications` — returns rules + quietHours
+  - `PUT /api/admin/notifications/rules` — saves rules array
+  - `PUT /api/admin/notifications/quiet-hours` — saves quiet hours
+  - `POST /api/admin/notifications/test` — real test notification send for ntfy; stub for others
+- **IntegrationsPage** (`web/src/pages/IntegrationsPage.tsx`) — full implementation:
+  - 2-column responsive card grid with status badges (Connected/Not configured/Error)
+  - Slide-over panel: icon, description, per-field inputs with show/hide toggles for secrets, test connection, save, disconnect
+  - Type picker modal for adding new integrations (lists unconfigured catalog types)
+  - 10-type catalog: Anthropic API, GitHub, Slack, Pushover, ntfy.sh, SMTP, Homelab, ESET, Custom HTTP, MCP Server
+- **NotificationsPage** (`web/src/pages/NotificationsPage.tsx`) — full implementation:
+  - Channels panel: lists connected notification-capable integrations with test send button
+  - Rules table: event, channel, condition columns with add/delete
+  - Add rule inline form: event dropdown, channel dropdown, optional condition input
+  - Quiet hours section: enable toggle + time range pickers, persisted to disk
+- **SettingsPage** (`web/src/pages/SettingsPage.tsx`) — editable sections added:
+  - Auto-checkpoint turns/minutes, compact-after-turns, smart routing toggle all editable via form
+  - `Edit` button reveals inline form; `Save` calls `PUT /api/admin/config`; shows "Saved ✓" flash
+  - Restart note shown for settings that need it
+- **Frontend types** (`web/src/types.ts`) — added: `Integration`, `IntegrationType`, `IntegrationFieldDef`, `IntegrationDef`, `NotificationRule`, `QuietHours`, `NotificationsResponse`
+- **API helpers** (`web/src/api.ts`) — added 9 functions: `updateAdminConfig`, `fetchIntegrations`, `saveIntegration`, `deleteIntegration`, `testIntegration`, `fetchNotifications`, `saveNotificationRules`, `saveQuietHours`, `testNotification`
+- **CSS** (`web/src/index.css`) — ~400 lines of new styles: `.intg-*` (page, grid, card, badge, field, slide-over, type-picker), `.notif-*` (page, section, channel, rule, add-form, quiet-hours), settings edit form styles
+- **Cleanup** — deleted `web/src/components/Sidebar.tsx` and `web/src/components/StatusBar.tsx` (unused since Phase 1)
+- Build: `tsc --noEmit`, `vite build`, and `npm test` all pass (190/190, 0 errors)
+
+### Decisions
+- Secret fields masked to `***` on `GET /api/admin/integrations`; PUT preserves existing value when submitted value is `***`. Avoids exposing credentials to the browser while allowing edits.
+- Integration `id` equals `type` for well-known integrations (prevents duplicates). Custom HTTP and MCP Server could support multiple instances in the future with a uuid id.
+- Settings page edits only the four in-memory-safe fields (autoCheckpointTurns, autoCheckpointMinutes, compactAfterTurns, smartRouting). Model and other env-var-driven settings require restart — note shown in UI.
+- Notification rules stored as a flat array; no normalization needed for the current scale.
+- ntfy is the only integration with a real connection test and test send implemented; others return stub responses. Full implementations left for when those integrations are actually needed.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 4: Skills page — built-in tool table, skill marketplace (static catalog), custom skill builder form
+- [ ] Phase 3 follow-up: real connection tests for GitHub (token validation), Slack (webhook ping), Pushover
+- [ ] Phase 3 follow-up: notification rule editing (currently delete-only)
+- [ ] Phase 3 follow-up: notification rule template field (message template with `{{variables}}`)
+- [ ] Bearer token auth for `/api/` routes (prerequisite for Apple platform clients)
+- [ ] HTTPS/TLS docs in `docs/DEPLOYMENT.md`
+
+### Learnings
+- Slide-over panels work well with `position: fixed` + CSS `transform: translateX(100%)` → `translateX(0)` — no JS animation needed.
+- `mergeConfig` pattern (preserve `***` secret values) is the right UX for credential forms in single-user local apps — simpler than HSM-style encrypt/decrypt.
+
+---
+
 ## [2026-05-31] — CP2: Admin UI Phase 2 — Memory page, Activity page, 8 new API endpoints
 
 ### Completed

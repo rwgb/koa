@@ -24,17 +24,32 @@ function koaDir(): string {
   return path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa');
 }
 
-function readKoaConfigFile(): Partial<{ autoCheckpointTurns: number; autoCheckpointMinutes: number }> {
+export interface KoaConfigFile {
+  model?: string;
+  maxTokens?: number;
+  smartRouting?: boolean;
+  maxToolOutputChars?: number;
+  compactAfterTurns?: number;
+  autoCheckpointTurns?: number;
+  autoCheckpointMinutes?: number;
+  engramEnabled?: boolean;
+}
+
+function readKoaConfigFile(): KoaConfigFile {
   try {
     const raw = fs.readFileSync(path.join(koaDir(), 'config.json'), 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const result: Partial<{ autoCheckpointTurns: number; autoCheckpointMinutes: number }> = {};
-    if (typeof parsed['autoCheckpointTurns'] === 'number') result.autoCheckpointTurns = parsed['autoCheckpointTurns'];
-    if (typeof parsed['autoCheckpointMinutes'] === 'number') result.autoCheckpointMinutes = parsed['autoCheckpointMinutes'];
-    return result;
+    return JSON.parse(raw) as KoaConfigFile;
   } catch {
     return {};
   }
+}
+
+export function writeKoaConfigFile(updates: KoaConfigFile): void {
+  const dir = koaDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const existing = readKoaConfigFile();
+  const merged = { ...existing, ...updates };
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(merged, null, 2), { mode: 0o600 });
 }
 
 export function loadConfig(projectPath?: string): KoaConfig {
@@ -45,18 +60,24 @@ export function loadConfig(projectPath?: string): KoaConfig {
   const fileConfig = readKoaConfigFile();
 
   return ConfigSchema.parse({
-    model: process.env['KOA_MODEL'] ?? 'claude-sonnet-4-6',
-    maxTokens: process.env['KOA_MAX_TOKENS'] ? parseInt(process.env['KOA_MAX_TOKENS'], 10) : 8096,
+    model: process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-sonnet-4-6',
+    maxTokens: process.env['KOA_MAX_TOKENS']
+      ? parseInt(process.env['KOA_MAX_TOKENS'], 10)
+      : (fileConfig.maxTokens ?? 8096),
     projectPath: resolvedPath,
-    engramEnabled: process.env['KOA_ENGRAM'] !== 'false',
+    engramEnabled: process.env['KOA_ENGRAM'] !== undefined
+      ? process.env['KOA_ENGRAM'] !== 'false'
+      : (fileConfig.engramEnabled ?? true),
     apiKey,
-    smartRouting: process.env['KOA_SMART_ROUTING'] === 'true',
+    smartRouting: process.env['KOA_SMART_ROUTING'] !== undefined
+      ? process.env['KOA_SMART_ROUTING'] === 'true'
+      : (fileConfig.smartRouting ?? false),
     maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
       ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
-      : 12000,
+      : (fileConfig.maxToolOutputChars ?? 12000),
     compactAfterTurns: process.env['KOA_COMPACT_TURNS']
       ? parseInt(process.env['KOA_COMPACT_TURNS'], 10)
-      : 10,
+      : (fileConfig.compactAfterTurns ?? 10),
     spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'],
     autoCheckpointTurns: process.env['KOA_CHECKPOINT_TURNS']
       ? parseInt(process.env['KOA_CHECKPOINT_TURNS'], 10)

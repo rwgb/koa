@@ -5,10 +5,25 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import type { AgentLoop } from '../agent/loop.js';
 import type { KoaConfig } from '../config/index.js';
+import { writeKoaConfigFile } from '../config/index.js';
 import type { SseEvent } from './events.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
 import { readMarkdownFile, writeMarkdownFile } from '../project-memory/store.js';
 import { loadMemories, addMemory, removeMemory } from '../memory/store.js';
+import {
+  loadIntegrations,
+  saveIntegration,
+  deleteIntegration,
+  maskSecrets,
+  mergeConfig,
+  ALLOWED_TYPES,
+} from '../integrations/store.js';
+import {
+  loadRules,
+  saveRules,
+  loadQuietHours,
+  saveQuietHours,
+} from '../notifications/store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -222,6 +237,160 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       autoCheckpointMinutes: config.autoCheckpointMinutes,
       apiKeySet: !!config.apiKey,
     });
+  });
+
+  app.put('/api/admin/config', (req, res) => {
+    const body = req.body as {
+      autoCheckpointTurns?: unknown;
+      autoCheckpointMinutes?: unknown;
+      smartRouting?: unknown;
+      compactAfterTurns?: unknown;
+    };
+    const updates: Record<string, unknown> = {};
+    if (typeof body.autoCheckpointTurns === 'number') {
+      updates['autoCheckpointTurns'] = body.autoCheckpointTurns;
+      config.autoCheckpointTurns = body.autoCheckpointTurns;
+    }
+    if (typeof body.autoCheckpointMinutes === 'number') {
+      updates['autoCheckpointMinutes'] = body.autoCheckpointMinutes;
+      config.autoCheckpointMinutes = body.autoCheckpointMinutes;
+    }
+    if (typeof body.smartRouting === 'boolean') {
+      updates['smartRouting'] = body.smartRouting;
+      config.smartRouting = body.smartRouting;
+    }
+    if (typeof body.compactAfterTurns === 'number') {
+      updates['compactAfterTurns'] = body.compactAfterTurns;
+      config.compactAfterTurns = body.compactAfterTurns;
+    }
+    writeKoaConfigFile(updates);
+    res.json({ status: 'ok' });
+  });
+
+  // ── Admin: integrations ─────────────────────────────────────────────────────
+
+  app.get('/api/admin/integrations', (_req, res) => {
+    const integrations = loadIntegrations().map(maskSecrets);
+    res.json({ integrations });
+  });
+
+  app.put('/api/admin/integrations/:id', (req, res) => {
+    const id = (req.params as { id: string }).id;
+    const body = req.body as { type?: unknown; name?: unknown; config?: unknown };
+    if (typeof body.type !== 'string' || !ALLOWED_TYPES.has(body.type)) {
+      res.status(400).json({ error: `Invalid or missing integration type` });
+      return;
+    }
+    if (typeof body.name !== 'string' || !body.name.trim()) {
+      res.status(400).json({ error: 'name is required' });
+      return;
+    }
+    if (typeof body.config !== 'object' || body.config === null) {
+      res.status(400).json({ error: 'config object is required' });
+      return;
+    }
+    const existing = loadIntegrations().find(i => i.id === id);
+    const submittedConfig = body.config as Record<string, string>;
+    const mergedConfig = mergeConfig(existing?.config ?? {}, submittedConfig, body.type);
+    const hasValues = Object.values(mergedConfig).some(v => v && v !== '***');
+    const integration = {
+      id,
+      type: body.type,
+      name: body.name.trim(),
+      status: (hasValues ? 'connected' : 'not_configured') as 'connected' | 'not_configured',
+      config: mergedConfig,
+    };
+    saveIntegration(integration);
+    res.json({ status: 'ok', integration: maskSecrets(integration) });
+  });
+
+  app.delete('/api/admin/integrations/:id', (req, res) => {
+    const id = (req.params as { id: string }).id;
+    const removed = deleteIntegration(id);
+    if (!removed) {
+      res.status(404).json({ error: 'Integration not found' });
+      return;
+    }
+    res.json({ status: 'ok' });
+  });
+
+  app.post('/api/admin/integrations/:id/test', (req, res) => {
+    const id = (req.params as { id: string }).id;
+    const integration = loadIntegrations().find(i => i.id === id);
+    if (!integration) {
+      res.status(404).json({ error: 'Integration not found' });
+      return;
+    }
+    // ntfy has a real test: send a GET to the topic info endpoint
+    if (integration.type === 'ntfy') {
+      const topic = integration.config['topic'];
+      const baseUrl = integration.config['baseUrl'] || 'https://ntfy.sh';
+      if (!topic) {
+        res.json({ ok: false, message: 'topic not configured' });
+        return;
+      }
+      fetch(`${baseUrl}/${topic}/json?poll=1&since=all`)
+        .then(r => res.json({ ok: r.ok, message: r.ok ? 'Connected' : `HTTP ${r.status}` }))
+        .catch(err => res.json({ ok: false, message: (err as Error).message }));
+      return;
+    }
+    res.json({ ok: false, message: 'Connection test not implemented for this integration type' });
+  });
+
+  // ── Admin: notifications ────────────────────────────────────────────────────
+
+  app.get('/api/admin/notifications', (_req, res) => {
+    res.json({ rules: loadRules(), quietHours: loadQuietHours() });
+  });
+
+  app.put('/api/admin/notifications/rules', (req, res) => {
+    const body = req.body as { rules?: unknown };
+    if (!Array.isArray(body.rules)) {
+      res.status(400).json({ error: 'rules (array) is required' });
+      return;
+    }
+    saveRules(body.rules as Parameters<typeof saveRules>[0]);
+    res.json({ status: 'ok' });
+  });
+
+  app.put('/api/admin/notifications/quiet-hours', (req, res) => {
+    const body = req.body as { enabled?: unknown; from?: unknown; to?: unknown };
+    if (typeof body.enabled !== 'boolean' || typeof body.from !== 'string' || typeof body.to !== 'string') {
+      res.status(400).json({ error: 'enabled (bool), from (string), to (string) are required' });
+      return;
+    }
+    saveQuietHours({ enabled: body.enabled, from: body.from, to: body.to });
+    res.json({ status: 'ok' });
+  });
+
+  app.post('/api/admin/notifications/test', (req, res) => {
+    const body = req.body as { channel?: unknown };
+    if (typeof body.channel !== 'string') {
+      res.status(400).json({ error: 'channel (string) is required' });
+      return;
+    }
+    const integration = loadIntegrations().find(i => i.id === body.channel || i.type === body.channel);
+    if (!integration) {
+      res.json({ ok: false, message: 'Integration not configured' });
+      return;
+    }
+    if (integration.type === 'ntfy') {
+      const topic = integration.config['topic'];
+      const baseUrl = integration.config['baseUrl'] || 'https://ntfy.sh';
+      if (!topic) {
+        res.json({ ok: false, message: 'ntfy topic not set' });
+        return;
+      }
+      fetch(`${baseUrl}/${topic}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: 'Koa notification test ✓',
+      })
+        .then(r => res.json({ ok: r.ok, message: r.ok ? 'Test notification sent' : `HTTP ${r.status}` }))
+        .catch(err => res.json({ ok: false, message: (err as Error).message }));
+      return;
+    }
+    res.json({ ok: false, message: 'Test send not implemented for this channel type' });
   });
 
   // Serve built web UI; fall back gracefully when not yet built
