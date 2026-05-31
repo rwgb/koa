@@ -11,6 +11,8 @@ import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
 import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
+import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
+import { loadCustomSkills } from '../skills/store.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
 import { loadConfig, generateWebToken, setWebToken } from '../config/index.js';
@@ -30,6 +32,7 @@ function buildRegistry(
   registry.register(rememberTool);
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
+  for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
   if (sb.isAvailable()) {
     for (const tool of createSpiderBrainTools(sb)) registry.register(tool);
   }

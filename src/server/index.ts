@@ -378,16 +378,62 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       res.status(404).json({ error: 'Integration not found' });
       return;
     }
-    // ntfy has a real test: send a GET to the topic info endpoint
     if (integration.type === 'ntfy') {
       const topic = integration.config['topic'];
       const baseUrl = integration.config['baseUrl'] || 'https://ntfy.sh';
-      if (!topic) {
-        res.json({ ok: false, message: 'topic not configured' });
-        return;
-      }
+      if (!topic) { res.json({ ok: false, message: 'topic not configured' }); return; }
       fetch(`${baseUrl}/${topic}/json?poll=1&since=all`)
         .then(r => res.json({ ok: r.ok, message: r.ok ? 'Connected' : `HTTP ${r.status}` }))
+        .catch(err => res.json({ ok: false, message: (err as Error).message }));
+      return;
+    }
+    if (integration.type === 'github') {
+      const token = integration.config['token'];
+      if (!token || token === '***') { res.json({ ok: false, message: 'token not configured' }); return; }
+      fetch('https://api.github.com/user', {
+        headers: { 'Authorization': `token ${token}`, 'User-Agent': 'koa-agent/1.0' },
+      })
+        .then(r => {
+          if (r.ok) {
+            return r.json().then((data: unknown) => {
+              const login = (data as { login?: string }).login;
+              res.json({ ok: true, message: `Connected as ${login ?? 'unknown'}` });
+            });
+          }
+          res.json({ ok: false, message: `HTTP ${r.status}` });
+        })
+        .catch(err => res.json({ ok: false, message: (err as Error).message }));
+      return;
+    }
+    if (integration.type === 'slack') {
+      const webhookUrl = integration.config['webhookUrl'];
+      if (!webhookUrl || webhookUrl === '***') { res.json({ ok: false, message: 'webhook URL not configured' }); return; }
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'Koa connection test ✓' }),
+      })
+        .then(r => res.json({ ok: r.ok, message: r.ok ? 'Connected' : `HTTP ${r.status}` }))
+        .catch(err => res.json({ ok: false, message: (err as Error).message }));
+      return;
+    }
+    if (integration.type === 'pushover') {
+      const userKey = integration.config['userKey'];
+      const appToken = integration.config['appToken'];
+      if (!userKey || userKey === '***' || !appToken || appToken === '***') {
+        res.json({ ok: false, message: 'userKey and appToken required' });
+        return;
+      }
+      const pushoverBody = new URLSearchParams({ token: appToken, user: userKey });
+      fetch('https://api.pushover.net/1/users/validate.json', { method: 'POST', body: pushoverBody })
+        .then(r => r.json())
+        .then((data: unknown) => {
+          const d = data as { status?: number; errors?: string[] };
+          res.json({
+            ok: d.status === 1,
+            message: d.status === 1 ? 'Valid credentials' : (d.errors?.join(', ') ?? 'Invalid credentials'),
+          });
+        })
         .catch(err => res.json({ ok: false, message: (err as Error).message }));
       return;
     }

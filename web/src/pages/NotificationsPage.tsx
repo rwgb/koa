@@ -77,10 +77,12 @@ function ChannelRow({
 function RuleRow({
   rule,
   channels,
+  onEdit,
   onDelete,
 }: {
   rule: NotificationRule;
   channels: Integration[];
+  onEdit: (rule: NotificationRule) => void;
   onDelete: (id: string) => void;
 }) {
   const event = EVENT_OPTIONS.find(e => e.value === rule.event)?.label ?? rule.event;
@@ -91,41 +93,54 @@ function RuleRow({
       <span className="notif-rule__event">{event}</span>
       <span className="notif-rule__channel">{channel}</span>
       <span className="notif-rule__condition">{rule.condition ?? <span className="notif-muted">Always</span>}</span>
-      <button
-        className="notif-btn notif-btn--danger-ghost"
-        onClick={() => onDelete(rule.id)}
-        aria-label="Delete rule"
-      >
-        ✕
-      </button>
+      <div className="notif-rule__actions">
+        <button
+          className="notif-btn notif-btn--ghost"
+          onClick={() => onEdit(rule)}
+          aria-label="Edit rule"
+        >
+          Edit
+        </button>
+        <button
+          className="notif-btn notif-btn--danger-ghost"
+          onClick={() => onDelete(rule.id)}
+          aria-label="Delete rule"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }
 
-// ── Add rule form ─────────────────────────────────────────────────────────────
+// ── Add / edit rule form ──────────────────────────────────────────────────────
 
-function AddRuleForm({
+function RuleForm({
   channels,
-  onAdd,
+  initialRule,
+  onSave,
   onCancel,
 }: {
   channels: Integration[];
-  onAdd: (rule: NotificationRule) => void;
+  initialRule?: NotificationRule;
+  onSave: (rule: NotificationRule) => void;
   onCancel: () => void;
 }) {
-  const [event, setEvent] = useState(EVENT_OPTIONS[0].value);
-  const [channel, setChannel] = useState(channels[0]?.id ?? '');
-  const [condition, setCondition] = useState('');
+  const [event, setEvent] = useState(initialRule?.event ?? EVENT_OPTIONS[0].value);
+  const [channel, setChannel] = useState(initialRule?.channel ?? channels[0]?.id ?? '');
+  const [condition, setCondition] = useState(initialRule?.condition ?? '');
 
-  function handleAdd() {
+  function handleSave() {
     if (!channel) return;
-    onAdd({
-      id: `${Date.now()}`,
+    onSave({
+      id: initialRule?.id ?? `${Date.now()}`,
       event,
       channel,
       condition: condition.trim() || undefined,
     });
   }
+
+  const isEdit = !!initialRule;
 
   return (
     <div className="notif-add-rule">
@@ -159,8 +174,8 @@ function AddRuleForm({
       </div>
       <div className="notif-add-rule__actions">
         <button className="notif-btn notif-btn--ghost" onClick={onCancel}>Cancel</button>
-        <button className="notif-btn notif-btn--primary" onClick={handleAdd} disabled={!channel}>
-          Add Rule
+        <button className="notif-btn notif-btn--primary" onClick={handleSave} disabled={!channel}>
+          {isEdit ? 'Update Rule' : 'Add Rule'}
         </button>
       </div>
     </div>
@@ -232,6 +247,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddRule, setShowAddRule] = useState(false);
+  const [editingRule, setEditingRule] = useState<NotificationRule | null>(null);
   const [savingRules, setSavingRules] = useState(false);
   const [savingQh, setSavingQh] = useState(false);
 
@@ -259,13 +275,16 @@ export default function NotificationsPage() {
     }
   }
 
-  async function handleAddRule(rule: NotificationRule) {
-    const updated = [...rules, rule];
+  async function handleSaveRule(rule: NotificationRule) {
+    const updated = rules.some(r => r.id === rule.id)
+      ? rules.map(r => r.id === rule.id ? rule : r)
+      : [...rules, rule];
     setSavingRules(true);
     try {
       await saveNotificationRules(updated);
       setRules(updated);
       setShowAddRule(false);
+      setEditingRule(null);
     } finally {
       setSavingRules(false);
     }
@@ -320,9 +339,9 @@ export default function NotificationsPage() {
         </div>
 
         {showAddRule && (
-          <AddRuleForm
+          <RuleForm
             channels={channels}
-            onAdd={handleAddRule}
+            onSave={handleSaveRule}
             onCancel={() => setShowAddRule(false)}
           />
         )}
@@ -338,12 +357,23 @@ export default function NotificationsPage() {
               <span />
             </div>
             {rules.map(r => (
-              <RuleRow
-                key={r.id}
-                rule={r}
-                channels={channels}
-                onDelete={handleDeleteRule}
-              />
+              editingRule?.id === r.id ? (
+                <RuleForm
+                  key={r.id}
+                  channels={channels}
+                  initialRule={r}
+                  onSave={handleSaveRule}
+                  onCancel={() => setEditingRule(null)}
+                />
+              ) : (
+                <RuleRow
+                  key={r.id}
+                  rule={r}
+                  channels={channels}
+                  onEdit={rule => { setEditingRule(rule); setShowAddRule(false); }}
+                  onDelete={handleDeleteRule}
+                />
+              )
             ))}
           </div>
         )}

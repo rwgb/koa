@@ -1,5 +1,29 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP8: Integration tests + notification rule editing + custom skills wiring
+
+### Completed
+- **`src/server/index.ts`** — Implemented real connection tests for GitHub (`GET /user` → returns `Connected as <login>`), Slack (webhook POST → ok/fail), and Pushover (`/users/validate.json` → valid credentials check). ntfy was already implemented. All other types still return a graceful "not implemented" fallback.
+- **`web/src/pages/NotificationsPage.tsx`** — Added rule editing: `RuleRow` now has an Edit button; clicking it replaces that row inline with a pre-filled `RuleForm`. Renamed `AddRuleForm` → `RuleForm` with optional `initialRule` prop; shows "Update Rule" vs "Add Rule" label accordingly. `handleAddRule` → `handleSaveRule` with upsert logic (update by id if exists, append if new).
+- **`src/agent/tools/custom_skill_tool.ts`** — New file. `createCustomSkillTool(skill)` factory creates a real `Tool` from a `CustomSkillDef`: bash type substitutes `{{input.key}}` template vars and runs via `child_process.exec` (30s timeout); http type issues a `fetch` request to the configured URL/method; mcp type returns a stub message pending MCP proxy support.
+- **`src/cli/index.ts`** — `buildRegistry()` now calls `loadCustomSkills()` at startup and registers each one via `createCustomSkillTool()`. Custom skills are live immediately on next server start without code changes.
+
+### Decisions
+- GitHub test uses `token` auth header (not `Bearer`) — GitHub PATs require `token` prefix for v3 REST API.
+- Pushover validation hits `/users/validate.json` which checks credentials without sending a notification — cleaner than a real send for a test.
+- Slack test sends a real message to the webhook — no dry-run API exists for incoming webhooks; this is the only way to validate.
+- `RuleForm` inline replacement (same row position) preferred over a modal — less disruptive; user sees the rule they're editing in context.
+- Custom skill bash execution uses `child_process.exec` (shell: true implicitly) — the command template is operator-defined, not user-supplied at runtime, so shell expansion is acceptable and matches user expectations.
+- MCP proxy stubbed — requires a live MCP server reference; out of scope for CP8.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] CP9: Apple platform clients (iOS MVP)
+
+---
+
 ## [2026-05-31] — CP7: Layered memory + agent coordination
 
 ### Completed

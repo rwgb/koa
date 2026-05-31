@@ -272,3 +272,49 @@ src/session/
 | `?format=brief` server-side (not client-side truncation) | Model produces a better short answer than truncating a long one |
 | APNs over polling for mobile notifications | Battery life; background polling is restricted on iOS 17+ |
 | watchOS: no persistent SSE connection | Platform restriction; use push + one-shot requests instead |
+
+---
+
+## Backlog — API Cost Optimization
+
+> Added: 2026-05-31
+> Spec reference: `docs/tasks/api-cost-optimization.md`
+> Trigger: Hit API spend limit at $100/month; 16.8M tokens/week at 21% prompt cache hit rate
+> Priority: High — fix before next billing period
+
+### Phase 1: Prompt Caching (largest lever — do first)
+
+- [ ] Cache system prompt prefix with `cache_control: { type: "ephemeral" }` in `buildSystemPrompt()` in `src/agent/loop.ts` (owner: coder) — Static persona + tool list as first cache breakpoint. AC: `cache_read_input_tokens > 0` on second turn of same session.
+
+- [ ] Cache project memory blocks as a second cache breakpoint (owner: coder) — PROJECT.md / STATE.md / BACKLOG.md blocks injected before dynamic SpiderBrain context. AC: Memory blocks carry `cache_control`; SpiderBrain context injected after.
+
+- [ ] Add `logUsage()` helper to `src/agent/loop.ts` (owner: coder) — Logs `input | cached (%) | output | est_cost` to stderr on every turn. AC: Log appears every turn; no stdout pollution.
+
+### Phase 2: Model Tiering
+
+- [ ] Add `ModelTier` type and `MODEL_MAP` to `src/types/index.ts` (owner: coder) — `fast` → Haiku, `standard` → Sonnet, `powerful` → Opus. AC: `tsc --noEmit` passes.
+
+- [ ] Audit all `messages.create()` calls; switch internal/non-user-facing calls to Haiku (owner: coder) — Generators (project-doc, state-doc, journal), smart routing classifier, agent dispatch. AC: Every call tagged with tier comment; generators confirmed on Haiku.
+
+- [ ] Add optional `model?: ModelTier` to `AgentConfig`; wire `--model` CLI flag (owner: coder) — Defaults to `standard`. AC: `koa chat --model fast` uses Haiku for all turns.
+
+### Phase 3: Selective Context Injection
+
+- [ ] Add `isCodeQuery()` gate for SpiderBrain context injection in `buildSystemPrompt()` (owner: coder) — Keyword-based; no LLM call. AC: Unit test covers code and non-code query branches.
+
+- [ ] Add planning-signal gate for BACKLOG.md injection (owner: coder) — Only inject on task/plan/priority signals. AC: Ordinary turns skip BACKLOG; unit test covers gate.
+
+- [ ] Extend `logUsage()` to log which context blocks were injected per turn (owner: coder) — AC: `spiderbrain: YES|NO | backlog: YES|NO` in stderr log.
+
+### Phase 4: Local Response Cache (lower priority)
+
+- [ ] Create `src/agent/cache.ts` — In-memory LRU, SHA-256 key, 60s TTL, 50-entry max (owner: coder) — AC: Unit tests for hit/miss/eviction/TTL; `--no-cache` flag bypasses.
+
+- [ ] Wire cache into `AgentLoop.turn()` — Skip API call on hit; never cache tool-call turns (owner: coder) — AC: Cache hit returns in <5ms; tool turns never cached.
+
+### Acceptance Criteria (overall)
+
+- [ ] Prompt cache hit rate ≥60% in a 10-turn session (up from 21%)
+- [ ] Weekly spend down ≥40% at equivalent usage
+- [ ] All internal LLM calls on Haiku
+- [ ] `npm test` — 0 failures, 0 lint, 0 typecheck errors
