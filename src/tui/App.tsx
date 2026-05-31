@@ -32,7 +32,11 @@ export function App({ loop, config, engramContext }: Props) {
   const quit = useCallback(() => {
     if (isExiting) return;
     setIsExiting(true);
-    loop.finalize().finally(() => exit());
+    // 15s ceiling so a slow network never causes an indefinite hang on exit
+    Promise.race([
+      loop.finalize(),
+      new Promise<void>((resolve) => setTimeout(resolve, 15_000)),
+    ]).finally(() => exit());
   }, [isExiting, loop, exit]);
 
   useInput((inputChar, key) => {

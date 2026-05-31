@@ -73,7 +73,10 @@ program
     );
 
     await waitUntilExit();
-    await loop.finalize();
+    // finalize() already ran inside App.tsx quit() before exit() was called.
+    // process.exit() is required here because the Anthropic SDK's HTTP keep-alive
+    // connections hold the Node event loop open indefinitely after Ink exits.
+    process.exit(0);
   });
 
 program
