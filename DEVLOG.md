@@ -1,5 +1,127 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP7: Layered memory + agent coordination
+
+### Completed
+- **`src/project-memory/paths.ts`** — `projectMemoryDir()` (slug + md5 hash), `projectMemoryPaths()` returning typed paths for all five files. Stable hash via Node `crypto.createHash('md5')`, `KOA_HOME` env override.
+- **`src/project-memory/store.ts`** — `ensureProjectMemoryDir()` (recursive mkdir, 700), `readMarkdownFile()` (null on ENOENT), `writeMarkdownFile()` (atomic tmp+rename, 600), `appendJournalEntry()`, `readRecentJournals()`, `writeHandoff()`.
+- **`src/project-memory/generators/project-doc.ts`** — `generateProjectDoc()`: Haiku call → PROJECT.md (# PROJECT heading, 300–500 words, tech stack/arch/conventions/entry points). Fire-and-forget on first session.
+- **`src/project-memory/generators/state-doc.ts`** — `generateStateDoc()` (## In Progress + ## Next sections) and `generateJournalEntry()` (dated session log). Both called in `finalize()`.
+- **`src/agent/loop.ts`** — `initialize()` ensures project mem dir, reads PROJECT/STATE/BACKLOG/HANDOFF/journals; fires background PROJECT.md gen if absent; sets up auto-checkpoint timer. `buildSystemPrompt()` injects `<project_memory>`, `<project_state>`, `<recent_sessions>`, `<backlog>`, `<handoff>` XML blocks. `finalize()` awaits background gen (10s timeout), writes STATE.md + journal, calls `engram.rememberSession()`. `checkpoint()` writes STATE.md + fires ntfy. `_autoCheckpoint()` with deduplication guard.
+- **`src/spiderbrain/client.ts`** — `isStale()` (7-day mtime check), `autoMolt()` (fire-and-forget, `isProjectDir()` guard, stderr logging), `_moltPromise` deduplication.
+- **`src/engram/client.ts`** — `autoIndex()` (fire-and-forget when brain absent, stderr logging), `_indexPromise` deduplication.
+- **`src/agent/tools/agent_dispatch_tool.ts`** — `createAgentDispatchTool()`: allowlist-validated `dispatch_agent` tool; reads `~/claudeAgents/tools/agent-templates/<name>.md`; writes HANDOFF.md (RUNNING → PASS/FAIL); calls Haiku via SDK (no execa shell). Registered in CLI.
+- **`src/cli/index.ts`** — registers `dispatch_agent`; `autoCheckpointTurns`/`autoCheckpointMinutes` CLI flags.
+- **`src/types/index.ts`** — `ProjectMemory` interface with journals; `AgentState.projectMemory`; `SessionRecord` fully retired.
+- **`src/session/store.ts`** — deleted; directory removed; no references remain.
+- **`src/__tests__/project_memory.test.ts`** — 20 tests: paths hash stability, store CRUD, journal append, writeHandoff structure.
+- **`src/__tests__/agent_dispatch.test.ts`** — 12 tests: allowlist validation, error paths, template-missing path.
+- **`src/__tests__/auto_checkpoint.test.ts`** — 31 tests: guard conditions, stderr logging, turn-based trigger, time-based trigger, finalize clears timer.
+- **`scripts/checkpoint.sh`** — bash checkpoint script: validates DEVLOG freshness, sends ntfy notification, exits non-zero on failure.
+- **`src/agent/tools/files.ts`** — `analyze_image` tool: reads any image by absolute path, returns base64 image content block. Supports jpg/png/gif/webp.
+
+### Security Review
+- `dispatch_agent`: agent name validated against allowlist before any FS/exec; task/context passed as SDK message args (not shell); template path built from hardcoded TEMPLATES_DIR + validated name (no traversal).
+- `autoMolt`: `isProjectDir()` guard prevents creating stale brain dirs in home/tmp.
+- All project memory files: atomic writes (tmp+rename) prevent corrupt STATE.md on crash.
+- XML escaping in `buildSystemPrompt()` prevents brain file content from injecting into system prompt.
+
+### Decisions
+- Haiku for all LLM calls in memory layer (project doc, state, journal) — cost optimization.
+- `finalize()` awaits `_projectDocGeneration` with 10s timeout — guarantees first-session PROJECT.md without blocking chat startup.
+- `session/store.ts` retired entirely — journal layer supersedes it; no dual tracking.
+- `autoMolt()` / `autoIndex()` log to stderr — MCP mode owns stdout.
+- `dispatch_agent` uses Anthropic SDK directly (not `claude --print` subprocess) — avoids PATH dependency, consistent auth.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] CP8: Integration fixes + custom skills wiring
+
+---
+
+## [2026-05-31] — CP6: Smart routing hybrid Haiku classifier
+
+### Completed
+- **`src/agent/router.ts`** — added `classifyWithHaiku()` async function: calls `claude-haiku-4-5-20251001` with a single-digit system prompt, parses `1/2/3` to `simple/moderate/complex`, falls back to `moderate` on any error; uses `AbortSignal.timeout(HAIKU_CLASSIFIER_TIMEOUT_MS)`. Made `selectModel()` async; fast-path unchanged for override and regex simple/complex cases; moderate case now refines via `classifyWithHaiku`. Returns `source` (override/regex-fast-path/haiku-classifier/config) and optional `classifierLatencyMs`/`classifierUsage` on the moderate path.
+- **`src/config/index.ts`** — added `HAIKU_CLASSIFIER_TIMEOUT_MS = 3000` constant.
+- **`src/agent/loop.ts`** — awaits `selectModel()`, passes `this.client`; emits `onClassifying`/`onClassified` callbacks around the classifier call; folds classifier token usage into `UsageTracker.addClassifierCall()`; returns `classifierLatencyMs` in `TurnResult`.
+- **`src/agent/usage.ts`** — added `addClassifierCall()` method and `classifierCalls/classifierInputTokens/classifierOutputTokens` fields to `SessionUsageStats`; classifier cost folds into `estimatedCostUsd` using haiku pricing.
+- **`src/types/index.ts`** — added `classifierLatencyMs?` to `TurnResult`; added classifier fields to `SessionUsageStats`.
+- **`src/server/events.ts`** — added `classifying` and `classified` SSE event types; `done` event includes optional `classifierLatencyMs`.
+- **`src/server/index.ts`** — emits `classifying`/`classified` SSE events via new `TurnCallbacks`; passes `classifierLatencyMs` in `done` event.
+- **`src/tui/App.tsx`** + **`StatusBar.tsx`** — added `isClassifying` state; passes `onClassifying`/`onClassified` callbacks to `loop.turn()`; StatusBar shows `classifying…` (cyan) before `thinking…` (yellow); both clear on finally.
+- **`web/src/types.ts`** — updated `SseEvent` union with new events; updated `SessionUsageStats` with optional classifier fields.
+- **`web/src/pages/ChatPage.tsx`** — handles `classifying`/`classified` SSE events; shows `classifyingTier` badge that clears on `content`/done/error.
+- **`web/src/components/ChatPanel.tsx`** — accepts and renders `classifyingTier` badge.
+- **`src/__tests__/router.test.ts`** — 15 new tests (205 total): `classifyWithHaiku` (7 cases), `selectModel` moderate path (8 cases); existing `selectModel` tests updated to `await` async signature.
+
+### Security Review (Phase 6)
+- Classifier prompt contains raw message text only — no session state, memory, or file contents.
+- Same API key surface as main agent — no new credential.
+- Response parsed defensively (first char only, fallback to moderate on anything unexpected).
+- `AbortSignal.timeout(3000)` enforced — classifier cannot block indefinitely.
+- Classifier response content not logged — only the resolved tier label appears in debug output.
+
+### Observability (Phase 7)
+- `[router]` debug lines emitted to stderr when `KOA_DEBUG=1` — format: `tier=X source=Y [latency=Zms]`.
+- Classifier token usage tracked separately in `UsageTracker` — visible in admin usage panel.
+- `classifierLatencyMs` in `TurnResult` and `done` SSE event — ready for admin UI P95 display.
+
+### Decisions
+- `classifyWithHaiku` returns `{ complexity, inputTokens, outputTokens }` rather than just complexity, so the loop can attribute tokens to the right cost bucket without a second call.
+- `source` field on `selectModel` return enables precise debug logging without adding a global logger dependency.
+- `AbortSignal.timeout()` chosen over manual `setTimeout`+`clearTimeout` — cleaner and handles the "never settle" case automatically.
+- `isClassifying` and `isThinking` are separate states in the TUI — allows showing `classifying…` before the model is chosen, then transitioning to `thinking…` once streaming begins.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] CP7: Layered memory + agent coordination (TASKS.md Phases 1–10)
+
+---
+
+## [2026-05-31] — CP5: Bearer token auth for web console
+
+### Completed
+- **`src/config/index.ts`** — added `webToken` field to KoaConfig + schema; loaded from `KOA_WEB_TOKEN` env or credentials file; added `generateWebToken()` (32 random bytes hex) and `setWebToken()` helpers
+- **`src/cli/index.ts`** — `koa config set web-token [token]` auto-generates a token when value is omitted
+- **`src/config/credentials.ts`** — `~/.koa/` dir now created with `mode: 0o700` (was world-readable)
+- **`src/server/index.ts`** — `tokenEqual()` helper using HMAC-then-timingSafeEqual (avoids length oracle); rate-limited `POST /api/auth` (10 req/15 min); bearer middleware on all `/api/` routes; `GET /api/ping` is unauthenticated but no longer leaks auth config status
+- **`web/src/api.ts`** — `authFetch()` wrapper injects `Authorization: Bearer` on all calls; `pingServer()` probes `/api/context` to detect 401; `verifyToken()` and `setStoredToken()` / `getStoredToken()` for localStorage management
+- **`web/src/App.tsx`** — auth gate: on mount pings server, shows token setup screen if 401 and no valid stored token; loading spinner while checking; `koa config set web-token` instruction shown inline
+- **`web/src/index.css`** — auth gate + spinner styles
+
+### Security findings resolved
+- HIGH: replaced padding-based timingSafeEqual (length oracle) with HMAC approach in both comparison sites
+- HIGH: added express-rate-limit to `/api/auth`
+- MEDIUM: `/api/ping` no longer leaks auth configuration status
+- LOW: `~/.koa/` directory mode hardened to 0o700
+
+### Next Session
+- [ ] CP6: Smart routing hybrid Haiku classifier
+
+---
+
+## [2026-05-31] — Bug fixes + backlog planning
+
+### Completed
+- **SpiderBrain auto-molt path bug** — `koa` run from `~` was trying to mkdir `/Users/ralph.brynard-spiderbrain` (home dir as projectPath → wrong sibling path). Fixed by adding `isProjectDir()` guard: skips auto-molt when `brainDir` is null and cwd has no project markers (`.git`, `package.json`, etc.)
+- **Image analysis support** — Added `analyze_image` tool to `src/agent/tools/files.ts`: reads any image by absolute path, returns base64 `image` content block. Widened `Tool.execute` return type to `ToolResultContent = string | Array<TextBlockParam | ImageBlockParam>`. Updated loop to handle non-string results cleanly. Updated `SYSTEM_BASE` to mention the capability. Rebuilt + reinstalled binary.
+- **Backlog review** — Full inventory of pending work; established burn order
+
+### Next Session
+- [ ] Bearer token auth on `/api/` routes
+- [ ] Smart routing hybrid Haiku classifier
+- [ ] Layered memory + agent coordination (TASKS.md Phases 1–10)
+- [ ] Real connection tests for integrations
+- [ ] Wire custom skills into ToolRegistry
+- [ ] Apple platform clients
+
+---
+
 ## [2026-05-31] — CP4: Admin UI Phase 4 — Skills page
 
 ### Completed
