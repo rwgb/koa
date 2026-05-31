@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --no-deprecation
 import { Command } from 'commander';
 import { render } from 'ink';
 import React from 'react';
@@ -49,10 +49,14 @@ program
   .option('-p, --project <path>', 'Project path (defaults to cwd)')
   .option('-m, --model <model>', 'Claude model to use')
   .option('--no-engram', 'Disable Engram memory integration')
-  .action(async (opts: { project?: string; model?: string; engram: boolean }) => {
+  .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
+  .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
+  .action(async (opts: { project?: string; model?: string; engram: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
     const config = loadConfig(opts.project);
     if (opts.model) config.model = opts.model;
     if (!opts.engram) config.engramEnabled = false;
+    if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
+    if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
 
     if (!config.apiKey) {
       console.error('Error: ANTHROPIC_API_KEY environment variable is required');
@@ -97,9 +101,13 @@ program
   .option('--no-open', 'Do not open browser automatically')
   .option('--project <path>', 'Project path (defaults to cwd)')
   .option('-m, --model <model>', 'Claude model to use')
-  .action(async (opts: { port: string; open: boolean; project?: string; model?: string }) => {
+  .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
+  .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
+  .action(async (opts: { port: string; open: boolean; project?: string; model?: string; checkpointTurns?: number; checkpointMinutes?: number }) => {
     const config = loadConfig(opts.project);
     if (opts.model) config.model = opts.model;
+    if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
+    if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
 
     if (!config.apiKey) {
       console.error('Error: ANTHROPIC_API_KEY environment variable is required');

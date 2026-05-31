@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 import { readCredentials } from './credentials.js';
 
 const ConfigSchema = z.object({
@@ -13,15 +14,35 @@ const ConfigSchema = z.object({
   maxToolOutputChars: z.number().default(12000),
   compactAfterTurns: z.number().default(10),
   spiderBrainBrain: z.string().optional(),
+  autoCheckpointTurns: z.number().default(5),
+  autoCheckpointMinutes: z.number().default(15),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
+
+function koaDir(): string {
+  return path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa');
+}
+
+function readKoaConfigFile(): Partial<{ autoCheckpointTurns: number; autoCheckpointMinutes: number }> {
+  try {
+    const raw = fs.readFileSync(path.join(koaDir(), 'config.json'), 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Partial<{ autoCheckpointTurns: number; autoCheckpointMinutes: number }> = {};
+    if (typeof parsed['autoCheckpointTurns'] === 'number') result.autoCheckpointTurns = parsed['autoCheckpointTurns'];
+    if (typeof parsed['autoCheckpointMinutes'] === 'number') result.autoCheckpointMinutes = parsed['autoCheckpointMinutes'];
+    return result;
+  } catch {
+    return {};
+  }
+}
 
 export function loadConfig(projectPath?: string): KoaConfig {
   const resolvedPath = projectPath ?? process.cwd();
   // Env var takes precedence; credentials file is the persistent fallback.
   const credentials = readCredentials();
   const apiKey = process.env['ANTHROPIC_API_KEY'] ?? credentials['ANTHROPIC_API_KEY'];
+  const fileConfig = readKoaConfigFile();
 
   return ConfigSchema.parse({
     model: process.env['KOA_MODEL'] ?? 'claude-sonnet-4-6',
@@ -37,6 +58,12 @@ export function loadConfig(projectPath?: string): KoaConfig {
       ? parseInt(process.env['KOA_COMPACT_TURNS'], 10)
       : 10,
     spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'],
+    autoCheckpointTurns: process.env['KOA_CHECKPOINT_TURNS']
+      ? parseInt(process.env['KOA_CHECKPOINT_TURNS'], 10)
+      : (fileConfig.autoCheckpointTurns ?? 5),
+    autoCheckpointMinutes: process.env['KOA_CHECKPOINT_MINUTES']
+      ? parseInt(process.env['KOA_CHECKPOINT_MINUTES'], 10)
+      : (fileConfig.autoCheckpointMinutes ?? 15),
   });
 }
 

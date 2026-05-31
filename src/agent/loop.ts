@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AgentState, TurnResult, ToolUse, ToolInput, ProjectMemory } from '../types/index.js';
+import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
@@ -66,6 +66,8 @@ export class AgentLoop {
   private usage: UsageTracker;
   private memories: MemoryEntry[] = [];
   private _projectDocGeneration?: Promise<void>;
+  private _checkpointInProgress = false;
+  private _checkpointTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
   constructor(
     config: KoaConfig,
@@ -134,6 +136,12 @@ export class AgentLoop {
     }
 
     this.memories = loadMemories();
+
+    if (this.config.autoCheckpointMinutes > 0) {
+      const ms = this.config.autoCheckpointMinutes * 60_000;
+      this._checkpointTimer = setInterval(() => { this._autoCheckpoint(); }, ms);
+      this._checkpointTimer.unref?.();
+    }
   }
 
   private buildSystemPrompt(): string {
@@ -298,6 +306,13 @@ export class AgentLoop {
     this.state.lastTier = tier;
     this.maybeCompact();
 
+    if (
+      this.config.autoCheckpointTurns > 0 &&
+      this.state.turnCount % this.config.autoCheckpointTurns === 0
+    ) {
+      this._autoCheckpoint();
+    }
+
     return {
       content: finalContent,
       toolUses,
@@ -306,6 +321,25 @@ export class AgentLoop {
       tier,
       usage: { ...acc, model: selectedModel },
     };
+  }
+
+  private _autoCheckpoint(): void {
+    if (this._checkpointInProgress) return;
+    if (this.state.turnCount === 0) return;
+    this._checkpointInProgress = true;
+    process.stderr.write(`[Koa] auto-checkpoint starting (turn ${this.state.turnCount})\n`);
+    this.checkpoint()
+      .then(() => {
+        process.stderr.write('[Koa] auto-checkpoint complete\n');
+      })
+      .catch((err: unknown) => {
+        process.stderr.write(
+          `[Koa] auto-checkpoint failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      })
+      .finally(() => {
+        this._checkpointInProgress = false;
+      });
   }
 
   async checkpoint(): Promise<void> {
@@ -318,6 +352,10 @@ export class AgentLoop {
   }
 
   async finalize(): Promise<void> {
+    if (this._checkpointTimer !== undefined) {
+      clearInterval(this._checkpointTimer);
+      this._checkpointTimer = undefined;
+    }
     if (this.state.turnCount === 0) return;
 
     // Wait for first-session PROJECT.md generation (10s timeout)
