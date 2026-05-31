@@ -1,5 +1,70 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP0: Pipeline kickoff, lint fix, PR #1 merge → 0.2.0
+
+### Completed
+- **Lint fix**: Removed unused `ProjectMemory` import from `src/agent/loop.ts` — ESLint clean.
+- **Admin UI spec committed**: `docs/ADMIN-UI-SPEC.md` — 5-phase spec authored by Koa covering nav rail, Memory/Activity/Integrations/Skills/Notifications/Settings pages, 20+ new API endpoints, tech choices (React Router v7, TanStack Query, Radix UI, Recharts).
+- **PR #1 merged** (`feature/web-console-and-hardening → develop`): All auto-checkpoint, SpiderBrain auto-molt, Engram fixes, project memory, agent dispatch, TUI fixes, and docs committed.
+- **Tagged `v0.2.0`** on develop.
+
+### Decisions
+- Auth for admin UI: session cookie login page (not passphrase, not open). Decided before Phase 1 starts.
+- Integration config persistence: `~/.koa/integrations.json` — separate from credentials file.
+- ntfy.sh topic wired: `https://ntfy.sh/undaunting_underpants` — checkpoint notifications will fire at each pipeline stage.
+
+### Next Session
+- [ ] Start Admin UI Phase 1 (CP1): React Router v7, nav rail shell, Settings page, status pill
+- [ ] Answer remaining open questions before Phase 3: skill package format, hot reload vs restart
+
+---
+
+## [2026-05-31] — Auto-checkpoint, SpiderBrain rebuild, deprecation fix
+
+### Completed
+- **Node deprecation warning suppressed**: Changed shebang in `src/cli/index.ts` from `#!/usr/bin/env node` to `#!/usr/bin/env -S node --no-deprecation`. TypeScript preserves the shebang through compilation. DEP0040 (`punycode`) no longer appears on launch.
+- **SpiderBrain graph rebuilt**: Brain was drifted (10 unindexed files, 12 modified). Ran `build-brain.mjs` manually — rebuilt to 57 nodes, 3 clusters (src: 40, web: 13, shell: 4). `docs`/`bin`/`lib` cluster warnings are benign (those dirs only have non-code files). `isStale()` threshold is 7 days; drift was content-based not time-based.
+- **E2E verification completed**: Goal visible in sidebar, STATE.md written on session exit, journal appended. Confirmed working.
+- **Auto-checkpoint feature** (`src/config/index.ts`, `src/agent/loop.ts`, `src/cli/index.ts`):
+  - Turn-based: `_autoCheckpoint()` fires after every N turns (default: 5). Checked via `turnCount % autoCheckpointTurns === 0` at end of `turn()`.
+  - Time-based: `setInterval` in `initialize()` fires every N minutes (default: 15). Timer is `.unref()`'d so it never holds the event loop open.
+  - Both triggers share a single `_autoCheckpoint()` private method guarded by `_checkpointInProgress` flag — concurrent calls are silently dropped.
+  - Timer cleared in `finalize()` before early-return check (covers zero-turn sessions).
+  - Three config layers: CLI flags (`--checkpoint-turns`, `--checkpoint-minutes`) > env vars (`KOA_CHECKPOINT_TURNS`, `KOA_CHECKPOINT_MINUTES`) > `~/.koa/config.json` > defaults (5 turns / 15 min). Set either to `0` to disable.
+  - 23 new tests in `src/__tests__/auto_checkpoint.test.ts`; 8 new tests in `src/__tests__/config.test.ts`. Suite: 190 passing / 13 files.
+
+### Decisions
+- `_autoCheckpoint()` returns `void` (not `Promise<void>`) — callers treat it as pure fire-and-forget. Internally chains `.then/.catch/.finally` for error handling and flag reset.
+- Used `setInterval` `.unref?.()` (optional chaining) — fake timers in vitest don't expose `.unref()`, so this avoids test crashes without conditional guards around the production call.
+- `_checkpointTimer` declared as `ReturnType<typeof setInterval> | undefined = undefined` (not `?:` optional) — required by `exactOptionalPropertyTypes: true` in tsconfig to allow explicit `= undefined` assignment in `finalize()`.
+
+### Issues Found
+- None new. Existing: Engram FTS is file-path only (noted in prior session).
+
+### Next Session
+- [ ] Merge PR #1 (feature/web-console-and-hardening → develop)
+- [ ] Upgrade `@anthropic-ai/sdk` to `^0.100.1` — review changelog for breaking changes first
+
+---
+
+## [2026-05-31] — Docs + Persona
+
+### Completed
+- **README — layered memory architecture**: Added full Layer 1/2/3 section documenting project markdown files (PROJECT.md, STATE.md, journal, BACKLOG.md, HANDOFF.md), `/checkpoint` command, SpiderBrain auto-molt (7-day threshold), and Engram file-path search scope.
+- **README — project structure**: Updated to reflect all new modules added over the past two sessions (project-memory/, spiderbrain/, memory/, credentials.ts, all new test files).
+- **`docs/PERSONA.md`**: Committed Koa's personality document (Ted Lasso energy, direct/warm, carries session history, no goldfish memory). Was untracked from a prior session.
+
+### Decisions
+- Documented Engram's FTS as "file-path keyword search only" (not semantic, not code-content) — this is a frequently misunderstood constraint that caused the tool to be misused before.
+- `/checkpoint` behavior documented in both TUI (type `/checkpoint`) and web console (`POST /api/checkpoint`, 409 if busy) forms.
+
+### Next Session
+- [ ] Merge PR #1 (feature/web-console-and-hardening → develop)
+- [ ] E2E verification: goal visible in sidebar, STATE.md written on exit, journal appended, Engram decisions recalled next session
+- [ ] Upgrade `@anthropic-ai/sdk` to `^0.100.1` — review changelog for breaking changes first
+
+---
+
 ## [2026-05-31] — Runtime Bug Fix Session
 
 ### Completed
