@@ -394,6 +394,10 @@ export class AgentLoop {
     return this.state;
   }
 
+  getTools(): Array<{ name: string; description: string }> {
+    return this.registry.getAll().map((t) => ({ name: t.name, description: t.description }));
+  }
+
   async rebuildBrain(): Promise<string> {
     return this.sb.molt();
   }

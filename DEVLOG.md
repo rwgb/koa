@@ -1,5 +1,45 @@
 # Koa — DevLog
 
+## [2026-05-31] — CP4: Admin UI Phase 4 — Skills page
+
+### Completed
+- **`src/skills/store.ts`** — new module: `loadCustomSkills`, `saveCustomSkill` (atomic tmp+rename, chmod 600), `deleteCustomSkill`. Persists to `~/.koa/custom-skills.json`. Uses `KOA_HOME` env override consistent with other stores.
+- **`src/agent/loop.ts`** — added `getTools()` method: wraps `registry.getAll()` into `{ name, description }[]` for the admin API.
+- **3 new server endpoints** in `src/server/index.ts`:
+  - `GET /api/admin/skills` — returns `{ installed, marketplace }`. Installed list merges `loop.getTools()` with custom skills (source tagged "built-in" vs "custom"). Marketplace catalog (8 entries, hardcoded) filtered to exclude already-installed names.
+  - `POST /api/admin/skills/custom` — upsert custom skill; validates name regex `/^[a-z][a-z0-9_]{1,49}$/`, returns 400 on failure.
+  - `DELETE /api/admin/skills/custom/:name` — removes skill by name.
+- **Frontend types** (`web/src/types.ts`) — added: `InstalledSkill`, `MarketplaceSkill`, `SkillsResponse`, `CustomSkillDef`.
+- **API helpers** (`web/src/api.ts`) — added: `fetchSkills`, `saveCustomSkill`, `deleteCustomSkill`.
+- **SkillsPage** (`web/src/pages/SkillsPage.tsx`) — full implementation replacing stub:
+  - Section A: Installed skills table (name+desc, source badge, active badge, delete with confirm guard for custom skills).
+  - Section B: Marketplace grid (2 columns, icon+name+desc+requires chips). "Install" pre-fills builder form.
+  - Section C: Custom Skill Builder collapsible form (collapsed by default, expands on "New Custom Skill +"). Type-conditional config fields (bash: command template, http: url+method, mcp: serverName+toolName). Save shows restart notice inline; cancels correctly.
+- **CSS** (`web/src/index.css`) — ~260 lines of `.skill-*` styles appended: page, section, table, badges, marketplace grid, cards, chips, install button, builder, form rows, action buttons, notice banners.
+- All checks pass: `tsc --noEmit` (0 errors), `npm test` (190/190), `vite build` (clean).
+
+### Decisions
+- Custom skill validation on both frontend (pattern attribute + JS check) and backend (regex) for defense in depth.
+- `saveCustomSkill` uses tmp-file + rename for atomicity; avoids partial JSON on crash.
+- Marketplace "Install" button pre-fills builder (not a 1-click install) — skills need config before they can run, so forcing through the builder is the right UX.
+- `deleteCustomSkill` is silent on missing names (idempotent) — consistent with REST semantics.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Phase 3 follow-up: real connection tests for GitHub (token validation), Slack (webhook ping), Pushover
+- [ ] Phase 3 follow-up: notification rule editing (currently delete-only)
+- [ ] Bearer token auth for `/api/` routes (prerequisite for Apple platform clients)
+- [ ] Custom skills: wire bash/http/mcp skill defs into the actual ToolRegistry at server start
+- [ ] HTTPS/TLS docs in `docs/DEPLOYMENT.md`
+
+### Learnings
+- `getTools()` on `AgentLoop` is the right seam — it keeps the server layer from importing ToolRegistry directly.
+- CSS `grid-template-columns: repeat(2, 1fr)` for the marketplace gives a cleaner two-column layout than `auto-fill/minmax` when the count is always small.
+
+---
+
 ## [2026-05-31] — CP3: Admin UI Phase 3 — Integrations, Notifications, editable Settings
 
 ### Completed

@@ -24,6 +24,11 @@ import {
   loadQuietHours,
   saveQuietHours,
 } from '../notifications/store.js';
+import {
+  loadCustomSkills,
+  saveCustomSkill,
+  deleteCustomSkill,
+} from '../skills/store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -391,6 +396,84 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       return;
     }
     res.json({ ok: false, message: 'Test send not implemented for this channel type' });
+  });
+
+  // ── Admin: skills ───────────────────────────────────────────────────────────
+
+  interface MarketplaceEntry {
+    name: string;
+    description: string;
+    icon: string;
+    requires: string[];
+  }
+
+  const MARKETPLACE: MarketplaceEntry[] = [
+    { name: 'github_pr_review', description: 'Review GitHub PRs and post comments', icon: '🔍', requires: ['github'] },
+    { name: 'send_slack_message', description: 'Post messages to Slack channels', icon: '💬', requires: ['slack'] },
+    { name: 'send_email', description: 'Compose and send email via SMTP', icon: '📧', requires: ['smtp'] },
+    { name: 'pushover_notify', description: 'Send Pushover push notifications', icon: '🔔', requires: ['pushover'] },
+    { name: 'ntfy_alert', description: 'Publish alerts to ntfy.sh topics', icon: '📡', requires: ['ntfy'] },
+    { name: 'homelab_ping', description: 'Ping homelab services and report status', icon: '🏠', requires: ['homelab'] },
+    { name: 'web_search', description: 'Search the web via a configured search API', icon: '🌐', requires: [] },
+    { name: 'eset_scan', description: 'Trigger ESET on-demand scans and read alerts', icon: '🛡', requires: ['eset'] },
+  ];
+
+  app.get('/api/admin/skills', (_req, res) => {
+    const customSkills = loadCustomSkills();
+    const customNames = new Set(customSkills.map(s => s.name));
+    const installedTools = loop.getTools();
+    const installed = installedTools.map(t => ({
+      name: t.name,
+      description: t.description,
+      source: customNames.has(t.name) ? 'custom' : 'built-in' as 'built-in' | 'custom',
+      status: 'active' as const,
+      ...(customNames.has(t.name)
+        ? { type: customSkills.find(s => s.name === t.name)!.type }
+        : {}),
+    }));
+    const installedNames = new Set(installedTools.map(t => t.name));
+    const marketplace = MARKETPLACE.filter(m => !installedNames.has(m.name));
+    res.json({ installed, marketplace });
+  });
+
+  app.post('/api/admin/skills/custom', (req, res) => {
+    const body = req.body as {
+      name?: unknown;
+      description?: unknown;
+      type?: unknown;
+      config?: unknown;
+      createdAt?: unknown;
+    };
+    if (typeof body.name !== 'string' || !/^[a-z][a-z0-9_]{1,49}$/.test(body.name)) {
+      res.status(400).json({ error: 'name must match /^[a-z][a-z0-9_]{1,49}$/' });
+      return;
+    }
+    if (typeof body.description !== 'string') {
+      res.status(400).json({ error: 'description (string) is required' });
+      return;
+    }
+    if (body.type !== 'bash' && body.type !== 'http' && body.type !== 'mcp') {
+      res.status(400).json({ error: 'type must be bash | http | mcp' });
+      return;
+    }
+    if (typeof body.config !== 'object' || body.config === null || Array.isArray(body.config)) {
+      res.status(400).json({ error: 'config (object) is required' });
+      return;
+    }
+    saveCustomSkill({
+      name: body.name,
+      description: body.description,
+      type: body.type,
+      config: body.config as Record<string, string>,
+      createdAt: typeof body.createdAt === 'string' ? body.createdAt : new Date().toISOString(),
+    });
+    res.json({ status: 'ok' });
+  });
+
+  app.delete('/api/admin/skills/custom/:name', (req, res) => {
+    const name = (req.params as { name: string }).name;
+    deleteCustomSkill(name);
+    res.json({ ok: true });
   });
 
   // Serve built web UI; fall back gracefully when not yet built

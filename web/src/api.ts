@@ -10,6 +10,8 @@ import type {
   NotificationsResponse,
   NotificationRule,
   QuietHours,
+  SkillsResponse,
+  CustomSkillDef,
 } from './types.js';
 
 export async function fetchStatus(): Promise<AgentStatus> {
@@ -165,6 +167,30 @@ export async function testNotification(channel: string): Promise<{ ok: boolean; 
   });
   if (!res.ok) throw new Error(`Failed to send test: ${res.status}`);
   return res.json() as Promise<{ ok: boolean; message: string }>;
+}
+
+// ── Skills ────────────────────────────────────────────────────────────────────
+
+export async function fetchSkills(): Promise<SkillsResponse> {
+  const res = await fetch('/api/admin/skills');
+  if (!res.ok) throw new Error(`Failed to fetch skills: ${res.status}`);
+  return res.json() as Promise<SkillsResponse>;
+}
+
+export async function saveCustomSkill(skill: CustomSkillDef): Promise<void> {
+  const res = await fetch('/api/admin/skills/custom', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(skill),
+  });
+  if (!res.ok) throw new Error(`Failed to save skill: ${res.status}`);
+}
+
+export async function deleteCustomSkill(name: string): Promise<void> {
+  const res = await fetch(`/api/admin/skills/custom/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete skill: ${res.status}`);
 }
 
 export function streamChat(

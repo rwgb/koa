@@ -154,6 +154,36 @@ export interface NotificationsResponse {
   quietHours: QuietHours;
 }
 
+// ── Skills ────────────────────────────────────────────────────────────────────
+
+export interface InstalledSkill {
+  name: string;
+  description: string;
+  source: 'built-in' | 'custom';
+  status: 'active';
+  type?: 'bash' | 'http' | 'mcp';
+}
+
+export interface MarketplaceSkill {
+  name: string;
+  description: string;
+  icon: string;
+  requires: string[];
+}
+
+export interface SkillsResponse {
+  installed: InstalledSkill[];
+  marketplace: MarketplaceSkill[];
+}
+
+export interface CustomSkillDef {
+  name: string;
+  description: string;
+  type: 'bash' | 'http' | 'mcp';
+  config: Record<string, string>;
+  createdAt: string;
+}
+
 // Discriminated union of everything that can appear in the chat timeline
 export type ChatItem =
   | { kind: 'user'; content: string; id: string }
