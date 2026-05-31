@@ -59,6 +59,20 @@ export interface AgentStatus {
   projectPath?: string;
 }
 
+export interface AdminConfig {
+  model: string;
+  maxTokens: number;
+  projectPath: string;
+  engramEnabled: boolean;
+  smartRouting: boolean;
+  maxToolOutputChars: number;
+  compactAfterTurns: number;
+  spiderBrainBrain: string | null;
+  autoCheckpointTurns: number;
+  autoCheckpointMinutes: number;
+  apiKeySet: boolean;
+}
+
 // Discriminated union of everything that can appear in the chat timeline
 export type ChatItem =
   | { kind: 'user'; content: string; id: string }

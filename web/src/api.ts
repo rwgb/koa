@@ -1,4 +1,4 @@
-import type { AgentStatus, SseEvent } from './types.js';
+import type { AdminConfig, AgentStatus, SseEvent } from './types.js';
 
 export async function fetchStatus(): Promise<AgentStatus> {
   const res = await fetch('/api/context');
@@ -6,6 +6,12 @@ export async function fetchStatus(): Promise<AgentStatus> {
     throw new Error(`Failed to fetch status: ${res.status}`);
   }
   return res.json() as Promise<AgentStatus>;
+}
+
+export async function fetchAdminConfig(): Promise<AdminConfig> {
+  const res = await fetch('/api/admin/config');
+  if (!res.ok) throw new Error(`Failed to fetch config: ${res.status}`);
+  return res.json() as Promise<AdminConfig>;
 }
 
 export function streamChat(

@@ -103,6 +103,24 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
       });
   });
 
+  // ── Admin: config ───────────────────────────────────────────────────────────
+
+  app.get('/api/admin/config', (_req, res) => {
+    res.json({
+      model: config.model,
+      maxTokens: config.maxTokens,
+      projectPath: config.projectPath,
+      engramEnabled: config.engramEnabled,
+      smartRouting: config.smartRouting,
+      maxToolOutputChars: config.maxToolOutputChars,
+      compactAfterTurns: config.compactAfterTurns,
+      spiderBrainBrain: config.spiderBrainBrain ?? null,
+      autoCheckpointTurns: config.autoCheckpointTurns,
+      autoCheckpointMinutes: config.autoCheckpointMinutes,
+      apiKeySet: !!config.apiKey,
+    });
+  });
+
   // Serve built web UI; fall back gracefully when not yet built
   const webDist = path.join(__dirname, '../../web/dist');
   app.use(express.static(webDist));
