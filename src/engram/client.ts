@@ -8,6 +8,7 @@ import { ENGRAM_CLI } from '../config/index.js';
 export class EngramClient {
   private projectPath: string;
   private available: boolean | null = null;
+  private _indexPromise?: Promise<void>;
 
   constructor(projectPath: string) {
     this.projectPath = projectPath;
@@ -77,6 +78,23 @@ export class EngramClient {
     const args = ['session', 'start', '--project', this.projectPath];
     if (goal) args.push('--goal', '--', goal);
     await this.run(args);
+  }
+
+  autoIndex(): Promise<void> {
+    if (this._indexPromise) return this._indexPromise;
+    if (!fs.existsSync(ENGRAM_CLI)) return Promise.resolve();
+    if (this.brainExists()) return Promise.resolve();
+
+    process.stderr.write('[Engram] auto-index started\n');
+    this._indexPromise = this.sync()
+      .then(() => { process.stderr.write('[Engram] auto-index complete\n'); })
+      .catch((err: unknown) => {
+        process.stderr.write(
+          `[Engram] auto-index failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      });
+
+    return this._indexPromise;
   }
 
   async rememberSession(summary: string): Promise<void> {

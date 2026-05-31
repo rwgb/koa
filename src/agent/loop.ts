@@ -1,19 +1,23 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { AgentState, TurnResult, ToolUse, ToolInput } from '../types/index.js';
+import type { AgentState, TurnResult, ToolUse, ToolInput, ProjectMemory } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
 import type { KoaConfig } from '../config/index.js';
 import { selectModel } from './router.js';
 import type { UsageTracker } from './usage.js';
-import {
-  loadLastSession,
-  saveSession,
-  buildSessionRecord,
-  buildSessionPromptInjection,
-} from '../session/store.js';
 import { loadMemories, buildMemoryPromptInjection } from '../memory/store.js';
 import type { MemoryEntry } from '../memory/store.js';
+import {
+  ensureProjectMemoryDir,
+  readMarkdownFile,
+  writeMarkdownFile,
+  appendJournalEntry,
+  readRecentJournals,
+} from '../project-memory/store.js';
+import { projectMemoryPaths } from '../project-memory/paths.js';
+import { generateProjectDoc } from '../project-memory/generators/project-doc.js';
+import { generateStateDoc, generateJournalEntry } from '../project-memory/generators/state-doc.js';
 
 export interface TurnCallbacks {
   onToolCall?: (name: string, input: ToolInput) => void;
@@ -24,6 +28,15 @@ const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with 
 You have access to tools for reading/writing files, running shell commands, and querying project history via Engram.
 Be precise, concise, and always verify your work. Prefer editing existing files over creating new ones.`;
 
+function escapeXml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 export class AgentLoop {
   private client: Anthropic;
   private registry: ToolRegistry;
@@ -33,8 +46,15 @@ export class AgentLoop {
   private state: AgentState;
   private usage: UsageTracker;
   private memories: MemoryEntry[] = [];
+  private _projectDocGeneration?: Promise<void>;
 
-  constructor(config: KoaConfig, registry: ToolRegistry, engram: EngramClient, usage: UsageTracker, sb: SpiderBrainClient) {
+  constructor(
+    config: KoaConfig,
+    registry: ToolRegistry,
+    engram: EngramClient,
+    usage: UsageTracker,
+    sb: SpiderBrainClient,
+  ) {
     this.config = config;
     this.registry = registry;
     this.engram = engram;
@@ -50,43 +70,139 @@ export class AgentLoop {
   }
 
   async initialize(): Promise<void> {
+    // Engram + SpiderBrain structural context
     if (this.config.engramEnabled) {
       await this.engram.sync();
       this.state.engramContext = await this.engram.getContext();
       await this.engram.startSession(this.state.engramContext.goal);
+      void this.engram.autoIndex();
     }
     this.state.spiderBrainContext = await this.sb.getContext();
-    this.state.lastSessionRecord = loadLastSession(this.config.projectPath);
+    void this.sb.autoMolt();
+
+    // Working memory
+    ensureProjectMemoryDir(this.config.projectPath);
+    const paths = projectMemoryPaths(this.config.projectPath);
+
+    const projectMd = readMarkdownFile(paths.projectMd);
+    const stateMd = readMarkdownFile(paths.stateMd);
+    const backlogMd = readMarkdownFile(paths.backlogMd);
+    const handoffMd = readMarkdownFile(paths.handoffMd);
+    const journals = readRecentJournals(this.config.projectPath, 3);
+
+    this.state.projectMemory = {
+      ...(projectMd !== null ? { project: projectMd } : {}),
+      ...(stateMd !== null ? { state: stateMd } : {}),
+      ...(backlogMd !== null ? { backlog: backlogMd } : {}),
+      ...(handoffMd !== null ? { handoff: handoffMd } : {}),
+      journals,
+    };
+
+    // Generate PROJECT.md on first session — fire-and-forget, completes in background
+    if (projectMd === null && this.config.apiKey) {
+      this._projectDocGeneration = generateProjectDoc(
+        this.config.projectPath,
+        this.state.spiderBrainContext,
+        this.config.apiKey,
+      ).then((doc) => {
+        writeMarkdownFile(paths.projectMd, doc);
+        if (this.state.projectMemory) this.state.projectMemory.project = doc;
+      }).catch((err: unknown) => {
+        process.stderr.write(
+          `[Koa] PROJECT.md generation failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      });
+    }
+
     this.memories = loadMemories();
   }
 
   private buildSystemPrompt(): string {
     const parts = [SYSTEM_BASE];
+
     const memoryInjection = buildMemoryPromptInjection(this.memories);
     if (memoryInjection) parts.push(memoryInjection);
-    if (this.state.lastSessionRecord) {
-      parts.push(buildSessionPromptInjection(this.state.lastSessionRecord));
+
+    // Working memory — project context, state, journals
+    if (this.state.projectMemory) {
+      const pm = this.state.projectMemory;
+      if (pm.project) {
+        parts.push(`<project_memory>\n${escapeXml(pm.project)}\n</project_memory>`);
+      }
+      if (pm.state) {
+        parts.push(`<project_state>\n${escapeXml(pm.state)}\n</project_state>`);
+      }
+      if (pm.journals && pm.journals.length > 0) {
+        parts.push(`<recent_sessions>\n${pm.journals.map(escapeXml).join('\n\n---\n\n')}\n</recent_sessions>`);
+      }
+      if (pm.backlog) {
+        parts.push(`<backlog>\n${escapeXml(pm.backlog)}\n</backlog>`);
+      }
+      if (pm.handoff) {
+        parts.push(`<handoff>\n${escapeXml(pm.handoff)}\n</handoff>`);
+      }
     }
+
     const engramInjection = this.engram.buildSystemPromptInjection(this.state.engramContext);
     if (engramInjection) parts.push(engramInjection);
+
     if (this.state.spiderBrainContext) {
       const sbInjection = this.sb.buildSystemPromptInjection(this.state.spiderBrainContext);
       if (sbInjection) parts.push(sbInjection);
     }
+
     return parts.join('\n\n');
   }
 
   private maybeCompact(): void {
-    // Each turn produces 1 user + 1 assistant message (at minimum), so window * 2 preserves
-    // the most recent compactAfterTurns turns worth of context
     const window = this.config.compactAfterTurns * 2;
-    if (this.state.messages.length > window) {
-      this.state.messages = this.state.messages.slice(-window);
+    if (this.state.messages.length <= window) return;
+
+    let sliced = this.state.messages.slice(-window);
+
+    // A slice may cut the assistant `tool_use` message while keeping the
+    // following user `tool_result` message, producing orphaned tool_result
+    // blocks that cause a 400 from the API.  Drop leading messages until the
+    // history starts with either a plain user text message or an assistant
+    // message — never with a tool_result-only user message.
+    while (sliced.length > 0) {
+      const first = sliced[0]!;
+      if (
+        first.role === 'user' &&
+        Array.isArray(first.content) &&
+        first.content.length > 0 &&
+        first.content.every((b: { type: string }) => b.type === 'tool_result')
+      ) {
+        // This user message is all tool_results with no preceding tool_use —
+        // drop it (and the assistant message that would have caused it, if any)
+        sliced = sliced.slice(1);
+      } else {
+        break;
+      }
     }
+
+    this.state.messages = sliced;
+  }
+
+  private buildConversationSummary(): string {
+    const lines: string[] = [];
+    for (const msg of this.state.messages) {
+      if (msg.role === 'user' && typeof msg.content === 'string') {
+        lines.push(`User: ${msg.content}`);
+      } else if (msg.role === 'assistant' && Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === 'text' && block.text) {
+            lines.push(`Assistant: ${block.text.slice(0, 200)}`);
+          } else if (block.type === 'tool_use') {
+            lines.push(`[Tool: ${block.name}]`);
+          }
+        }
+      }
+    }
+    return lines.join('\n').slice(0, 4000);
   }
 
   async turn(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
-    // Resolve the model for this turn, potentially stripping a @tier: prefix
     const { model: selectedModel, tier, cleanMessage } = selectModel(
       userMessage,
       this.state.messages.filter((m) => m.role === 'assistant').length,
@@ -100,7 +216,6 @@ export class AgentLoop {
     let finalContent = '';
     let stopReason = 'end_turn';
 
-    // Build the system prompt as a cached TextBlockParam array — biggest spend win
     const system: Array<Anthropic.TextBlockParam> = [
       {
         type: 'text' as const,
@@ -109,7 +224,6 @@ export class AgentLoop {
       },
     ];
 
-    // Add cache_control to the last tool so the whole tool list is cached
     const tools = this.registry.toAnthropicTools();
     if (tools.length > 0) {
       tools[tools.length - 1] = {
@@ -148,7 +262,6 @@ export class AgentLoop {
 
           const tool = this.registry.get(block.name);
           let result: string;
-
           const toolInput = block.input as Record<string, unknown>;
 
           if (!tool) {
@@ -163,7 +276,6 @@ export class AgentLoop {
             callbacks?.onToolResult?.(block.name, result);
           }
 
-          // Truncate oversized tool outputs to keep context manageable
           if (result.length > this.config.maxToolOutputChars) {
             result =
               result.slice(0, this.config.maxToolOutputChars) +
@@ -186,36 +298,61 @@ export class AgentLoop {
 
     this.usage.addTurn({ ...acc, model: selectedModel });
     this.state.usage = this.usage.getStats();
-
-    // Record the model used for status display
     this.state.lastModel = selectedModel;
     this.state.lastTier = tier;
-
-    // Slide the conversation window to prevent unbounded context growth
     this.maybeCompact();
 
-    return { content: finalContent, toolUses, stopReason, model: selectedModel, tier, usage: { ...acc, model: selectedModel } };
+    return {
+      content: finalContent,
+      toolUses,
+      stopReason,
+      model: selectedModel,
+      tier,
+      usage: { ...acc, model: selectedModel },
+    };
+  }
+
+  async checkpoint(): Promise<void> {
+    if (!this.config.apiKey || this.state.turnCount === 0) return;
+    const summary = this.buildConversationSummary();
+    const paths = projectMemoryPaths(this.config.projectPath);
+    const stateMd = await generateStateDoc(summary, this.state.turnCount, this.config.apiKey);
+    writeMarkdownFile(paths.stateMd, stateMd);
+    if (this.state.projectMemory) this.state.projectMemory.state = stateMd;
   }
 
   async finalize(): Promise<void> {
     if (this.state.turnCount === 0) return;
 
-    // Extract all user messages (role === 'user', string content only)
-    const userMessages = this.state.messages
-      .filter((m) => m.role === 'user' && typeof m.content === 'string')
-      .map((m) => m.content as string);
+    // Wait for first-session PROJECT.md generation (10s timeout)
+    if (this._projectDocGeneration) {
+      await Promise.race([
+        this._projectDocGeneration,
+        new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+      ]);
+    }
 
-    const record = buildSessionRecord(
-      this.config.projectPath,
-      this.state.turnCount,
-      userMessages,
-    );
-    saveSession(record);
+    if (!this.config.apiKey) {
+      if (this.config.engramEnabled) {
+        await this.engram.rememberSession(`${this.state.turnCount} turns`);
+      }
+      return;
+    }
+
+    const summary = this.buildConversationSummary();
+    const paths = projectMemoryPaths(this.config.projectPath);
+
+    await Promise.all([
+      generateStateDoc(summary, this.state.turnCount, this.config.apiKey).then((doc) => {
+        writeMarkdownFile(paths.stateMd, doc);
+      }),
+      generateJournalEntry(summary, this.state.turnCount, this.config.apiKey).then((entry) => {
+        appendJournalEntry(this.config.projectPath, entry);
+      }),
+    ]);
 
     if (this.config.engramEnabled) {
-      await this.engram.rememberSession(
-        `${record.turnCount} turns. Started: "${record.firstMessage}"`,
-      );
+      await this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`);
     }
   }
 

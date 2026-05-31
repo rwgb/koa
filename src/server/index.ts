@@ -31,6 +31,19 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
     });
   });
 
+  app.post('/api/checkpoint', (_req, res) => {
+    if (isBusy) {
+      res.status(409).json({ error: 'Agent turn in progress — retry after current response finishes' });
+      return;
+    }
+    loop
+      .checkpoint()
+      .then(() => res.json({ status: 'ok', message: 'Checkpoint saved.' }))
+      .catch((err: unknown) =>
+        res.status(500).json({ error: err instanceof Error ? err.message : String(err) }),
+      );
+  });
+
   app.post('/api/chat', (req, res) => {
     const message = (req.body as { message?: string }).message;
     if (!message?.trim()) {

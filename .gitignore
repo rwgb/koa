@@ -5,3 +5,6 @@ bin/
 *.env.local
 .DS_Store
 *.log
+.claude/settings.local.json
+.claude/worktrees/
+koa_render.py

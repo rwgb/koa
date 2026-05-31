@@ -49,6 +49,21 @@ export function App({ loop, config, engramContext }: Props) {
         return;
       }
 
+      if (trimmed === '/checkpoint') {
+        setInput('');
+        setIsThinking(true);
+        try {
+          await loop.checkpoint();
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: 'Checkpoint saved. STATE.md updated.', turn: turnCount },
+          ]);
+        } finally {
+          setIsThinking(false);
+        }
+        return;
+      }
+
       const turn = turnCount + 1;
       setTurnCount(turn);
       setInput('');
@@ -75,7 +90,7 @@ export function App({ loop, config, engramContext }: Props) {
         setIsThinking(false);
       }
     },
-    [loop, isThinking, turnCount],
+    [loop, isThinking, isExiting, turnCount, quit],
   );
 
   return (
@@ -110,7 +125,7 @@ export function App({ loop, config, engramContext }: Props) {
           value={input}
           onChange={setInput}
           onSubmit={handleSubmit}
-          placeholder="Ask Koa anything... (/exit to quit)"
+          placeholder="Ask Koa anything... (/exit · /checkpoint)"
         />
       </Box>
     </Box>

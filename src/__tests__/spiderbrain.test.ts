@@ -317,3 +317,40 @@ describe('SpiderBrainClient edge cases', () => {
     expect(result).toContain('<file>src/server/index.ts</file>');
   });
 });
+
+describe('SpiderBrainClient.isStale()', () => {
+  it('returns true when brainDir is null and no targetDir given', () => {
+    const sb = new SpiderBrainClient(path.join(tmpDir, 'no-brain'));
+    expect(sb.isStale()).toBe(true);
+  });
+
+  it('returns true when synganglion.json does not exist in targetDir', () => {
+    const brainDir = path.join(tmpDir, 'empty-brain');
+    fs.mkdirSync(brainDir);
+    const sb = new SpiderBrainClient(tmpDir, brainDir);
+    // Point at a dir with no synganglion.json
+    expect(sb.isStale(path.join(tmpDir, 'nonexistent'))).toBe(true);
+  });
+
+  it('returns true when synganglion.json is older than 7 days', () => {
+    const brainDir = path.join(tmpDir, 'old-brain');
+    fs.mkdirSync(brainDir);
+    const graphFile = path.join(brainDir, 'synganglion.json');
+    fs.writeFileSync(graphFile, makeFakeGraph());
+    // Set mtime to 8 days ago
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    fs.utimesSync(graphFile, eightDaysAgo, eightDaysAgo);
+
+    const sb = new SpiderBrainClient(tmpDir, brainDir);
+    expect(sb.isStale()).toBe(true);
+  });
+
+  it('returns false when synganglion.json was just written', () => {
+    const brainDir = path.join(tmpDir, 'fresh-brain');
+    fs.mkdirSync(brainDir);
+    fs.writeFileSync(path.join(brainDir, 'synganglion.json'), makeFakeGraph());
+
+    const sb = new SpiderBrainClient(tmpDir, brainDir);
+    expect(sb.isStale()).toBe(false);
+  });
+});

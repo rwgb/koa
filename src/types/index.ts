@@ -18,14 +18,6 @@ export interface SessionUsageStats {
   turnsCount: number;
 }
 
-export interface KoaConfig {
-  model: string;
-  maxTokens: number;
-  projectPath: string;
-  engramEnabled: boolean;
-  apiKey?: string;
-}
-
 export interface EngramContext {
   goal?: string;
   hotFiles: HotFile[];
@@ -70,19 +62,19 @@ export interface SpiderBrainContext {
   clusterNames: string[];
 }
 
-export interface SessionRecord {
-  timestamp: string;
-  turnCount: number;
-  firstMessage: string;
-  recentMessages: string[];
-  projectPath: string;
+export interface ProjectMemory {
+  project?: string;
+  state?: string;
+  backlog?: string;
+  handoff?: string;
+  journals?: string[];
 }
 
 export interface AgentState {
   messages: Anthropic.MessageParam[];
   engramContext: EngramContext;
   spiderBrainContext?: SpiderBrainContext;
-  lastSessionRecord?: SessionRecord | null;
+  projectMemory?: ProjectMemory;
   sessionId?: string;
   turnCount: number;
   lastModel?: string;

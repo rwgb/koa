@@ -44,9 +44,12 @@ interface Synganglion {
   clusters: Record<string, SynganglionCluster>;
 }
 
+const STALE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 export class SpiderBrainClient {
   private brainDir: string | null;
   private projectPath: string;
+  private _moltPromise?: Promise<void>;
 
   constructor(projectPath: string, brainDirOverride?: string) {
     this.projectPath = projectPath;
@@ -67,6 +70,49 @@ export class SpiderBrainClient {
 
   isAvailable(): boolean {
     return this.brainDir !== null;
+  }
+
+  isStale(targetDir?: string): boolean {
+    const dir = targetDir ?? this.brainDir;
+    if (!dir) return true;
+    try {
+      const stat = fs.statSync(path.join(dir, 'synganglion.json'));
+      return Date.now() - stat.mtimeMs > STALE_MS;
+    } catch {
+      return true;
+    }
+  }
+
+  autoMolt(): Promise<void> {
+    if (this._moltPromise) return this._moltPromise;
+
+    const scriptPath = path.join(SCRIPTS_DIR, 'molt.mjs');
+    if (!fs.existsSync(scriptPath)) return Promise.resolve();
+
+    const parent = path.dirname(this.projectPath);
+    const name = path.basename(this.projectPath);
+    const targetDir = this.brainDir ?? path.join(parent, `${name}-spiderbrain`);
+
+    if (!this.isStale(targetDir)) return Promise.resolve();
+
+    process.stderr.write('[SpiderBrain] auto-molt started\n');
+    this._moltPromise = (async () => {
+      try {
+        fs.mkdirSync(targetDir, { recursive: true });
+        await execa('node', [scriptPath, '--brain', targetDir], {
+          cwd: this.projectPath,
+          reject: false,
+        });
+        this.brainDir = targetDir;
+        process.stderr.write('[SpiderBrain] auto-molt complete\n');
+      } catch (err) {
+        process.stderr.write(
+          `[SpiderBrain] auto-molt failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+    })();
+
+    return this._moltPromise;
   }
 
   async getContext(): Promise<SpiderBrainContext> {
@@ -113,10 +159,10 @@ export class SpiderBrainClient {
   }
 
   async query(terms: string): Promise<string> {
-    // Cap input length to prevent oversized args being passed to the subprocess
+    if (!this.brainDir) return 'SpiderBrain not available';
     const safeTerms = terms.slice(0, MAX_QUERY_TERMS_CHARS);
     const scriptPath = path.join(SCRIPTS_DIR, 'query.mjs');
-    const result = await execa('node', [scriptPath, '--brain', this.brainDir!, safeTerms], {
+    const result = await execa('node', [scriptPath, '--brain', this.brainDir, safeTerms], {
       reject: false,
     });
     const out = result.stdout ?? '';
@@ -126,13 +172,14 @@ export class SpiderBrainClient {
   }
 
   async cascade(nodeId: string): Promise<string> {
+    if (!this.brainDir) return 'SpiderBrain not available';
     if (!SAFE_NODE_ID.test(nodeId) || nodeId.includes('..')) {
       throw new Error(`Invalid node ID: "${nodeId}" contains disallowed characters`);
     }
     const scriptPath = path.join(SCRIPTS_DIR, 'cascade.mjs');
     const result = await execa(
       'node',
-      [scriptPath, '--brain', this.brainDir!, '--inject', nodeId],
+      [scriptPath, '--brain', this.brainDir, '--inject', nodeId],
       { reject: false },
     );
     const out = result.stdout ?? '';
@@ -142,8 +189,9 @@ export class SpiderBrainClient {
   }
 
   async molt(): Promise<string> {
+    if (!this.brainDir) return 'SpiderBrain not available — run autoMolt first';
     const scriptPath = path.join(SCRIPTS_DIR, 'molt.mjs');
-    const result = await execa('node', [scriptPath, '--brain', this.brainDir!], {
+    const result = await execa('node', [scriptPath, '--brain', this.brainDir], {
       reject: false,
     });
     const out = result.stdout ?? '';

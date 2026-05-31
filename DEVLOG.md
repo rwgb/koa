@@ -1,5 +1,96 @@
 # Koa — DevLog
 
+## [2026-05-30] — Layered Memory System + Agent Pipeline + Tests
+
+### Completed
+- **Layered memory system** — full Reddit-style 4-file layer implemented:
+  - `src/project-memory/paths.ts`: slug+MD5-hashed per-project dir (`~/.koa/projects/<slug>-<hash>/`)
+  - `src/project-memory/store.ts`: atomic `writeMarkdownFile`, journal append, `readRecentJournals`, `writeHandoff`
+  - `src/project-memory/generators/project-doc.ts`: Haiku-generated PROJECT.md on first session
+  - `src/project-memory/generators/state-doc.ts`: Haiku-generated STATE.md + dated journal entries
+- **AgentLoop rewrite** — `initialize()` reads all project memory files and fires background PROJECT.md gen; `buildSystemPrompt()` injects XML blocks (project, state, journals, backlog, handoff); `checkpoint()` and `finalize()` generate and persist state
+- **SpiderBrain auto-molt** — `isStale()` + `autoMolt()` added; fires molt.mjs in background when synganglion.json is older than 7 days or missing
+- **Agent dispatch tool** (`dispatch_agent`) — allowlist-validated; reads `~/claudeAgents/tools/agent-templates/<agent>.md` as system prompt; writes HANDOFF.md before/after; uses Haiku
+- **`session/store.ts` deleted** — fully superseded by project-memory layer
+- **Reviewer fixes applied** (5 issues closed):
+  - SpiderBrain null guards added to `query()`, `cascade()`, `molt()`
+  - `App.tsx` useCallback deps corrected (`isExiting`, `quit` added)
+  - `/api/checkpoint` now gated on `isBusy` (409 on conflict)
+  - `HAIKU_MODEL` consolidated to single constant in `config/index.ts`
+  - `KoaConfig` duplicate removed from `types/index.ts`
+  - `paths.ts` hash no longer lowercases (case-sensitive FS correctness)
+  - Silent PROJECT.md catch now logs to `process.stderr`
+- **Tests**: 158 passing / 11 files; added 42 new tests covering:
+  - `project-memory/paths.ts` (8 tests: stability, hash uniqueness, KOA_HOME, slug)
+  - `project-memory/store.ts` (22 tests: read/write/atomic, journal append, handoff structure)
+  - `agent_dispatch_tool.ts` (12 tests: allowlist, validation, apiKey guard)
+  - `SpiderBrainClient.isStale()` (4 tests: missing file, stale, fresh)
+
+### Decisions
+- **Haiku for all background generation** — cheapest model; background tasks (PROJECT.md, STATE.md, journal) don't need frontier quality. Single `HAIKU_MODEL` constant in `config/index.ts`.
+- **Atomic writes via tmp+rename** — prevents corrupt STATE.md on crash; applied consistently in `writeMarkdownFile`.
+- **dispatch_agent uses SDK directly** (not `claude --print` subprocess) — more reliable (no PATH/auth issues); agent templates used as system prompts.
+- **KOA_HOME env var** for test isolation of project memory directory — tests set `KOA_HOME` to a temp dir so no `~/.koa` pollution.
+- **`/api/checkpoint` gated on isBusy** — prevents race with active agent turn (would have been a hard-to-reproduce corruption bug).
+
+### Issues Found
+- None remaining after reviewer pass. Build and all 158 tests clean.
+
+### Next Session
+- [ ] E2E test: `koa chat` with real API key to verify layered memory round-trip
+- [ ] PR: merge `feature/web-console-and-hardening` → `develop`
+- [ ] README: add section on project memory system, `/checkpoint`, auto-molt behavior
+- [ ] Consider adding `koa memory show` subcommand to inspect PROJECT.md/STATE.md from CLI
+
+### Learnings
+- `exactOptionalPropertyTypes: true` + spread patterns are worth the strictness; forced explicit `null` checks in `readMarkdownFile`.
+- Fire-and-forget pattern with `Promise.race([actual, timeout])` in `finalize()` handles the first-session PROJECT.md race correctly without blocking the session cleanup path.
+- The isBusy guard for `/api/checkpoint` was a subtle race — both endpoints shared state but only `/api/chat` was guarded originally.
+
+---
+
+## [2026-05-30] — Architect: Layered Memory and Agent Coordination System
+
+### Completed
+- Read all 10 source files specified in brief (session/store.ts, agent/loop.ts, memory/store.ts, memory_tool.ts, spiderbrain/client.ts, types/index.ts, cli/index.ts, tui/App.tsx, config/index.ts, DEVLOG.md)
+- Designed full implementation plan — written to TASKS.md (10 phases, 30 tasks)
+- Wrote HANDOFF.md (architect summary, ready for coder agent)
+
+### Decisions
+- **MD5 via Node built-in `crypto.createHash('md5')`**: Zero new npm deps; 8-char hex suffix gives sufficient per-user uniqueness. Avoids adding an `md5` package.
+- **`session/store.ts` fully retired**: The new `project-memory/` layer supersedes it entirely. Keeping both would create dual session tracking. `SessionRecord` type removed from `types/index.ts`.
+- **Haiku hardcoded in generators**: `claude-haiku-4-5-20251001` is the cheapest model per the brief constraint. Hardcoded in `project-doc.ts` and `state-doc.ts`; not configurable to prevent accidental cost escalation.
+- **Atomic file writes via tmp + rename**: Prevents corrupt STATE.md if Koa crashes mid-`finalize()`. Pattern is consistent with `writeFileTool` in `files.ts`.
+- **`finalize()` awaits pending PROJECT.md gen with 10s timeout**: On first session, PROJECT.md generation fires in the background during `initialize()`. `finalize()` awaits it (with timeout) so the file is guaranteed to be written before session ends. On subsequent sessions, no generation fires so `finalize()` is unaffected.
+- **`dispatch_agent` uses execa args array, never shell**: Consistent with all existing tool patterns (bash.ts, engram/client.ts, spiderbrain/client.ts). Agent name validated against `['architect', 'reviewer', 'debug', 'security-reviewer']` allowlist before exec.
+- **Background tasks log to stderr only**: `autoMolt()` and `autoIndex()` write diagnostics to `process.stderr`. MCP mode owns stdout (stdio transport); all three frontends (TUI/web/MCP) handle stderr safely.
+- **New directory: `src/project-memory/`**: Clean separation from `src/memory/` (global memory.json) and `src/session/` (to be deleted). Holds `paths.ts`, `store.ts`, `generators/project-doc.ts`, `generators/state-doc.ts`.
+- **`/checkpoint` as a TUI command, not a tool**: Handled by TUI `handleSubmit` intercept and Express route — not registered as an agent tool. Prevents Koa from calling checkpoint on itself during a turn.
+- **Engram autoIndex no-ops if brain exists**: Prevents unnecessary re-indexing. Only fires on first session (no `brain.db`). Uses existing `engram.sync()` which already handles the subprocess call.
+
+### Issues Found
+- **`AgentState` will need `projectMemory` field**: `exactOptionalPropertyTypes: true` requires explicit optional field definition — tracked in Phase 2 task.
+- **Tech Debt (LOW)**: `~/.koa/sessions/` directory from the old session store will persist on disk after Phase 10 cleanup. A one-time migration note should be added to README.
+
+### Next Session
+- [ ] Phase 1 (coder): Create `src/project-memory/paths.ts` and `src/project-memory/store.ts`
+- [ ] Phase 2 (coder): Haiku generators + `AgentLoop.initialize()` changes + types
+- [ ] Phase 3 (coder): `finalize()` rewrite + delete `src/session/store.ts`
+- [ ] Phase 4 (coder): `/checkpoint` command in TUI + web
+- [ ] Phase 5 (coder): SpiderBrain `isStale()` + `autoMolt()`
+- [ ] Phase 6 (coder): `dispatch_agent` tool + HANDOFF writer
+- [ ] Phase 7 (coder): Engram `autoIndex()`
+- [ ] Phase 8 (tester): Full test suite for all new modules
+- [ ] Phase 9 (reviewer): Code review + security review of dispatch_agent
+- [ ] Phase 10 (coder): Delete session/store.ts, update README
+
+### Learnings
+- Koa's existing patterns are consistent and clean: factory functions for tools that close over dependencies (`createFileTools`, `createEngramTool`, `createSpiderBrainTools`), execa args arrays everywhere, XML escaping for system prompt injection.
+- The fire-and-forget + timeout pattern (used for PROJECT.md generation in `finalize()`) must be implemented carefully — `Promise.race([actualGen, timeout(10000)])` is the correct idiom.
+- `MCP mode owns stdout` is a hard constraint that shapes all diagnostic output decisions.
+
+---
+
 ## Long-Term Vision
 
 Koa's goal is to be a **full personal AI assistant** — not just a CLI tool. Future scope includes:

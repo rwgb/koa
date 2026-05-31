@@ -46,3 +46,7 @@ export function getEngramBrainPath(projectPath: string): string {
 }
 
 export const ENGRAM_CLI = path.join(os.homedir(), '.claude', 'skills', 'engram', 'cli', 'engram.py');
+
+// Haiku is used for all background LLM generation (journal, STATE.md, PROJECT.md, dispatch_agent)
+// to minimize cost. Kept as a single constant so a model version bump is a one-line change.
+export const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
