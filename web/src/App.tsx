@@ -8,6 +8,12 @@ import SkillsPage from './pages/SkillsPage.js';
 import NotificationsPage from './pages/NotificationsPage.js';
 import ActivityPage from './pages/ActivityPage.js';
 import SettingsPage from './pages/SettingsPage.js';
+import ProjectsPage from './pages/ProjectsPage.js';
+import ProjectDetailPage from './pages/ProjectDetailPage.js';
+import TaskDetailPage from './pages/TaskDetailPage.js';
+import DecisionsPage from './pages/DecisionsPage.js';
+import SearchPage from './pages/SearchPage.js';
+import CalendarPage from './pages/CalendarPage.js';
 import { pingServer, verifyToken, getStoredToken, setStoredToken } from './api.js';
 
 type AuthState = 'loading' | 'ready' | 'needs-token';
@@ -97,6 +103,12 @@ export default function App() {
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="activity" element={<ActivityPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
+          <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+          <Route path="tasks/:taskId" element={<TaskDetailPage />} />
+          <Route path="decisions" element={<DecisionsPage />} />
+          <Route path="search" element={<SearchPage />} />
+          <Route path="calendar" element={<CalendarPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

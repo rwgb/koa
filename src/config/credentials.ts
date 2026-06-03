@@ -33,6 +33,9 @@ export function readCredentials(): Record<string, string> {
 }
 
 export function writeCredential(key: string, value: string): void {
+  if (/[\r\n]/.test(key) || /[\r\n]/.test(value)) {
+    throw new Error('Credential key/value must not contain newlines');
+  }
   fs.mkdirSync(koaDir(), { recursive: true, mode: 0o700 });
 
   let existing: Record<string, string> = {};

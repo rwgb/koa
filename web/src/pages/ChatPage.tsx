@@ -14,8 +14,16 @@ export default function ChatPage() {
   const [classifyingTier, setClassifyingTier] = useState<string | null>(null);
   const cancelRef = useRef<(() => void) | null>(null);
   const lastTierRef = useRef<string>('sonnet');
+  const lastAgentRef = useRef<string>('code-assistant');
 
-  const { isThinking, setIsThinking, setActiveTool, setUsage, setAgentStatus } = useAgent();
+  const { isThinking, setIsThinking, setActiveTool, setUsage, setAgentStatus, agentStatus } = useAgent();
+
+  // Sync lastTierRef with the server-reported tier (before any turns, reflects config model)
+  useEffect(() => {
+    if (agentStatus?.activeTier) {
+      lastTierRef.current = agentStatus.activeTier;
+    }
+  }, [agentStatus?.activeTier]);
 
   useEffect(() => {
     fetchStatus()
@@ -48,10 +56,11 @@ export default function ChatPage() {
       (event: SseEvent) => {
         if (event.type === 'done') {
           lastTierRef.current = event.tier;
+          lastAgentRef.current = event.agent ?? 'code-assistant';
           setActiveTool(null);
           setAgentStatus(prev =>
             prev
-              ? { ...prev, turnCount: event.turnCount, activeModel: event.model, activeTier: event.tier }
+              ? { ...prev, turnCount: event.turnCount, activeModel: event.model, activeTier: event.tier, activeAgent: event.agent }
               : prev,
           );
           return;
@@ -75,7 +84,7 @@ export default function ChatPage() {
             if (last?.kind === 'assistant') {
               return [...prev.slice(0, -1), { ...last, content: last.content + event.text }];
             }
-            return [...prev, { kind: 'assistant', content: event.text, id: makeId(), tier: lastTierRef.current }];
+            return [...prev, { kind: 'assistant', content: event.text, id: makeId(), tier: lastTierRef.current, agent: lastAgentRef.current }];
           });
           return;
         }

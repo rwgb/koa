@@ -1,5 +1,228 @@
 # Koa — DevLog
 
+## [2026-06-03] — CP10c Calendar Write & Email Compose
+
+### Completed
+- **`src/calendar/write.ts`** (new) — `createEvent`, `updateEvent`, `deleteEvent` using googleapis Calendar v3; allDay events use `date` format, datetime events use `dateTime`
+- **`src/agent/tools/calendar_write.ts`** (new) — `create_calendar_event`, `update_calendar_event`, `delete_calendar_event` tools; input validated (required fields, start<end guard)
+- **`src/calendar/oauth.ts`** — added `calendar.events` write scope alongside existing readonly scope
+- **`src/channels/gmail-send.ts`** (new) — `sendEmail()` (RFC 2822, base64url, reply threading via In-Reply-To/References); `isValidEmail()` with anchored regex
+- **`src/agent/tools/send_email.ts`** (new) — `send_email` tool with email format validation before API call
+- **`src/cli/index.ts`** — registered all 4 new tools in `buildRegistry()`
+- **`web/src/pages/IntegrationsPage.tsx`** — Gmail card shows "Send scope missing" warning + Re-authorize button when send scope absent
+- **Security fix** — CRLF stripped from `to`/`subject` headers in `gmail-send.ts` (header injection prevention); email regex anchored (`^...$`)
+- 16 new tests across 3 new test files (`calendar_write.test.ts`, `gmail_send.test.ts`, `calendar_write_tool.test.ts`)
+- 434/434 tests, tsc clean
+
+### Decisions
+- Email validation regex anchored (`/^[^@\s\r\n]+@.../`) — unanchored regex wouldn't catch CRLF injection in `to` address
+- `sanitizeHeader()` strips `\r\n` as defence-in-depth even after regex rejects injected addresses
+- `replyToMessageId` fetches threadId from Gmail API before sending — required for correct Gmail thread grouping
+
+### Next Session
+- [ ] CP10d — GitHub Integration
+
+---
+
+## [2026-06-02] — CP10b Server Refactor & Dead Code Cleanup
+
+### Completed
+- **Server router split** — `src/server/index.ts` (1536 lines) split into `src/server/routes/` (chat, admin, db, push, calendar, webhooks) + `src/server/utils.ts`; `index.ts` reduced to 158 lines (startup wiring only)
+- **Shared chat-stream helper** — `runChatStream()` extracted in `routes/chat.ts`; both POST and GET chat endpoints use it
+- **Whisper refactor** — inline Whisper HTTP call in voice route replaced with `transcribeAudio()` delegation from `src/voice/whisper.ts`
+- **Dead code removal** — `EngramSession` interface, `sessionId?` field, `ConfigModelTier`, `CONFIG_MODEL_MAP` removed from `src/types/index.ts`; `void subject` dead line removed from `gmail.ts`; `cost_optimization.test.ts` test for removed constant deleted
+- **`recordCheckpoint` wired** — `POST /api/checkpoint` now calls `recordCheckpoint('default', 'manual checkpoint')` fire-and-forget after `loop.checkpoint()` resolves
+- **`select-agent.ts` exports kept** — `isCodeQuery`, `hasBacklogSignals`, `hasLifeSignals` remain exported because `select_agent.test.ts` imports them directly
+- **`loadIntegrations()` TTL cache** — 5-second module-level cache with invalidation on save/delete; atomic writes (H1 fix: write-to-tmp then renameSync)
+- **`src/__tests__/integrations.test.ts`** (new) — 9 tests covering cache behaviour, invalidation, maskSecrets, atomic write
+- tsc clean, 418/418 tests
+
+### Decisions
+- `getProjectBySlug` export kept (tests import it; removing would break the test without benefit to production)
+- `select-agent.ts` internal functions kept exported (test depends on them directly)
+- H1 atomic write fix folded into CP10b integrations cache work (same file, same session)
+
+### Next Session
+- [ ] CP10c — Calendar Write & Email Compose
+
+---
+
+## [2026-06-02] — CP10a iOS Hardening & Bug Fixes
+
+### Completed
+- **KeychainHelper.swift** (new) — `SecItemAdd`/`SecItemCopyMatching`/`SecItemDelete`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, service `com.koa.app`
+- **AppState.swift** — bearer token reads/writes migrated from `UserDefaults` → `KeychainHelper`; `serverURL` stays in `UserDefaults` (non-sensitive)
+- **KoaAPI.swift** — both static background helpers (`transcribeAudio`, `sendNotificationReply`) migrated to `KeychainHelper.get("bearerToken")`
+- **KoaIntents.swift** — both Siri intents migrated to `KeychainHelper`; `MarkTaskDoneIntent` crash fixed (`updateTaskStatus` → `updateTask(taskId:updates:)`)
+- **gmail.ts** — OAuth scope reduced from full mailbox (`https://mail.google.com/`) to `gmail.readonly`; tsc clean, 410/410 tests
+
+### Decisions
+- `serverURL` intentionally left in `UserDefaults` across all files — it's a hostname, not a credential
+- SourceKit "Cannot find KeychainHelper in scope" warnings are analysis artifacts (no Xcode project file in repo); same class as pre-existing ChatMessage/KoaTask/KoaProject warnings
+
+### Next Session
+- [ ] CP10b: server refactor + dead code cleanup
+
+---
+
+## [2026-06-02] — CP10 Spec + CP11/CP12 Arc Planning
+
+### Completed
+- **Dual-agent audit** — architect (Plan) + code explorer (Explore) ran in parallel against the full codebase
+- **TASKS.md** extended with: pre-CP11 housekeeping punch list (12 items), CP11 spec (11a–11d: ElevenLabs TTS, multi-agent chaining, conversation persistence, watchOS), CP12 spec (12a–12d: plugin SDK, semantic compaction, Ollama, conversation graph), Product Radar (5 items)
+- **Voice TTS gap documented** — `tts.ts` needs async provider abstraction before ElevenLabs/OpenAI TTS can be added; current `speak()` is synchronous fire-and-forget
+
+### Decisions
+- **CP11 arc theme**: Voice, Intelligence & Platform Reach — ElevenLabs first because user explicitly asked; watchOS promoted out of Deferred Backlog
+- **CP12 arc theme**: Extensibility, Intelligence & Self-Hosted Reach — plugin SDK + Ollama make koa usable without Anthropic dependency
+- **Housekeeping before CP11**: 12 targeted items found by code audit; none require pipeline; should be addressed before starting CP11 to keep the test count honest and eliminate known security gaps (H1 non-atomic writes, H3 no tool timeout, H4 credentials chmod)
+- **Conversation persistence (CP11c) before auto-title (CP12d)**: persistence is load-bearing for the search feature; migration v7 must land first
+- **Multi-agent chaining (CP11b)**: promoted from "deferred indefinitely" — now spec'd with confidence threshold + negative lookahead to reduce false positives; gated behind `autoChaining` config flag
+
+### Issues Found (new — not in CP10)
+- **H1** (`src/integrations/store.ts`): non-atomic integration writes — race condition under concurrent webhooks
+- **H3** (`src/agent/loop.ts`): no per-tool timeout — hanging `web_fetch` blocks entire turn
+- **H4** (`src/config/credentials.ts`): credentials file chmod not enforced on subsequent writes
+- **M5** (`src/db/index.ts`): FTS5 query unsanitised — bare `"` throws 500
+- **M6** (`src/server/index.ts`): `actual_hours` missing from task update whitelist
+- **M3** (`src/notifications/store.ts`): `loadRules()` / `loadQuietHours()` read disk on every `routeResponse()` — needs 30s cache like `loadIntegrations()`
+- **`any` casts** in `web_fetch.ts:49` + `web_search.ts:64` — should use `unknown` + type narrowing
+
+### Next Session
+- [ ] Pre-CP11 housekeeping punch list (start with H1, H3, H4 — security-first)
+- [ ] CP11a: ElevenLabs TTS provider abstraction (user explicitly requested)
+
+---
+
+## [2026-06-03] — End-of-Arc Audit + CP10 Definition
+
+### Completed
+- **End-of-arc audit** — full code quality, security, dead code, and test coverage review of all CP9 changes
+- **TASKS.md** rewritten with CP10 (Autonomous Operations & Hardening) — 6 checkpoints defined
+- **STATE.md** updated marking CP9a–CP9d complete
+
+### Decisions
+- **CP10 arc sequence**: iOS Hardening first (security-critical: Keychain + broken Siri intent), then Server Refactor (load-bearing: 1,500-line monolith), then features (Calendar Write, GitHub, Briefing, iOS Voice)
+- **Deferred**: iOS Keychain migration (M1 from CP9d security review) promoted to CP10a; `loadIntegrations()` disk-read-on-every-call flagged as highest-impact performance item
+
+### Issues Found
+- **Broken Siri intent** (HIGH): `MarkTaskDoneIntent` calls `updateTaskStatus()` which doesn't exist — crashes at runtime. Fix in CP10a.
+- **1,536-line `server/index.ts`** (MEDIUM): 10+ domains inline; split into 6 route files in CP10b.
+- **13 source files with no tests** (MEDIUM): router.ts, chaining.ts, and calendar/*.ts are highest risk — in CP10b punch list.
+- **`loadIntegrations()` reads disk on every call** (MEDIUM): 9+ call sites in server alone; cache with 5s TTL deferred to CP10b.
+
+### Next Session
+- [ ] CP10a: iOS Hardening (Keychain + Siri fix + Gmail scope)
+
+---
+
+## [2026-06-02] — CP9d: Voice (macOS push-to-talk + iOS transcription endpoint)
+
+### Completed
+- **`src/voice/whisper.ts`** (new) — `transcribeAudio(Buffer, mimeType)` — proxies audio to OpenAI Whisper API; reads `OPENAI_API_KEY` from env or credentials file; enforces 25MB limit
+- **`src/voice/recorder.ts`** (new) — `AudioRecorder` (EventEmitter) wrapping `sox` — 16kHz mono WAV to stdout; `isAvailable()` checks `which sox`
+- **`src/voice/tts.ts`** (new) — `speak(text)` via macOS `say -v Samantha`; strips markdown and truncates to 500 chars before speaking; `isTtsAvailable()` check
+- **`src/cli/index.ts`** — `koa voice` subcommand; raw-mode stdin push-to-talk (ENTER/SPACE toggle); transcribe → loop.turn → speak pipeline; Ctrl+C for clean exit
+- **`src/server/index.ts`** — `POST /api/voice/transcribe`; reads raw body from `rawBodyMap` (already in scope from CP9c); proxies to Whisper API; `rawBody` is cast via `new Uint8Array()` to satisfy strict Blob BlobPart types
+- **`ios/Koa/KoaAPI.swift`** — `transcribeAudio(fileURL:)` instance method + static variant; posts raw audio as `audio/m4a`; decodes `{ text }` response
+- **`ios/Koa/ChatView.swift`** — `import AVFoundation`; mic button (SF Symbol `mic.fill`/`mic.slash.fill`) to the left of the text field; `toggleRecording()`, `startRecording()`, `stopRecordingAndTranscribe()`, `speakResponse()` via `AVSpeechSynthesizer`; auto-submits transcribed text; reads Koa's response aloud on `done` event
+- **`src/__tests__/voice.test.ts`** (new) — 7 tests for `transcribeAudio` and `speak`; uses `vi.stubGlobal('fetch', mockFetch)` + `vi.mock('../config/credentials.js')`
+- 410 tests, tsc clean
+
+### Security Review Findings & Fixes Applied
+- **H1 (fixed)** `src/voice/tts.ts` — `say` flag injection: added `'--'` separator before text arg to prevent AI-generated text starting with `-` from being interpreted as `say` flags
+- **H2 (fixed)** `src/server/index.ts` — Whitelist `Content-Type` from client before passing to Whisper Blob; only `audio/wav|m4a|mpeg|ogg|webm|mp4` accepted; others default to `audio/wav`
+- **M2 (fixed)** `src/server/index.ts` — `/api/voice/transcribe` was reading from `rawBodyMap` which only populates for JSON content-types; audio requests with `audio/m4a` got `undefined` body; fixed by adding `express.raw({ limit: '26mb', type: () => true })` middleware on the route; reads from `req.body` (Buffer) first
+- **M3 (fixed)** `ios/Koa/ChatView.swift` — Added `defer { try? FileManager.default.removeItem(at: fileURL) }` so temp audio files are cleaned up on both success and error paths
+- **M4 (fixed)** `src/voice/whisper.ts` + `src/server/index.ts` — Raw OpenAI error body no longer reflected to callers; logged server-side, generic message returned
+- **M1 (deferred)** Bearer token in iOS `UserDefaults` — should migrate to Keychain with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`; deferred to CP10 iOS hardening pass
+
+### Decisions
+- **`new Uint8Array(buffer)` cast** — TypeScript strict mode rejects `Buffer` as `BlobPart` because `Buffer.buffer` is typed `ArrayBufferLike` (which includes `SharedArrayBuffer`); wrapping in `Uint8Array` narrows to `ArrayBuffer` and satisfies the type checker without a runtime penalty
+- **`express.raw` on voice route** — `rawBodyMap` (from CP9c WeakMap pattern) only works for JSON/form content-types; audio needs its own body parser; `express.raw({ type: () => true })` is the correct approach for binary content
+- **iOS TTS always-on** — `speakResponse` is called on every `done` event regardless of whether the turn was initiated by voice; this is intentional (consistent experience); can be gated behind a toggle in a future CP if needed
+
+### Next Session
+- [ ] End-of-arc audit (tsc + tests + security-review + manual quality pass → new TASKS.md)
+- [ ] CP10: Autonomous Daily Operations (morning briefing, calendar write, GitHub integration, email compose)
+
+---
+
+## [2026-06-02] — CP9c: Slack Inbound (Events API + Slash Commands)
+
+### Completed
+- **`src/channels/slack.ts`** — Added `validateSlackSignature()` (HMAC-SHA256, 5-min replay guard, constant-time compare), `parseSlackInbound()` (slash commands + `app_mention`, strips `<@UXXX>` prefix), `replyToSlack()` (response_url or chat.postMessage, 4000-char truncation)
+- **`src/server/index.ts`** — `POST /webhooks/slack` route; `url_verification` challenge without auth; HMAC validation on all other payloads; slash commands acknowledged immediately with ephemeral "Thinking…", processed async
+- **`src/server/index.ts` (bug fix)** — `rawBodyMap` WeakMap; `express.json()` and `express.urlencoded()` both save raw buffer via `verify` callback; fixes body-parser `req._body` guard that causes route-level `express.raw` to skip on already-parsed requests
+- **`web/src/pages/IntegrationsPage.tsx`** — Slack card gains `signingSecret` + `botToken` fields
+- **`src/__tests__/channels.test.ts`** — 9 new tests for `validateSlackSignature` + `parseSlackInbound`
+- 403 tests, tsc clean, security review: no findings
+
+### Decisions
+- **`rawBodyMap` over route-level `express.raw`** — once any body-parser sets `req._body = true`, subsequent parsers skip; `verify` callback on global parsers is the only reliable way to capture raw bytes alongside parsed body
+- **`url_verification` without HMAC** — Slack spec requires this before a signing secret is configured; it reveals nothing sensitive
+
+---
+
+## [2026-06-02] — CP9b: Telegram Bot (bidirectional)
+
+### Completed
+- **`src/channels/telegram.ts`** (new) — `TelegramPoller` class: long-poll loop via `getUpdates`, `sendMessage` with 4000-char truncation, `handleMessage` that calls `loop.turn()` and replies
+- **`src/channels/router.ts`** — added `telegram` dispatch case (reads `TELEGRAM_DEFAULT_CHAT_ID` from credentials, sends via poller); added `setTelegramPoller()` module-level setter so the server can wire the poller in at startup without circular imports
+- **`src/server/index.ts`** — imported `TelegramPoller` + `setTelegramPoller`; `telegramPoller` variable declared in `createServer` scope; auto-starts on boot if `TELEGRAM_BOT_TOKEN` is set; `GET/POST /api/admin/telegram` routes for status + config (token + chat ID); `createServer` now returns `{ app, getTelegramPoller }` instead of bare `app`
+- **`src/cli/index.ts`** — destructures `{ app, getTelegramPoller }` from `createServer`; calls `getTelegramPoller()?.stop()` in the shutdown handler
+- **`web/src/api.ts`** — added `updateTelegramConfig()` and `getTelegramStatus()`
+- **`web/src/pages/IntegrationsPage.tsx`** — Telegram card in the API Keys section: bot token (password input), default chat ID, Save/Remove buttons, polling status badge
+- **`src/__tests__/channels.test.ts`** — 5 new `TelegramPoller` tests (start/stop logging, sendMessage truncation, sendMessage passthrough, handleMessage → loop.turn → sendMessage round trip)
+- 394 tests, tsc clean
+
+### Decisions
+- **`setTelegramPoller()` setter in router** — avoids circular imports (router doesn't import from server); server calls the setter after creating the poller; same pattern is consistent with how other singleton-style state is handled in the codebase
+- **`createServer` returns `{ app, getTelegramPoller }`** — cleaner than a module-level export; the poller is created inside `createServer` scope so it can close over `loop`; CLI gets a getter rather than a reference so it can be lazily stopped
+- **POST /api/admin/telegram restarts the poller** — if a new token is saved via the UI, the existing poller is stopped and a new one is started immediately, no server restart needed
+
+### Next Session
+- [ ] CP10 or further backlog items
+
+---
+
+## [2026-06-02] — CP9a: Actionable Push Notifications
+
+### Completed
+- **`src/notifications/apns.ts`** — `sendApnsPush` third param changed from `taskId?: string` to `options?: { taskId?: string; category?: string }`; `aps.category` included in payload when provided
+- **`src/channels/router.ts`** — APNs dispatch now passes `{ category: 'KOA_REPLY' }` so every outgoing notification is replyable from the lock screen
+- **`src/server/index.ts`** — `POST /api/push/reply` route added (covered by global `/api/` bearer auth); 202s immediately, processes `loop.turn()` async in background, sends follow-up push with response (≤200 chars)
+- **`ios/Koa/KoaApp.swift`** — `UNTextInputNotificationAction` + `UNNotificationCategory('KOA_REPLY')` registered at launch; `UNUserNotificationCenterDelegate.didReceive` handles `KOA_REPLY_ACTION`, calls `KoaAPI.sendNotificationReply` in a detached Task; existing task deep-link path preserved
+- **`ios/Koa/KoaAPI.swift`** — `static func sendNotificationReply(message:)` reads serverURL + bearerToken from `UserDefaults`, POSTs to `/api/push/reply`
+- 389 tests, tsc clean, security review: no findings
+
+### Decisions
+- **202 immediately, async processing** — iOS background tasks have tight (~30s) time limits; the agent loop can take longer; fire-and-forget + follow-up push is the right pattern
+- **200-char response truncation** — APNs 4KB payload limit; model produces a better short answer than truncating mid-word; `…` appended when cut
+- **`KOA_REPLY` on all outgoing notifications** — makes every push a conversation entry point, not just explicit reply flows
+
+### Next Session
+- [ ] CP9b: Telegram Bot (bidirectional)
+
+---
+
+## [2026-06-02] — Perf: Startup and Exit Parallelization
+
+### Completed
+- **`src/engram/client.ts:getContext()`** — parallelized `status` and `session history` subprocess calls with `Promise.all`; saves ~300ms on startup (two Python process spawns were sequential, now concurrent)
+- **`src/agent/loop.ts:initialize()`** — wrapped Engram chain (sync → getContext → startSession) in an async IIFE and raced it concurrently with `sb.getContext()` via `Promise.all`; saves ~1s on startup (SpiderBrain context is a local JSON read, no reason to wait for 3 serial Python processes)
+- **`src/agent/loop.ts:finalize()`** — moved `engram.rememberSession()` into the existing `Promise.all` alongside `generateStateDoc` and `generateJournalEntry`; saves ~400ms on exit
+- 388 tests, tsc clean, security review: no findings
+
+### Decisions
+- **Fix 4 (cache `loadIntegrations()`) deferred** — server calls `loadIntegrations()` directly in ~6 route handlers with no clean callback to the loop; cache invalidation complexity not worth ~1ms/turn savings
+- **Worktree discarded** — first agent worked from the committed base (not the uncommitted working tree), producing a large noisy diff; applied fixes directly to the working tree with a second targeted agent
+
+### Next Session
+- [ ] v6 CP9 definition
+
+---
+
 ## [2026-06-02] — Feature: Automatic Context Window Management
 
 ### Completed

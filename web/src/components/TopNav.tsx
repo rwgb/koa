@@ -1,6 +1,40 @@
+import { useEffect, useState } from 'react';
 import { useAgent } from '../context/AgentContext.js';
+import { fetchHealth } from '../api.js';
+import type { HealthStatus } from '../types.js';
 
 const VERSION = '0.2.0';
+
+function HealthPill() {
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  useEffect(() => {
+    const check = () => {
+      fetchHealth().then(setHealth).catch(() => setHealth(null));
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const dotClass = health === null
+    ? 'top-nav__health-dot'
+    : health.db === 'ok'
+      ? 'top-nav__health-dot top-nav__health-dot--ok'
+      : 'top-nav__health-dot top-nav__health-dot--error';
+
+  const title = health === null
+    ? 'Health unknown'
+    : health.db === 'ok'
+      ? `DB ok — uptime ${Math.floor(health.uptime / 3600)}h`
+      : 'DB error';
+
+  return (
+    <span className="top-nav__health" title={title}>
+      <span className={dotClass} />
+    </span>
+  );
+}
 
 function StatusPill({ isThinking, activeTool }: { isThinking: boolean; activeTool: string | null }) {
   if (!isThinking) {
@@ -44,6 +78,7 @@ export default function TopNav() {
       <div className="top-nav__left">
         <span className="top-nav__brand">Koa</span>
         <span className="top-nav__version">v{VERSION}</span>
+        <HealthPill />
       </div>
 
       <div className="top-nav__center">

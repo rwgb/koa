@@ -4,6 +4,12 @@ import {
   saveIntegration,
   deleteIntegration,
   testIntegration,
+  startGmailOAuth,
+  startCalendarOAuth,
+  fetchAdminConfig,
+  updateBraveApiKey,
+  updateTelegramConfig,
+  getTelegramStatus,
 } from '../api.js';
 import type { Integration, IntegrationDef, IntegrationType } from '../types.js';
 import { Icon } from '../components/Icon.js';
@@ -35,7 +41,8 @@ const CATALOG: IntegrationDef[] = [
     description: 'Incoming and outgoing notifications via Slack.',
     fields: [
       { key: 'webhookUrl', label: 'Incoming Webhook URL', secret: true, placeholder: 'https://hooks.slack.com/...' },
-      { key: 'botToken', label: 'Bot Token (optional)', secret: true, placeholder: 'xoxb-...' },
+      { key: 'botToken', label: 'Bot Token (optional)', secret: true, placeholder: 'xoxb-...', hint: 'Required for app_mention replies via chat.postMessage' },
+      { key: 'signingSecret', label: 'Signing Secret (optional)', secret: true, placeholder: '', hint: 'Required to validate inbound slash commands and app_mention events' },
       { key: 'defaultChannel', label: 'Default channel', secret: false, placeholder: '#koa' },
     ],
   },
@@ -113,6 +120,40 @@ const CATALOG: IntegrationDef[] = [
       { key: 'authToken', label: 'Auth Token (optional)', secret: true, placeholder: '' },
     ],
   },
+  {
+    type: 'gmail',
+    name: 'Gmail (IMAP)',
+    icon: 'envelope',
+    description: 'Inbound task creation from Gmail via OAuth2 IMAP polling.',
+    fields: [
+      { key: 'email', label: 'Gmail address', secret: false, placeholder: 'you@gmail.com' },
+      { key: 'clientId', label: 'Google OAuth Client ID', secret: false, placeholder: '' },
+      { key: 'clientSecret', label: 'Google OAuth Client Secret', secret: true, placeholder: '' },
+      { key: 'refreshToken', label: 'Refresh Token', secret: true, hint: 'Auto-populated after connecting via Google' },
+    ],
+  },
+  {
+    type: 'twilio',
+    name: 'Twilio SMS',
+    icon: 'phone',
+    description: 'Inbound SMS task creation and outbound SMS notifications.',
+    fields: [
+      { key: 'accountSid', label: 'Account SID', secret: false, placeholder: 'AC...' },
+      { key: 'authToken', label: 'Auth Token', secret: true, placeholder: '' },
+      { key: 'fromNumber', label: 'From Number', secret: false, placeholder: '+15551234567' },
+    ],
+  },
+  {
+    type: 'google-calendar',
+    name: 'Google Calendar',
+    icon: 'calendar',
+    description: 'Read-only calendar sync for conflict detection and availability in Life Manager.',
+    fields: [
+      { key: 'clientId', label: 'Google OAuth Client ID', secret: false, placeholder: '' },
+      { key: 'clientSecret', label: 'Google OAuth Client Secret', secret: true, placeholder: '' },
+      { key: 'refreshToken', label: 'Refresh Token', secret: true, hint: 'Auto-populated after connecting via Google' },
+    ],
+  },
 ];
 
 const CATALOG_MAP = new Map(CATALOG.map(d => [d.type, d]));
@@ -150,11 +191,38 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [oauthing, setOauthing] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const id = integration?.id ?? def.type;
+
+  async function handleGmailOAuth() {
+    setOauthing(true);
+    setError(null);
+    try {
+      const { url } = await startGmailOAuth();
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setOauthing(false);
+    }
+  }
+
+  async function handleCalendarOAuth() {
+    setOauthing(true);
+    setError(null);
+    try {
+      const { url } = await startCalendarOAuth();
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setOauthing(false);
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -211,6 +279,22 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
           {integration && (
             <div className="slide-over__status-row">
               {statusBadge(integration.status)}
+              {integration.status === 'connected' && def.type === 'gmail' && (() => {
+                const scopes: string[] = Array.isArray(integration.config['scopes'])
+                  ? (integration.config['scopes'] as string[])
+                  : typeof integration.config['scopes'] === 'string'
+                    ? (integration.config['scopes'] as string).split(' ')
+                    : [];
+                const hasSendScope = scopes.some(s => s.includes('gmail.send') || s.includes('gmail.compose'));
+                if (!hasSendScope) {
+                  return (
+                    <span className="intg-badge intg-badge--error" title="Re-authorize to grant send permissions">
+                      Send scope missing
+                    </span>
+                  );
+                }
+                return null;
+              })()}
               {integration.status === 'connected' && (
                 <button
                   className="intg-btn intg-btn--ghost"
@@ -269,6 +353,49 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
           )}
           <div className="slide-over__footer-spacer" />
           <button className="intg-btn intg-btn--ghost" onClick={onClose}>Cancel</button>
+          {def.type === 'gmail' && (
+            <>
+              <button
+                className="intg-btn intg-btn--ghost"
+                onClick={handleGmailOAuth}
+                disabled={oauthing}
+                title="Authorize via Google and auto-populate the refresh token"
+              >
+                {oauthing ? 'Opening…' : 'Connect via Google'}
+              </button>
+              {integration && integration.status === 'connected' && (() => {
+                const scopes: string[] = Array.isArray(integration.config['scopes'])
+                  ? (integration.config['scopes'] as string[])
+                  : typeof integration.config['scopes'] === 'string'
+                    ? (integration.config['scopes'] as string).split(' ')
+                    : [];
+                const hasSendScope = scopes.some(s => s.includes('gmail.send') || s.includes('gmail.compose'));
+                if (!hasSendScope) {
+                  return (
+                    <button
+                      className="intg-btn intg-btn--ghost"
+                      onClick={handleGmailOAuth}
+                      disabled={oauthing}
+                      title="Re-authorize with send + compose scopes"
+                    >
+                      {oauthing ? 'Opening…' : 'Re-authorize'}
+                    </button>
+                  );
+                }
+                return null;
+              })()}
+            </>
+          )}
+          {def.type === 'google-calendar' && (
+            <button
+              className="intg-btn intg-btn--ghost"
+              onClick={handleCalendarOAuth}
+              disabled={oauthing}
+              title="Authorize via Google and auto-populate the refresh token"
+            >
+              {oauthing ? 'Opening…' : 'Connect via Google'}
+            </button>
+          )}
           <button className="intg-btn intg-btn--primary" onClick={handleSave} disabled={saving}>
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -366,12 +493,91 @@ export default function IntegrationsPage() {
   const [newType, setNewType] = useState<IntegrationType | null>(null);
   const [showPicker, setShowPicker] = useState(false);
 
+  // Brave Search API key state
+  const [braveKeySet, setBraveKeySet] = useState(false);
+  const [braveInput, setBraveInput] = useState('');
+  const [braveSaving, setBraveSaving] = useState(false);
+  const [braveSaved, setBraveSaved] = useState(false);
+  const [braveError, setBraveError] = useState<string | null>(null);
+
+  // Telegram state
+  const [telegramStatus, setTelegramStatus] = useState<{ configured: boolean; hasDefaultChatId: boolean; polling: boolean }>({ configured: false, hasDefaultChatId: false, polling: false });
+  const [telegramToken, setTelegramToken] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramSaving, setTelegramSaving] = useState(false);
+  const [telegramSaved, setTelegramSaved] = useState(false);
+  const [telegramError, setTelegramError] = useState<string | null>(null);
+
   useEffect(() => {
     fetchIntegrations()
       .then(setIntegrations)
       .catch(err => setError((err as Error).message))
       .finally(() => setLoading(false));
+    fetchAdminConfig()
+      .then(cfg => setBraveKeySet(cfg.braveApiKey))
+      .catch(() => { /* non-fatal */ });
+    getTelegramStatus()
+      .then(setTelegramStatus)
+      .catch(() => { /* non-fatal */ });
+
+    // After Gmail OAuth redirect, refresh the integration list
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('connected') === 'gmail') {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
+
+  async function handleBraveSave() {
+    setBraveSaving(true);
+    setBraveError(null);
+    try {
+      await updateBraveApiKey(braveInput);
+      setBraveKeySet(!!braveInput);
+      setBraveInput('');
+      setBraveSaved(true);
+      setTimeout(() => setBraveSaved(false), 3000);
+    } catch (err) {
+      setBraveError((err as Error).message);
+    } finally {
+      setBraveSaving(false);
+    }
+  }
+
+  async function handleTelegramSave() {
+    setTelegramSaving(true);
+    setTelegramError(null);
+    try {
+      await updateTelegramConfig({
+        ...(telegramToken !== '' ? { botToken: telegramToken } : {}),
+        ...(telegramChatId !== '' ? { defaultChatId: telegramChatId } : {}),
+      });
+      const updated = await getTelegramStatus();
+      setTelegramStatus(updated);
+      setTelegramToken('');
+      setTelegramChatId('');
+      setTelegramSaved(true);
+      setTimeout(() => setTelegramSaved(false), 3000);
+    } catch (err) {
+      setTelegramError((err as Error).message);
+    } finally {
+      setTelegramSaving(false);
+    }
+  }
+
+  async function handleTelegramClear() {
+    setTelegramSaving(true);
+    setTelegramError(null);
+    try {
+      await updateTelegramConfig({ botToken: '', defaultChatId: '' });
+      setTelegramStatus({ configured: false, hasDefaultChatId: false, polling: false });
+      setTelegramToken('');
+      setTelegramChatId('');
+    } catch (err) {
+      setTelegramError((err as Error).message);
+    } finally {
+      setTelegramSaving(false);
+    }
+  }
 
   function handleEdit(integration: Integration) {
     setActiveIntegration(integration);
@@ -414,21 +620,24 @@ export default function IntegrationsPage() {
 
   return (
     <div className="intg-page">
-      <header className="page-header">
+      <div className="page-header" style={{ paddingBottom: '16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <h1 className="page-title">Integrations</h1>
           <p className="page-subtitle">Connect external services to unlock tools and notifications.</p>
         </div>
-        <button className="intg-btn intg-btn--primary" onClick={() => setShowPicker(true)}>
+        <button className="btn btn-primary" style={{ marginTop: '4px' }} onClick={() => setShowPicker(true)}>
           + Add
         </button>
-      </header>
+      </div>
 
       {integrations.length === 0 ? (
-        <div className="intg-empty">
-          <Icon name="plug" size={32} className="intg-empty__icon" aria-hidden />
-          <p>No integrations configured yet.</p>
-          <button className="intg-btn intg-btn--primary" onClick={() => setShowPicker(true)}>
+        <div className="empty-state" style={{ flex: 1 }}>
+          <div className="empty-state__icon">
+            <Icon name="plug" size={40} aria-hidden />
+          </div>
+          <p className="empty-state__title">No integrations configured</p>
+          <p className="empty-state__body">Connect Slack, GitHub, ntfy, and more to unlock tools and notifications.</p>
+          <button className="btn btn-primary" onClick={() => setShowPicker(true)}>
             Add your first integration
           </button>
         </div>
@@ -439,6 +648,107 @@ export default function IntegrationsPage() {
           ))}
         </div>
       )}
+
+      <div style={{ marginTop: '2rem' }}>
+        <h2 style={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>API Keys</h2>
+        <div className={`intg-card intg-card--${braveKeySet ? 'connected' : 'not_configured'}`}>
+          <div className="intg-card__top">
+            <Icon name="link" size={20} className="intg-card__icon" aria-hidden />
+            <div className="intg-card__info">
+              <span className="intg-card__name">Brave Search</span>
+              <span className="intg-card__summary">Web search via Brave Search API — powers web_search tool</span>
+            </div>
+            {braveSaved && <span className="intg-card__edit" style={{ color: 'var(--color-success, #22c55e)', cursor: 'default' }}>Saved ✓</span>}
+          </div>
+          <div className="intg-card__bottom">
+            {statusBadge(braveKeySet ? 'connected' : 'unconfigured')}
+          </div>
+          <div className="slide-over__fields" style={{ padding: '0.75rem 0 0' }}>
+            <label className="intg-field">
+              <span className="intg-field__label">API Key</span>
+              <div className="intg-field__input-wrap">
+                <input
+                  type="password"
+                  className="intg-field__input"
+                  value={braveInput}
+                  placeholder={braveKeySet ? '••••••••••••••••' : 'BSA...'}
+                  onChange={e => setBraveInput(e.target.value)}
+                />
+              </div>
+            </label>
+          </div>
+          {braveError && <div className="slide-over__error">{braveError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+            <button
+              className="intg-btn intg-btn--primary"
+              onClick={handleBraveSave}
+              disabled={braveSaving || (!braveInput && braveKeySet)}
+            >
+              {braveSaving ? 'Saving…' : (!braveInput && braveKeySet) ? 'Remove' : 'Save'}
+            </button>
+          </div>
+        </div>
+
+        <div className={`intg-card intg-card--${telegramStatus.configured ? 'connected' : 'not_configured'}`} style={{ marginTop: '0.75rem' }}>
+          <div className="intg-card__top">
+            <Icon name="chat" size={20} className="intg-card__icon" aria-hidden />
+            <div className="intg-card__info">
+              <span className="intg-card__name">Telegram Bot</span>
+              <span className="intg-card__summary">Bidirectional chat via Telegram bot — send and receive messages</span>
+            </div>
+            {telegramSaved && <span className="intg-card__edit" style={{ color: 'var(--color-success, #22c55e)', cursor: 'default' }}>Saved ✓</span>}
+          </div>
+          <div className="intg-card__bottom">
+            {statusBadge(telegramStatus.polling ? 'connected' : telegramStatus.configured ? 'connected' : 'unconfigured')}
+            {telegramStatus.polling && <span className="intg-badge intg-badge--connected" style={{ marginLeft: '0.5rem' }}>polling</span>}
+          </div>
+          <div className="slide-over__fields" style={{ padding: '0.75rem 0 0' }}>
+            <label className="intg-field">
+              <span className="intg-field__label">Bot Token</span>
+              <div className="intg-field__input-wrap">
+                <input
+                  type="password"
+                  className="intg-field__input"
+                  value={telegramToken}
+                  placeholder={telegramStatus.configured ? '••••••••••••••••' : '123456:ABC-...'}
+                  onChange={e => setTelegramToken(e.target.value)}
+                />
+              </div>
+            </label>
+            <label className="intg-field">
+              <span className="intg-field__label">Default Chat ID</span>
+              <div className="intg-field__input-wrap">
+                <input
+                  type="text"
+                  className="intg-field__input"
+                  value={telegramChatId}
+                  placeholder={telegramStatus.hasDefaultChatId ? '(set)' : 'for proactive notifications'}
+                  onChange={e => setTelegramChatId(e.target.value)}
+                />
+              </div>
+            </label>
+          </div>
+          {telegramError && <div className="slide-over__error">{telegramError}</div>}
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+            {telegramStatus.configured && (
+              <button
+                className="intg-btn intg-btn--danger"
+                onClick={handleTelegramClear}
+                disabled={telegramSaving}
+              >
+                Remove
+              </button>
+            )}
+            <button
+              className="intg-btn intg-btn--primary"
+              onClick={handleTelegramSave}
+              disabled={telegramSaving || (!telegramToken && !telegramChatId)}
+            >
+              {telegramSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {showPicker && (
         <TypePicker

@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { readCredentials, writeCredential } from './credentials.js';
 
 const ConfigSchema = z.object({
-  model: z.string().default('claude-sonnet-4-6'),
+  model: z.string().default('claude-haiku-4-5-20251001'),
   maxTokens: z.number().default(8096),
   projectPath: z.string(),
   engramEnabled: z.boolean().default(true),
@@ -37,9 +37,11 @@ export interface KoaConfigFile {
   autoCheckpointMinutes?: number;
   engramEnabled?: boolean;
   noCache?: boolean;
+  spiderBrainBrain?: string;
+  defaultProjectPath?: string;
 }
 
-function readKoaConfigFile(): KoaConfigFile {
+export function readKoaConfigFile(): KoaConfigFile {
   try {
     const raw = fs.readFileSync(path.join(koaDir(), 'config.json'), 'utf8');
     return JSON.parse(raw) as KoaConfigFile;
@@ -57,19 +59,19 @@ export function writeKoaConfigFile(updates: KoaConfigFile): void {
 }
 
 export function loadConfig(projectPath?: string): KoaConfig {
-  const resolvedPath = projectPath ?? process.cwd();
+  const fileConfig = readKoaConfigFile();
+  const resolvedPath = projectPath ?? fileConfig.defaultProjectPath ?? process.cwd();
   // Env var takes precedence; credentials file is the persistent fallback.
   const credentials = readCredentials();
   const apiKey = process.env['ANTHROPIC_API_KEY'] ?? credentials['ANTHROPIC_API_KEY'];
   const webToken = process.env['KOA_WEB_TOKEN'] ?? credentials['KOA_WEB_TOKEN'];
-  const fileConfig = readKoaConfigFile();
 
   const tierAliases: Record<string, string> = {
     fast: 'claude-haiku-4-5-20251001',
     standard: 'claude-sonnet-4-6',
     powerful: 'claude-opus-4-7',
   };
-  const rawModel = process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-sonnet-4-6';
+  const rawModel = process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-haiku-4-5-20251001';
   const resolvedModel = tierAliases[rawModel] ?? rawModel;
 
   return ConfigSchema.parse({
@@ -91,7 +93,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
     compactAfterTurns: process.env['KOA_COMPACT_TURNS']
       ? parseInt(process.env['KOA_COMPACT_TURNS'], 10)
       : (fileConfig.compactAfterTurns ?? 10),
-    spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'],
+    spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'] ?? fileConfig.spiderBrainBrain,
     autoCheckpointTurns: process.env['KOA_CHECKPOINT_TURNS']
       ? parseInt(process.env['KOA_CHECKPOINT_TURNS'], 10)
       : (fileConfig.autoCheckpointTurns ?? 5),
@@ -124,4 +126,8 @@ export function generateWebToken(): string {
 
 export function setWebToken(token: string): void {
   writeCredential('KOA_WEB_TOKEN', token);
+}
+
+export function setApiKey(key: string): void {
+  writeCredential('ANTHROPIC_API_KEY', key);
 }

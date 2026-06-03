@@ -1,320 +1,870 @@
-## Tasks — Layered Memory and Agent Coordination System
+## Tasks — v6 CP10: Autonomous Operations & Hardening
 
-> Designed by: architect agent — 2026-05-30
-> Branch: feature/layered-memory (branch from develop)
-
----
-
-### Overview
-
-This plan adds three new capabilities to Koa:
-
-1. **Working Memory** — per-project markdown files at `~/.koa/projects/<slug>-<hash>/` (PROJECT.md, STATE.md, BACKLOG.md, HANDOFF.md, journal/)
-2. **SpiderBrain auto-molt** — runs automatically on first session (non-blocking) instead of requiring manual `koa brain build`
-3. **Agent coordination** — Koa spawns specialist sub-agents from `~/claudeAgents/tools/agent-templates/` via bash tool; HANDOFF.md tracks inter-agent state
-
-The existing `session/store.ts` is retired and replaced by the working memory layer. `engram/` and `memory/store.ts` stay unchanged.
+> **Position**: CP0–CP9 complete (Foundation → Accessibility & Reach).
+> **Goal**: koa becomes a proactive, autonomous assistant — schedules, composes, reviews, and
+> summarises without being asked — while the codebase is hardened against the findings from the
+> CP9 end-of-arc audit.
+> **End-of-arc**: Full code/QA/security audit → CP11 backlog.
 
 ---
 
-### Phase 1: Project Memory Directory — Core Infrastructure
+## CP10a — iOS Hardening & Bug Fixes
 
-**Goal**: Establish the `~/.koa/projects/<slug>-<hash>/` directory structure and the module that reads/writes it.
+**Done when**: Keychain replaces UserDefaults for the bearer token; Siri "mark that done" works.
 
-- [ ] Create `src/project-memory/paths.ts` (owner: coder) — Exports `projectMemoryDir(projectPath: string): string` using `path.basename(projectPath) + '-' + md5(projectPath.toLowerCase()).slice(0, 8)`. Also exports `projectMemoryPaths(projectPath)` returning typed paths for all five files (PROJECT.md, STATE.md, BACKLOG.md, HANDOFF.md, journal dir). No external deps — use Node.js built-in `crypto.createHash('md5')`. AC: Unit test confirms `~/.koa/projects/koa-<8hex>/` for a given path; hash is stable across calls.
+### iOS
 
-- [ ] Create `src/project-memory/store.ts` (owner: coder) — Exports: `ensureProjectMemoryDir(projectPath)` (mkdir recursive, chmod 700), `readMarkdownFile(filePath): string | null` (returns null on ENOENT, throws on other errors), `writeMarkdownFile(filePath, content)` (atomic: write to `.tmp`, rename to final; chmod 600), `appendJournalEntry(projectPath, content)` (appends to today's `journal/YYYY-MM-DD.md`, creates if absent). AC: All four exports covered by unit tests including the atomic write path.
+- [ ] `ios/Koa/KeychainHelper.swift` (new) — `KeychainHelper` struct with
+  `static func set(_ key: String, _ value: String)`,
+  `static func get(_ key: String) -> String?`,
+  `static func delete(_ key: String)`.
+  Use `SecItemAdd` / `SecItemCopyMatching` / `SecItemDelete`.
+  `kSecAttrAccessible = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
+  AC: unit test (XCTest) writes and reads back a value; delete removes it.
 
-- [ ] Add `md5` hash utility (owner: coder) — Use Node.js built-in `crypto.createHash('md5')` only; zero new npm deps. AC: `tsc --noEmit` passes, no new packages in package.json.
+- [ ] `ios/Koa/AppState.swift` — Replace `UserDefaults.standard.set/string(forKey: "bearerToken")`
+  with `KeychainHelper.set/get("bearerToken")`. AC: token survives app restart; not visible in
+  `UserDefaults` plist.
 
----
+- [ ] `ios/Koa/KoaAPI.swift` (lines 76, 124) — Both static background helpers read bearer token
+  directly from `UserDefaults`. Replace with `KeychainHelper.get("bearerToken") ?? ""`.
+  AC: Siri shortcuts + notification reply still authenticate correctly.
 
-### Phase 2: PROJECT.md and STATE.md — Auto-Generation
+- [ ] `ios/Koa/KoaIntents.swift` (line 48) — `MarkTaskDoneIntent.perform()` calls
+  `api.updateTaskStatus(taskId:status:)` which does not exist. Replace with
+  `api.updateTask(taskId: taskId, updates: ["status": "done"])`.
+  AC: Siri "mark that done" shortcut completes without crash.
 
-**Goal**: On first session, generate PROJECT.md from SpiderBrain context + codebase scan. Write STATE.md at session end and on `/checkpoint`.
+### Server / backend
 
-- [ ] Create `src/project-memory/generators/project-doc.ts` (owner: coder) — `generateProjectDoc(projectPath, sbContext, apiKey): Promise<string>`. Makes a single Haiku call (`claude-haiku-4-5-20251001`, max_tokens: 1024) with a prompt instructing the model to produce a PROJECT.md covering: tech stack (inferred from package.json if present), architecture summary, key conventions, SpiderBrain hot files. Returns the markdown string; caller writes it. AC: Function signature correct, Haiku model hardcoded, prompt instructs JSON-safe output; unit test mocks Anthropic SDK and asserts returned string starts with `# PROJECT`.
+- [ ] `src/channels/gmail.ts` — Change IMAP OAuth scope from `https://mail.google.com/` to
+  `https://www.googleapis.com/auth/gmail.readonly` (principle of least privilege). AC: existing
+  Gmail tests still pass; scope string updated in both the client and the IntegrationsPage
+  connection-test flow.
 
-- [ ] Create `src/project-memory/generators/state-doc.ts` (owner: coder) — `generateStateDoc(projectPath, conversationSummary, turnCount, apiKey): Promise<string>`. Makes a single Haiku call summarizing what's in flight: what was accomplished this session, key decisions, what failed, what's next. Returns markdown for STATE.md. AC: Unit test mocks SDK; generated doc contains `## In Progress` and `## Next` sections.
-
-- [ ] Extend `AgentLoop.initialize()` in `src/agent/loop.ts` (owner: coder) — After existing init steps, call `ensureProjectMemoryDir(this.config.projectPath)`. If PROJECT.md does not exist, fire `generateProjectDoc(...)` as a background Promise (do NOT await; assign to `this._projectDocGeneration`). Read STATE.md (if exists) and BACKLOG.md (if exists) into `this.state.projectMemory`. AC: `initialize()` still returns in <200 ms on a project with no PROJECT.md (generation is fire-and-forget). Unit test asserts `state.projectMemory.state` is populated when STATE.md pre-exists.
-
-- [ ] Add `projectMemory` field to `AgentState` in `src/types/index.ts` (owner: coder) — `projectMemory?: { project?: string; state?: string; backlog?: string; handoff?: string }`. Use `exactOptionalPropertyTypes`-safe definition. AC: `tsc --noEmit` passes.
-
-- [ ] Extend `buildSystemPrompt()` in `src/agent/loop.ts` (owner: coder) — Inject project memory files into the system prompt after existing injections: `<project_memory>`, `<state>`, `<backlog>`, `<handoff>` XML blocks (only if content is non-empty). Escape XML special chars. Each block tagged for cache stability (content rarely changes). AC: Unit test asserts XML blocks appear in system prompt when state fields are set; absent fields produce no XML block.
-
----
-
-### Phase 3: Journal and Session Finalization
-
-**Goal**: Replace `session/store.ts` with journal-based finalization. Session JSON store is retired.
-
-- [ ] Update `AgentLoop.finalize()` in `src/agent/loop.ts` (owner: coder) — Remove calls to `saveSession()` and `buildSessionRecord()`. Instead: (1) if `this.state.turnCount === 0`, return immediately; (2) build a conversation summary string from tool uses and user messages; (3) await `this._projectDocGeneration` if it's still pending (with a 10s timeout — resolve with null if it times out); (4) call `generateStateDoc(...)` and write result to STATE.md; (5) call `appendJournalEntry(projectPath, journalContent)` where journalContent is a dated Haiku-generated session log. All three LLM calls (project doc if pending, state doc, journal) must complete before `finalize()` returns. Total budget: <10s. AC: Integration test mocks SDK calls; `finalize()` resolves in <500ms in test (mocked); journal file is written; STATE.md is written; no calls to `saveSession`.
-
-- [ ] Delete `src/session/store.ts` (owner: coder) — Remove file and all imports from `loop.ts`. Update `src/types/index.ts` to remove `SessionRecord` if no longer referenced. AC: `tsc --noEmit` passes; `grep -r 'session/store'` returns no hits in `src/`.
-
-- [ ] Update `AgentLoop.initialize()` to read HANDOFF.md (owner: coder) — Load HANDOFF.md (if exists) into `state.projectMemory.handoff`. AC: Handoff content appears in system prompt under `<handoff>` tag.
-
----
-
-### Phase 4: `/checkpoint` Command
-
-**Goal**: Add `/checkpoint` as a TUI command that immediately writes STATE.md without ending the session.
-
-- [ ] Add `checkpoint()` method to `AgentLoop` in `src/agent/loop.ts` (owner: coder) — `async checkpoint(): Promise<void>`. Builds current in-flight summary from messages and calls `generateStateDoc(...)` then writes to STATE.md. Does NOT write journal. Does NOT end session. Resolves in <10s. AC: Unit test asserts STATE.md written after `checkpoint()` call with mocked SDK; turnCount unchanged.
-
-- [ ] Add `/checkpoint` handler to `src/tui/App.tsx` (owner: coder) — In `handleSubmit`, before the existing `/exit` check, detect `trimmed === '/checkpoint'`. Call `loop.checkpoint()`, show a one-turn assistant message "Checkpoint saved." Clear input. Do not send to agent turn. AC: Typing `/checkpoint` in TUI writes STATE.md and shows confirmation; does not increment turn count or call `loop.turn()`.
-
-- [ ] Add `/checkpoint` to web console (owner: coder) — In `src/server/index.ts` (Express POST /api/chat handler), detect if the body message is `/checkpoint`. If so, call `loop.checkpoint()` and return a non-streaming 200 JSON `{ status: 'ok', message: 'Checkpoint saved.' }` without going through the agent turn. AC: `POST /api/chat` with body `{ message: '/checkpoint' }` returns 200 JSON without SSE; STATE.md updated.
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] security review: Keychain migration complete, no HIGH/MEDIUM on new code
+- [ ] ntfy: CP10a sealed
 
 ---
 
-### Phase 5: SpiderBrain Auto-Molt
+## CP10b — Server Refactor & Dead Code Cleanup
 
-**Goal**: On first session (no brain exists) or stale brain (>7 days), trigger `molt()` in the background without blocking chat startup.
+**Done when**: `src/server/index.ts` is split into 6 router files; unused exports removed;
+`loadIntegrations()` calls don't hit disk on every request.
 
-- [ ] Add `isStale(brainDir)` helper to `src/spiderbrain/client.ts` (owner: coder) — Checks `mtime` of `synganglion.json`; returns true if absent or if `Date.now() - mtime > 7 * 24 * 60 * 60 * 1000`. AC: Unit test asserts returns true for missing file; returns false for fresh file; returns true for a file whose mtime is set 8 days ago.
+### Dead code removal
 
-- [ ] Add `autoMolt(brainDir?)` method to `SpiderBrainClient` (owner: coder) — If `brainDir` is null or `isStale()` is true, call `this.molt()` (which runs the molt.mjs subprocess). Returns a Promise; caller must NOT await it in the hot path. Stores the Promise in `this._moltPromise` for later introspection. If `brainDir` is null and the SpiderBrain scripts dir doesn't exist, no-ops silently. AC: Unit test with mocked `execa` asserts `molt()` is called when synganglion is absent; not called when fresh.
+- [ ] `src/types/index.ts` — Remove unused `EngramSession` interface (lines 45–49) and dead
+  `AgentState.sessionId?: string` field (line 97). Remove unused `ConfigModelTier` type and
+  `CONFIG_MODEL_MAP` constant (lines 77–82). AC: tsc clean after removal; no test imports them.
 
-- [ ] Call `sb.autoMolt()` in `AgentLoop.initialize()` (owner: coder) — Fire-and-forget: `void this.sb.autoMolt()`. Call it after `this.state.spiderBrainContext = await this.sb.getContext()`. AC: `initialize()` returns without awaiting molt; E2E smoke test logs "(SpiderBrain auto-molt started in background)" without blocking.
+- [ ] `src/db/index.ts` — Unexport `getProjectBySlug` (production code has no callers; only tests
+  use it — move the export to a test helper if needed). Unexport `recordCheckpoint` or wire it
+  into the `POST /api/checkpoint` route handler. AC: tsc clean; checkpoint table records inserts.
 
-- [ ] Log auto-molt start/finish to stderr (owner: coder) — `autoMolt()` logs `[SpiderBrain] auto-molt started` to `process.stderr` on launch and `[SpiderBrain] auto-molt complete` or `[SpiderBrain] auto-molt failed: <message>` on settle. No stdout (MCP mode uses stdout). AC: Stderr log appears in test output; stdout is clean.
+- [ ] `src/agent/select-agent.ts:30` — Remove `export` from `hasLifeSignals`; it is only called
+  internally. AC: tsc clean.
 
----
+- [ ] `src/channels/gmail.ts:186` — Either include `subject` in the extracted task title/body, or
+  remove the extraction. The `void subject` suppression is dead weight. AC: tsc clean.
 
-### Phase 6: Agent Coordination via HANDOFF.md
+- [ ] `src/server/index.ts:1057–1105` — Replace the inline Whisper API call with a delegation to
+  `transcribeAudio()` from `src/voice/whisper.ts`. Content-Type whitelist and size check remain
+  server-side; the HTTP call moves to the shared function.
+  AC: existing voice tests still pass; no duplicated Whisper logic.
 
-**Goal**: Koa can spawn specialist agents from `~/claudeAgents/tools/agent-templates/` and track handoff state in HANDOFF.md.
+### `loadIntegrations()` cache
 
-- [ ] Create `src/agent/tools/agent_dispatch_tool.ts` (owner: coder) — Exports `createAgentDispatchTool(projectPath: string): Tool`. Tool name: `dispatch_agent`. Input schema: `{ agent: string, task: string, context?: string }` where `agent` is one of `architect | reviewer | debug | security-reviewer`. Execution: (1) validate agent is in allowed list; (2) read template from `~/claudeAgents/tools/agent-templates/<agent>.md`; (3) construct a Claude Code `claude --print` invocation via bash; (4) write pre-dispatch HANDOFF.md with status `RUNNING`; (5) run the agent via `execa('claude', ['--print', '--model', 'claude-haiku-4-5-20251001', task], { cwd: projectPath })`; (6) write post-dispatch HANDOFF.md with status `PASS` or `FAIL`. Returns agent stdout (truncated to `maxToolOutputChars`). AC: Unit test mocks `execa`; HANDOFF.md written with RUNNING before exec, PASS after; invalid agent name returns error string without exec.
+- [ ] `src/integrations/store.ts` — Add module-level in-memory cache with 5-second TTL.
+  `loadIntegrations()` returns the cached value if it is <5s old; otherwise reads disk and updates
+  cache. `saveIntegration()` and `deleteIntegration()` invalidate the cache immediately.
+  AC: add a test that calls `loadIntegrations()` three times in 100ms and asserts `fs.readFileSync`
+  is called only once.
 
-- [ ] Register `dispatch_agent` tool in `buildRegistry()` in `src/cli/index.ts` (owner: coder) — Add `registry.register(createAgentDispatchTool(config.projectPath))`. AC: `koa chat` exposes `dispatch_agent` in tool list; `tsc --noEmit` passes.
+### Server router split
 
-- [ ] Add HANDOFF.md writer helper to `src/project-memory/store.ts` (owner: coder) — `writeHandoff(projectPath, { agent, lastAgent, nextAgent, status, plan, tasks })`. Formats the canonical HANDOFF.md structure matching the architect template. AC: Unit test asserts output string matches expected HANDOFF.md markdown structure.
+- [ ] `src/server/routes/` (new directory) — Extract the following from `src/server/index.ts`
+  into separate Express Router files. Each file exports a `createRouter(deps)` factory. Mount
+  routers in `src/server/index.ts` via `app.use()`.
 
----
+  Route files:
+  - `src/server/routes/chat.ts` — `/api/chat`, `/api/sse/chat`, `/api/checkpoint`
+  - `src/server/routes/admin.ts` — `/api/admin/*` (config, memory, models, telegram, skills)
+  - `src/server/routes/db.ts` — `/api/projects`, `/api/tasks`, `/api/decisions`, `/api/search`
+  - `src/server/routes/push.ts` — `/api/push/*`
+  - `src/server/routes/calendar.ts` — `/api/calendar/*`
+  - `src/server/routes/webhooks.ts` — `/webhooks/slack`, `/webhooks/sms`
 
-### Phase 7: Engram Auto-Index (Background, Non-Blocking)
+  AC: after split, `src/server/index.ts` is <200 lines (startup wiring only); all 410 tests pass;
+  tsc clean; no behaviour change.
 
-**Goal**: On first session, trigger Engram indexing in the background if no brain exists.
+### Shared chat-stream helper
 
-- [ ] Add `autoIndex(projectPath)` to `src/engram/client.ts` (owner: coder) — Checks if `~/.engram/brains/<slug>/brain.db` exists. If not, fires `engram.sync()` in background (already exists on EngramClient). Store promise in `this._indexPromise`. Log to stderr. Caller must NOT await. AC: Unit test asserts `sync()` called when brain absent; not called when brain exists.
+- [ ] `src/server/routes/chat.ts` — Extract `runChatStream(loop, message, res, opts?)` helper
+  used by both `POST /api/chat` and `GET /api/sse/chat`. AC: no duplicate SSE setup code; both
+  endpoints behave identically to current behaviour.
 
-- [ ] Call `engram.autoIndex(projectPath)` in `AgentLoop.initialize()` (owner: coder) — Fire-and-forget: `void this.engram.autoIndex(this.config.projectPath)`. Called only if `this.config.engramEnabled`. AC: `initialize()` returns without awaiting Engram index; Engram sync still completes asynchronously.
+### Missing test coverage
 
----
+The following source files have non-trivial logic but no tests:
 
-### Phase 8: Tests
+- [ ] `src/__tests__/router.test.ts` — Test `routeResponse()`: quiet hours gate, batching
+  (BATCH_THRESHOLD=3), exponential retry (mock `dispatchToChannel`), channel fallback to ntfy,
+  critical bypass of quiet hours. AC: ≥6 new passing tests.
 
-**Goal**: Full test coverage for all new modules. No regressions.
+- [ ] `src/__tests__/chaining.test.ts` — Test `detectCompletionSignal()` and
+  `buildPmFollowUpPrompt()` with fixture strings. AC: ≥4 new passing tests.
 
-- [ ] Unit tests for `src/project-memory/paths.ts` (owner: tester) — 3 tests: hash stability, slug format, `KOA_HOME` env var override. AC: All pass; no filesystem side effects.
+- [ ] `src/__tests__/calendar.test.ts` (extend) — Test `getConflicts()`, `getAvailableBlocks()`,
+  `buildCalendarSummary()` with mock events. AC: ≥5 new passing tests.
 
-- [ ] Unit tests for `src/project-memory/store.ts` (owner: tester) — 6 tests: ensureDir creates with correct permissions, readMarkdownFile returns null on ENOENT, writeMarkdownFile atomic (tmp file cleaned up), appendJournalEntry creates journal dir, appendJournalEntry appends to existing file, writeHandoff produces correct HANDOFF.md structure. AC: All pass; uses `KOA_HOME` temp dir.
+- [ ] `src/__tests__/integrations.test.ts` — Test `loadIntegrations()` caching (fs.readFileSync
+  call count), `saveIntegration()` invalidation, `maskSecrets()` masking logic.
+  AC: ≥4 new passing tests.
 
-- [ ] Unit tests for `generators/project-doc.ts` and `generators/state-doc.ts` (owner: tester) — 4 tests: Haiku model used, prompt contains project path, returned string non-empty, SDK error propagated. AC: All pass; Anthropic SDK mocked via `vi.mock`.
-
-- [ ] Unit tests for `AgentLoop` changes (owner: tester) — 5 tests: `initialize()` returns without awaiting background gen, `finalize()` writes journal and STATE.md, `finalize()` no-ops at turnCount 0, `checkpoint()` writes STATE.md only, `buildSystemPrompt()` includes project memory XML blocks. AC: All pass; no real API calls.
-
-- [ ] Unit tests for `SpiderBrainClient.isStale()` and `autoMolt()` (owner: tester) — 4 tests: stale on missing file, stale on old mtime, fresh on recent mtime, autoMolt calls molt only when stale. AC: All pass.
-
-- [ ] Unit tests for `dispatch_agent` tool (owner: tester) — 4 tests: invalid agent returns error, HANDOFF.md written with RUNNING before exec, PASS status written on success, FAIL status on exec error. AC: All pass; `execa` mocked.
-
-- [ ] Integration smoke test for `AgentLoop.finalize()` timing (owner: tester) — Asserts `finalize()` with all mocked SDK calls returns in <500ms. AC: Test passes with mocked LLM.
-
-- [ ] Run full test suite after all changes (owner: tester) — `npm test` must pass with zero failures. AC: CI-clean test run, 0 lint errors, 0 typecheck errors.
-
----
-
-### Phase 9: Review
-
-- [ ] Code review all new modules (owner: reviewer) — Focus on: (1) no awaits in fire-and-forget paths; (2) atomic file writes everywhere; (3) `exactOptionalPropertyTypes` compliance; (4) no shell: true in execa calls; (5) XML escaping in system prompt; (6) Haiku model hardcoded correctly. AC: Reviewer signs off; no HIGH findings.
-
-- [ ] Security review of `dispatch_agent` tool (owner: reviewer) — Verify: agent name validated against allowlist before any FS or exec operations; no user-supplied string reaches shell unescaped; task/context strings passed as execa args (not shell-interpolated). AC: No HIGH or MEDIUM findings unresolved.
-
----
-
-### Phase 10: Deprecation Cleanup
-
-- [ ] Remove legacy `src/session/store.ts` (owner: coder) — File deleted; all imports removed; `SessionRecord` type removed from `types/index.ts` if unreferenced. AC: `tsc --noEmit` passes; `grep -r 'SessionRecord\|session/store'` returns zero hits in `src/`.
-
-- [ ] Update `src/tui/App.tsx` help text (owner: coder) — Change placeholder text from "Ask Koa anything... (/exit to quit)" to "Ask Koa anything... (/exit · /checkpoint)". AC: Visual change confirmed in TUI.
-
-- [ ] Update `README.md` with new commands and memory layer description (owner: coder) — Add section: "Project Memory" explaining `~/.koa/projects/<slug>/` structure, `/checkpoint` command, auto-molt behavior. AC: README section present and accurate; no made-up flags.
-
----
-
-### Directory Structure After Implementation
-
-```
-~/.koa/
-  projects/
-    koa-a1b2c3d4/        # slug + 8-char md5 of absolute project path
-      PROJECT.md          # architecture, stack, conventions (Haiku-generated)
-      STATE.md            # current in-flight work (updated at finalize + checkpoint)
-      BACKLOG.md          # prioritized items (updated by Koa proactively or user)
-      HANDOFF.md          # agent pipeline state
-      journal/
-        2026-05-30.md     # per-day session log (appended)
-        2026-05-31.md
-  memory.json             # existing global memory store (unchanged)
-  credentials             # existing credentials file (unchanged)
-  sessions/               # DEPRECATED — can be deleted after Phase 10
-
-src/project-memory/       # NEW
-  paths.ts                # slug+hash, all file paths
-  store.ts                # read/write/append helpers
-  generators/
-    project-doc.ts        # Haiku call → PROJECT.md content
-    state-doc.ts          # Haiku call → STATE.md content
-
-src/agent/tools/
-  agent_dispatch_tool.ts  # NEW: dispatch_agent tool
-  (all existing tools unchanged)
-
-src/session/
-  store.ts                # DELETED in Phase 10
-```
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass (expect 430+ after new tests)
+- [ ] `src/server/index.ts` under 200 lines
+- [ ] security review: no HIGH/MEDIUM regressions
+- [ ] ntfy: CP10b sealed
 
 ---
 
-### Key Decisions (Architect)
+## CP10c — Calendar Write & Email Compose
 
-| Decision | Rationale |
-|---|---|
-| MD5 via Node built-in `crypto` | Zero new deps; 8 hex chars gives sufficient uniqueness per user |
-| Haiku for all LLM calls in this layer | Cost optimization per brief constraint; journal/state are short outputs |
-| Atomic file writes (tmp + rename) | Prevents corrupt STATE.md on crash during finalize |
-| `finalize()` awaits pending background gen with 10s timeout | Guarantees PROJECT.md is written on first session; timeout prevents hang |
-| `dispatch_agent` uses execa args array not shell | Consistent with existing bash/engram/spiderbrain patterns; prevents arg injection |
-| Agent allowlist validated before exec | Security: prevents Koa from being convinced to run arbitrary agent names |
-| `session/store.ts` retired, not extended | The new journal layer supersedes it entirely; keeping both would duplicate session tracking |
-| `autoMolt()` / `autoIndex()` log to stderr only | MCP mode owns stdout; stderr is safe for diagnostics in all three frontends |
+**Done when**: koa can create a Google Calendar event and send a Gmail email on the user's behalf.
+Life Manager's response to "block two hours for deep work this afternoon" actually modifies the
+calendar. "Reply to Ralph's last email and say I'll be there" actually sends.
 
----
+### Calendar write
 
-## Backlog — Apple Platform Clients
+- [ ] `src/calendar/write.ts` (new) — `createEvent(event: CalendarEventDraft): Promise<string>`,
+  `updateEvent(eventId: string, patch: Partial<CalendarEventDraft>): Promise<void>`,
+  `deleteEvent(eventId: string): Promise<void>`. Uses stored OAuth token from
+  `src/calendar/oauth.ts`. Returns event ID on create. AC: unit test mocks `fetch`; asserts
+  correct `POST https://www.googleapis.com/calendar/v3/calendars/primary/events` payload.
 
-> Added: 2026-05-31
-> Spec reference: `docs/ADMIN-UI-SPEC.md` (admin UI), conversation on 2026-05-31 (Apple platforms)
-> Priority: after Admin UI Phase 1 foundations are complete
+- [ ] `src/agent/tools/calendar_write.ts` (new) — Tool definition: `create_calendar_event`,
+  `update_calendar_event`, `delete_calendar_event`. Input schema validated (ISO date strings,
+  duration minutes, summary required). AC: tool registered in registry; tool call with valid
+  input calls `createEvent`; invalid input returns error string without API call.
 
-### Prerequisites (server-side — must land before any native client ships)
+- [ ] `src/calendar/oauth.ts` — Verify (and add if missing) `calendar` write scope
+  (`https://www.googleapis.com/auth/calendar.events`) alongside existing read scope.
+  AC: OAuth consent screen shows both scopes; existing sync still works.
 
-- [ ] Add bearer token auth to Express server (owner: coder) — All `/api/` routes require an `Authorization: Bearer <token>` header. Token stored in credentials file via `koa config set web-token <token>`. Unauthenticated requests return HTTP 401. AC: `curl` without token returns 401; `curl` with correct token passes; existing web console sends token on every request.
+### Email compose
 
-- [ ] HTTPS / TLS termination (owner: ops) — Document Tailscale or nginx TLS setup in `docs/DEPLOYMENT.md`. Koa itself does not need to terminate TLS — document the recommended reverse proxy pattern. AC: README has a "Exposing Koa externally" section covering Tailscale + nginx approaches.
+- [ ] `src/channels/gmail-send.ts` (new) — `sendEmail(opts: { to: string; subject: string; body: string; replyToMessageId?: string }): Promise<string>`.
+  Uses `gmail.users.messages.send` REST endpoint with RFC 2822 base64url encoding.
+  OAuth token read from credentials. Returns Message-ID. AC: unit test mocks fetch; asserts
+  correct base64url-encoded payload and `replyToMessageId` threading.
 
-- [ ] APNs push notification support (owner: coder) — Add `POST /api/admin/push/register` endpoint to store a device APNs token. Add `POST /api/admin/push/send` internal helper that fires a push via the `apn` npm package. Wire into notification rules engine (from Admin UI spec). AC: Test push lands on a registered device; invalid token is silently dropped (not an error).
+- [ ] `src/agent/tools/send_email.ts` (new) — Tool definition: `send_email`. Input: `to`,
+  `subject`, `body`, optional `replyToMessageId`. Validates `to` is a well-formed email address.
+  Returns `"Email sent to <to>"` on success, error string on failure.
+  AC: tool registered; valid input calls `sendEmail`; invalid email address rejected without API
+  call.
 
-- [ ] `?format=brief` response mode (owner: coder) — Add optional query param to `POST /api/chat`. When set, appends a system instruction capping the response to ~2 sentences. Intended for watchOS. AC: Response with `?format=brief` is meaningfully shorter than without; no change to normal chat behaviour.
+- [ ] `web/src/pages/IntegrationsPage.tsx` — Gmail card: display current granted scopes. Show
+  warning if send scope not yet granted (requires re-auth). AC: scope list rendered; re-auth
+  button triggers OAuth flow.
 
----
-
-### Phase A: iOS App (MVP)
-
-- [ ] Project scaffold — New Xcode project: `KoaApp` (iOS 17+, SwiftUI). Add to repo under `clients/ios/`. AC: Project builds and runs on simulator.
-
-- [ ] API client layer — Swift `KoaClient` struct wrapping `URLSession`. Methods: `fetchStatus()`, `streamChat(message:onEvent:onComplete:onError:)` using chunked transfer / SSE parsing, `checkpoint()`. Auth header injected from Keychain-stored token. AC: Unit tests for SSE line parsing; integration test against local server.
-
-- [ ] Settings screen — Enter server URL + bearer token, stored in Keychain. Test connection button. AC: Valid creds → green checkmark; bad token → error message.
-
-- [ ] Chat screen — SwiftUI chat bubbles, markdown rendering (via `AttributedString`), streaming support (text appends as SSE `content` events arrive), tool call trace rows (collapsed by default, tappable to expand), thinking indicator. AC: Full chat round-trip works on device.
-
-- [ ] Status indicator — Live polling (or SSE keep-alive) showing idle/busy/tool-name in the nav bar. AC: Indicator updates within 1s of state change.
-
-- [ ] Push notifications — Register APNs token with server on first launch. Receive and display notification banners. AC: Notification rule fires → banner appears on locked device.
-
-- [ ] Siri Shortcuts (`AppIntents`) — Expose "Ask Koa" intent accepting a free-text prompt. Returns Koa's response as output (usable in Shortcuts automations). AC: Intent appears in Shortcuts app; triggers a real agent turn.
-
-- [ ] Background task handling — Use `URLSessionConfiguration.background` for long-running chat requests. App goes to background mid-stream → request continues → push notification on complete. AC: Lock screen mid-turn; notification arrives with response.
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual test: Life Manager creates a calendar event via natural language
+- [ ] Manual test: agent sends a reply email
+- [ ] security review: OAuth scope changes, email send path validated
+- [ ] ntfy: CP10c sealed
 
 ---
 
-### Phase B: watchOS App (Companion)
+## CP10d — GitHub Integration
 
-> Requires iOS app to be complete first (watchOS app is a companion target).
+**Done when**: `/koa what PRs need my review?` returns open PRs with their CI status; `/koa open
+an issue for the login bug` creates a GitHub issue.
 
-- [ ] Companion target — Add watchOS target to Xcode project. Share `KoaClient` and model types via a Swift Package or shared framework. AC: Builds for watchOS simulator.
+### Server
 
-- [ ] Watch face complication — `CLKComplicationDataSource` showing: Koa status (idle/busy), today's session cost (e.g. `$0.02`), last task summary (short string). Refreshes every 15 minutes via background task. AC: Complication visible on watch face in simulator; data matches server state.
+- [ ] `src/integrations/github.ts` (new) — `getOpenPRs(owner, repo): Promise<PR[]>`,
+  `getPRStatus(owner, repo, prNumber): Promise<CIStatus>`,
+  `createIssue(owner, repo, title, body): Promise<string>`.
+  Reads `GITHUB_TOKEN` from credentials. AC: unit tests mock `fetch`; assert correct GitHub API
+  URLs and auth headers.
 
-- [ ] Quick prompts glance — WatchKit app with a list of 5 configurable pre-set prompts (e.g. "Check homelab", "What's my task list?", "Any errors?"). Tap → fires chat turn → response displayed as short text + notification when done. AC: Tap-to-send works; response arrives within watch session or as notification.
+- [ ] `src/agent/tools/github.ts` (new) — Three tools: `list_prs` (open PRs awaiting review),
+  `get_pr_status` (CI checks + approvals for a given PR), `create_github_issue`.
+  Each reads `GITHUB_TOKEN` + `GITHUB_DEFAULT_REPO` (e.g. `owner/repo`) from credentials.
+  Returns structured text summary. AC: ≥3 tool tests.
 
-- [ ] Dictation input — Free-text prompt via `WKTextInputMode.plain` dictation. Sends to `POST /api/chat?format=brief`. AC: Dictated message round-trips; response displayed in watch UI.
+- [ ] `web/src/pages/IntegrationsPage.tsx` — GitHub card: token field + default repo field
+  (replaces the current connection-test-only card). AC: token + repo save to credentials; card
+  shows connected state.
 
-- [ ] Notification replies — When a Koa push arrives on the watch, offer an inline reply action that sends the reply back as a chat message. AC: Reply from notification triggers a new agent turn.
-
----
-
-### Phase C: tvOS App (Dashboard)
-
-> Lower priority. Build after iOS + watchOS are stable.
-
-- [ ] tvOS target — Add tvOS target. Shared `KoaClient`. AC: Builds for tvOS simulator.
-
-- [ ] Dashboard screen — Full-screen ambient display: SpiderBrain hot files, current session status, today's cost chart, last 3 session summaries. Refreshes every 30s. Designed for always-on display. AC: Layout renders correctly on 1080p tvOS simulator; focus engine navigates cleanly with Siri Remote.
-
-- [ ] Notification banners — APNs notifications appear as tvOS banners. No reply needed. AC: Test push appears as banner on tvOS.
-
-- [ ] Voice query (Siri Remote mic) — Short prompt via Siri Remote microphone button → `POST /api/chat?format=brief` → response displayed as overlay. AC: Voice input triggers agent turn; response overlay appears within 10s.
-
----
-
-### Key Decisions (recorded at backlog creation)
-
-| Decision | Rationale |
-|---|---|
-| Tailscale preferred over open port | Already fits homelab pattern; zero infra changes to Koa server |
-| Bearer token auth (not session/cookie) | Stateless; works cleanly for native clients and CLI alike |
-| iOS first, watchOS companion, tvOS last | Highest value → lowest; watchOS shares iOS codebase; tvOS is nice-to-have |
-| `?format=brief` server-side (not client-side truncation) | Model produces a better short answer than truncating a long one |
-| APNs over polling for mobile notifications | Battery life; background polling is restricted on iOS 17+ |
-| watchOS: no persistent SSE connection | Platform restriction; use push + one-shot requests instead |
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual test: `koa` answers "what PRs do I have?" with real GitHub data
+- [ ] security review: no token leakage in tool output
+- [ ] ntfy: CP10d sealed
 
 ---
 
-## Backlog — API Cost Optimization
+## CP10e — Morning Briefing & Standing Delegations
 
-> Added: 2026-05-31
-> Spec reference: `docs/tasks/api-cost-optimization.md`
-> Trigger: Hit API spend limit at $100/month; 16.8M tokens/week at 21% prompt cache hit rate
-> Priority: High — fix before next billing period
+**Done when**: at 08:00 daily a push notification summarises the day; `/koa remind me every Monday
+to review team PRs` persists and fires without a user prompt.
 
-### Phase 1: Prompt Caching (largest lever — do first)
+### Morning briefing
 
-- [ ] Cache system prompt prefix with `cache_control: { type: "ephemeral" }` in `buildSystemPrompt()` in `src/agent/loop.ts` (owner: coder) — Static persona + tool list as first cache breakpoint. AC: `cache_read_input_tokens > 0` on second turn of same session.
+- [ ] `src/proactive/briefing.ts` (new) — `buildDailyBriefing(loop: AgentLoop): Promise<string>`.
+  Assembles: today's calendar events, open high-priority tasks (due ≤48h), open GitHub PRs
+  (if configured), current streaks, yesterday's completed tasks count. Formats as a ≤500-char
+  push-friendly summary. AC: unit test with mock DB + mock calendar; asserts all sections present.
 
-- [ ] Cache project memory blocks as a second cache breakpoint (owner: coder) — PROJECT.md / STATE.md / BACKLOG.md blocks injected before dynamic SpiderBrain context. AC: Memory blocks carry `cache_control`; SpiderBrain context injected after.
+- [ ] `src/server/index.ts` (or `src/server/routes/admin.ts` after CP10b) — Cron job on server
+  startup: `setInterval` at 08:00 local time, calls `buildDailyBriefing()` → `routeResponse('briefing', ...)`.
+  Configurable time via Settings. AC: integration test mocks system time to 08:00; asserts
+  `routeResponse` called with briefing text.
 
-- [ ] Add `logUsage()` helper to `src/agent/loop.ts` (owner: coder) — Logs `input | cached (%) | output | est_cost` to stderr on every turn. AC: Log appears every turn; no stdout pollution.
+- [ ] `web/src/pages/SettingsPage.tsx` — Add "Morning Briefing" section: enabled toggle + time
+  picker (HH:MM). Saves to config. AC: toggle persists; time picker updates config.
 
-### Phase 2: Model Tiering
+### Standing delegations
 
-- [ ] Add `ModelTier` type and `MODEL_MAP` to `src/types/index.ts` (owner: coder) — `fast` → Haiku, `standard` → Sonnet, `powerful` → Opus. AC: `tsc --noEmit` passes.
+- [ ] `src/db/index.ts` — New `delegations` table (migration v7):
+  `id, pattern TEXT, action TEXT, schedule TEXT (cron), last_run TEXT, enabled INTEGER`.
+  CRUD: `createDelegation`, `listDelegations`, `updateDelegation`, `deleteDelegation`.
+  AC: migration applies cleanly; CRUD ops tested.
 
-- [ ] Audit all `messages.create()` calls; switch internal/non-user-facing calls to Haiku (owner: coder) — Generators (project-doc, state-doc, journal), smart routing classifier, agent dispatch. AC: Every call tagged with tier comment; generators confirmed on Haiku.
+- [ ] `src/proactive/delegations.ts` (new) — `runDueDelegations(loop: AgentLoop): Promise<void>`.
+  Loads enabled delegations; checks if `last_run` + `schedule` interval means now is due;
+  calls `loop.turn(action)` for each due delegation; updates `last_run`. Uses `cronstrue` or
+  simple interval parsing (daily/weekly/monthly). AC: unit test with fixture delegations; asserts
+  correct turns fired.
 
-- [ ] Add optional `model?: ModelTier` to `AgentConfig`; wire `--model` CLI flag (owner: coder) — Defaults to `standard`. AC: `koa chat --model fast` uses Haiku for all turns.
+- [ ] `src/server/index.ts` — 5-minute `setInterval` on startup calls `runDueDelegations()`.
+  AC: test asserts delegations with past `last_run` trigger on the next interval.
 
-### Phase 3: Selective Context Injection
+- [ ] REST: `GET/POST /api/delegations`, `PUT /api/delegations/:id`, `DELETE /api/delegations/:id`.
+  AC: CRUD endpoints tested.
 
-- [ ] Add `isCodeQuery()` gate for SpiderBrain context injection in `buildSystemPrompt()` (owner: coder) — Keyword-based; no LLM call. AC: Unit test covers code and non-code query branches.
+- [ ] `web/src/pages/` — New `DelegationsPage.tsx`: list of standing delegations with
+  pattern/action/schedule/enabled columns. Add/edit modal. Add to nav rail.
 
-- [ ] Add planning-signal gate for BACKLOG.md injection (owner: coder) — Only inject on task/plan/priority signals. AC: Ordinary turns skip BACKLOG; unit test covers gate.
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual test: briefing fires at correct time with real data
+- [ ] Manual test: create a delegation → wait for interval → confirm it fires
+- [ ] security review: cron injection via schedule field, action field prompt injection risk
+- [ ] ntfy: CP10e sealed
 
-- [ ] Extend `logUsage()` to log which context blocks were injected per turn (owner: coder) — AC: `spiderbrain: YES|NO | backlog: YES|NO` in stderr log.
+---
 
-### Phase 4: Local Response Cache (lower priority)
+## CP10f — iOS Search & Voice Round-Trip
 
-- [ ] Create `src/agent/cache.ts` — In-memory LRU, SHA-256 key, 60s TTL, 50-entry max (owner: coder) — AC: Unit tests for hit/miss/eviction/TTL; `--no-cache` flag bypasses.
+**Done when**: Search from iOS shows results across all projects; Koa's voice response is spoken
+aloud on iOS (not just on macOS).
 
-- [ ] Wire cache into `AgentLoop.turn()` — Skip API call on hit; never cache tool-call turns (owner: coder) — AC: Cache hit returns in <5ms; tool turns never cached.
+### iOS Search
 
-### Acceptance Criteria (overall)
+- [ ] `ios/Koa/SearchView.swift` (new) — Full-text search screen. Text field calls
+  `GET /api/search?q=<query>`. Results shown in list (task title + project + status).
+  Tap navigates to `TaskDetailView`. AC: compiles; search input debounced 300ms; results render.
 
-- [ ] Prompt cache hit rate ≥60% in a 10-turn session (up from 21%)
-- [ ] Weekly spend down ≥40% at equivalent usage
-- [ ] All internal LLM calls on Haiku
-- [ ] `npm test` — 0 failures, 0 lint, 0 typecheck errors
+- [ ] `ios/Koa/KoaAPI.swift` — Add `static func search(query: String) async throws -> [KoaTask]`.
+  Calls `/api/search`. AC: method compiles; decodes response correctly.
+
+- [ ] `ios/Koa/ContentView.swift` — Add Search tab to TabView. AC: tab visible; tapping navigates
+  to `SearchView`.
+
+### iOS Voice TTS (server-side audio)
+
+- [ ] `src/server/index.ts` (or routes/chat.ts after CP10b) — `GET /api/voice/synthesize?text=...`
+  (bearer-auth). Calls macOS `say -v Samantha --data-format=aiff -o -` (stdout), pipes audio
+  bytes in response with `Content-Type: audio/aiff`. 500-char text limit enforced.
+  Same markdown-stripping as `src/voice/tts.ts`. AC: endpoint returns binary audio;
+  missing text returns 400.
+
+- [ ] `ios/Koa/KoaAPI.swift` — Add `static func synthesizeAudio(text: String) async throws -> Data`.
+  GETs `/api/voice/synthesize?text=<encoded>`. AC: method compiles.
+
+- [ ] `ios/Koa/ChatView.swift` — After receiving the `done` SSE event, call
+  `KoaAPI.synthesizeAudio(text: lastResponse)` and play via `AVAudioPlayer` instead of (or
+  alongside) the existing `AVSpeechSynthesizer`. Fallback to `AVSpeechSynthesizer` if the endpoint
+  returns non-200. AC: audio plays on device; fallback triggers correctly.
+
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual test: search from iOS finds tasks across projects
+- [ ] Manual test: Koa's voice response is heard on iOS device
+- [ ] security review: synthesize endpoint text length enforced, no path traversal
+- [ ] ntfy: CP10f sealed
+
+---
+
+## End-of-Arc Audit (after CP10f checkpoint)
+
+Run in sequence:
+1. `npx tsc --noEmit` — zero errors
+2. `npm test` — zero failures
+3. `security-review` skill on all CP10 changes
+4. Manual code quality pass: dead code, over-engineering, missing tests
+5. Generate new TASKS.md from findings
+
+---
+
+## Deferred Backlog
+
+> Items below have been promoted into CP11/CP12 or the pre-CP11 housekeeping punch list.
+> watchOS → CP11d. Multi-Agent Chaining → CP11b. tvOS → Product Radar.
+
+### tvOS Dashboard (Phase C)
+> Low priority. After watchOS (CP11d).
+- Full-screen ambient display (hot files, session status, cost chart)
+- Voice query via Siri Remote mic
+- APNs notification banners (no reply needed)
+
+---
+
+## Pre-CP11 Housekeeping Punch List
+
+> Fast, targeted fixes from the CP10 end-of-arc audit. Run these **before** starting CP11.
+> None require a full pipeline; each is a surgical change. tsc + tests must be green after each.
+
+### Security / Correctness (do first)
+
+- [ ] **H1 — Non-atomic integration writes** (`src/integrations/store.ts`)
+  `saveIntegration()` reads-then-writes the integrations file without atomicity. Under concurrent
+  webhook handlers the second write silently wins, discarding the first. Fix: write to
+  `.integrations.tmp.json` then `fs.renameSync` (atomic on POSIX), matching the pattern already
+  in `src/skills/store.ts`. AC: existing integration tests pass; no tmp file left on success.
+
+- [ ] **H3 — No per-tool timeout** (`src/agent/loop.ts` tool dispatch block)
+  A hanging `web_fetch` or slow custom skill blocks the entire turn indefinitely. Add
+  `AbortSignal.timeout(config.toolTimeoutMs ?? 30_000)` to `ToolRegistry.execute()`.
+  `web_fetch.ts` and `web_search.ts` already accept `signal`; wire it through.
+  AC: unit test asserts a tool that never resolves is cancelled after 30 s.
+
+- [ ] **H4 — Credentials stored as a plaintext flat file** (`src/config/credentials.ts`)
+  `~/.koa/credentials` holds `ANTHROPIC_API_KEY`, OAuth refresh tokens, and Twilio credentials.
+  The file is written with `mode: 0o600` but this is not enforced on subsequent writes if `umask`
+  changes. Short-term fix: add `fs.chmodSync(path, 0o600)` after every write. Long-term
+  (CP12+): macOS Keychain via `keytar`. AC: `ls -la ~/.koa/credentials` shows `-rw-------`.
+
+- [ ] **M5 — FTS5 query not sanitised** (`src/db/index.ts:searchTasks()`)
+  A bare `"` or FTS5 operator from the user throws a `sqlite3_prepare` error that surfaces as a
+  500. Add an `escapeFts(q: string): string` helper that strips `"'*^()` before passing to FTS5.
+  Apply to both `searchTasks()` and `searchDecisions()`. AC: `searchTasks('"')` returns `[]` not
+  an exception; new test asserts this.
+
+- [ ] **M6 — `actual_hours` not in task update whitelist** (`src/server/index.ts`)
+  `PUT /api/tasks/:id` drops `actual_hours` from the request body — the web UI cannot set it.
+  Add `actual_hours` to the allowed update fields in the handler. AC: `PUT /api/tasks/1` with
+  `{ actual_hours: 2.5 }` returns the updated task; existing task tests still pass.
+
+### Performance
+
+- [ ] **M1 — `loadCustomSkills()` reads disk on every session init** (`src/skills/store.ts`)
+  Same N-read problem as `loadIntegrations()` (fixed in CP10b). Apply identical 5-second
+  in-memory TTL cache + invalidation on `saveCustomSkill()` / `deleteCustomSkill()`.
+  AC: `loadCustomSkills()` called 3× in 100ms → `fs.readFileSync` called once.
+
+- [ ] **M3 — `loadRules()` / `loadQuietHours()` read disk on every `routeResponse()`** (`src/notifications/store.ts`)
+  Both are called synchronously in the notification hot path. Add a 30-second module-level cache
+  with invalidation on `saveRules()` / `saveQuietHours()`. AC: test asserts single disk read for
+  3 calls within 30 s window.
+
+### Type Safety
+
+- [ ] **`any` casts in fetch error handlers** (`src/agent/tools/web_fetch.ts:49`, `web_search.ts:64`)
+  Both `catch (e: any)` blocks access `e.name` and `e.message`. Replace with `unknown` +
+  type narrowing (`e instanceof Error`). AC: tsc strict clean; no `any` in these files.
+
+### Dead API Surface
+
+- [ ] **Unexport internal helpers in `select-agent.ts`** (`src/agent/select-agent.ts`)
+  `isCodeQuery()`, `hasBacklogSignals()`, `hasLifeSignals()` are exported but only called
+  internally by `selectAgent()`. Remove `export` from all three. AC: tsc clean; no external
+  callers.
+
+- [ ] **Consolidate `HAIKU_MODEL` constant** (`src/config/index.ts`, `src/agent/router.ts`)
+  `HAIKU_MODEL` in `config/index.ts` duplicates the `MODELS.haiku` constant in `router.ts` and
+  can diverge. Remove `HAIKU_MODEL` from `config/index.ts`; import `MODELS.haiku` from router
+  everywhere. AC: tsc clean; no duplicate model string literals.
+
+### Test Coverage
+
+- [ ] **`src/agent/tools/bash.ts` — no test** (HIGH risk — shell execution)
+  Add `src/__tests__/bash_tool.test.ts`: test that allowed commands execute; test that blocked
+  commands are rejected; test that stdout truncation fires at `maxToolOutputChars`. Mock
+  `child_process.exec`. AC: ≥5 new tests.
+
+- [ ] **`src/voice/recorder.ts` — no test**
+  Add tests for `AudioRecorder.isAvailable()` (mock `spawnSync`) and that `stop()` terminates
+  the sox process. AC: ≥3 new tests; no real sox process spawned.
+
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test (expect 420+ after new tests)
+- [ ] All HIGH/MEDIUM items above resolved
+- [ ] ntfy: pre-CP11 housekeeping sealed
+
+---
+
+## v6 CP11 — Voice, Intelligence & Platform Reach
+
+> **Position**: After CP10 complete.
+> **Theme**: Multi-voice TTS, true multi-agent chaining, conversation persistence, watchOS Phase B.
+> **Done-when**: ElevenLabs TTS is selectable alongside macOS `say`; code→PM hand-off fires
+> automatically on completion signals; every chat session is persisted to SQLite and exportable;
+> a watchOS companion app compiles and receives push replies.
+
+---
+
+### CP11a — Multi-Voice TTS (ElevenLabs + macOS `say` abstraction)
+
+**Done when**: `koa` responds in an ElevenLabs voice when `ELEVENLABS_API_KEY` is set; macOS
+`say` still works as the zero-dependency default.
+
+- [ ] `src/voice/tts.ts` — Refactor from a single `speak()` function into a provider dispatch.
+  Define `TtsProvider = 'macos' | 'elevenlabs'`. Extract current `say`-based logic into a
+  `macosSpeak(text)` helper. Export `speak(text, config?)` that dispatches based on configured
+  provider. `isTtsAvailable()` returns `true` when either provider is configured.
+  AC: existing voice tests still pass; `speak()` signature unchanged.
+
+- [ ] `src/voice/elevenlabs.ts` (new) — `synthesizeElevenLabs(text: string, voiceId: string,
+  apiKey: string): Promise<Buffer>`. Calls
+  `https://api.elevenlabs.io/v1/text-to-speech/{voiceId}/stream` with `model_id:
+  eleven_turbo_v2_5`. Returns MP3 buffer. `listVoices(apiKey): Promise<{id: string; name:
+  string}[]>` calls `/v1/voices`. AC: unit tests mock `fetch`; `synthesize` asserts correct
+  headers and voice ID; `listVoices` returns parsed list.
+
+- [ ] `src/server/routes/voice.ts` (new, or extend `routes/chat.ts` after CP10b) —
+  `GET /api/voice/synthesize?text=...` (bearer-auth). Routes to the configured provider.
+  ElevenLabs: reads `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` from credentials; returns
+  `audio/mpeg`. macOS: pipes `say` stdout AIFF. 500-char limit; missing key returns 503.
+  `GET /api/voice/voices` — proxies `listVoices()` when ElevenLabs key is present.
+  AC: correct `Content-Type` per provider; missing key → 503.
+
+- [ ] `web/src/pages/SettingsPage.tsx` — "Voice" section: provider radio (macOS / ElevenLabs),
+  ElevenLabs API key field, voice picker (loaded from `GET /api/voice/voices`).
+  Saves `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` to credentials.
+  AC: macOS selection hides ElevenLabs fields; voice picker loads and saves.
+
+- [ ] `ios/Koa/ChatView.swift` — `speakResponse()` already calls `/api/voice/synthesize`
+  (from CP10f). Verify ElevenLabs audio plays when server is configured; `AVSpeechSynthesizer`
+  fallback triggers on non-200. AC: no iOS code change needed if CP10f synthesize endpoint is
+  wired — verify only.
+
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual: ElevenLabs voice plays in web console + CLI
+- [ ] Manual: macOS `say` fallback works with no ElevenLabs key
+- [ ] security review: no API key in logs or SSE events
+- [ ] ntfy: CP11a sealed
+
+---
+
+### CP11b — True Multi-Agent Chaining (Code → PM auto-handoff)
+
+**Done when**: After a code-assistant response containing clear completion signals, the PM agent
+automatically updates task status without a second prompt.
+
+- [ ] `src/agent/chaining.ts` — Extend `detectCompletionSignal()` to return
+  `{ detected: boolean; confidence: number }`. Add `shouldAutoChain(result: TurnResult): boolean`
+  — returns `true` when `agentName === 'code-assistant'` AND confidence > 0.7. Add negative
+  lookahead: if response contains "but" or "however" within 50 chars of a keyword, lower
+  confidence by 0.3. Export both. AC: unit tests for each branch.
+
+- [ ] `src/agent/loop.ts` — In `turn()`, after code-assistant response resolves: if
+  `shouldAutoChain()` && `config.autoChaining`, fire a second `turn()` with PM agent spec
+  (bypass `selectAgent`), using `buildPmFollowUpPrompt(result.content)`. Surface as
+  `chainedResult?: TurnResult` in `TurnResult`. Emit `event: 'chain_start'` on the same SSE
+  stream before the chained turn. PM turn never triggers another chain (guard: depth > 0).
+  AC: no infinite recursion; PM follow-up fires only for code-assistant turns.
+
+- [ ] `src/config/index.ts` — Add `autoChaining: boolean` (default `false`) to `KoaConfig`.
+  AC: tsc clean; persists to `config.json`.
+
+- [ ] `web/src/pages/SettingsPage.tsx` — "Agent Chaining" toggle in Advanced section. Label:
+  "Auto-update tasks after code completions". AC: toggle reads/writes `autoChaining`.
+
+- [ ] `src/__tests__/chaining.test.ts` — Add: `shouldAutoChain()` with code-assistant vs. other
+  agents; loop fires chained PM turn when `autoChaining=true`; chaining does not recurse;
+  negative lookahead lowers confidence. AC: ≥6 new passing tests.
+
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual: "implemented and all tests pass" response triggers PM follow-up
+- [ ] Manual: `autoChaining=false` produces no chain
+- [ ] security review: chain depth guard, prompt injection via completion signal
+- [ ] ntfy: CP11b sealed
+
+---
+
+### CP11c — Conversation Persistence & Export
+
+**Done when**: Every chat session is persisted to SQLite automatically; any session is
+exportable as JSON or Markdown.
+
+- [ ] `src/db/migrations.ts` — Migration v7: `conversations` table (`id, title, started_at,
+  ended_at, turn_count, project_id NULLABLE`) + `conversation_turns` table (`id, conversation_id
+  FK, role, content, tool_uses TEXT DEFAULT '[]', agent_name, model, cost_usd, created_at`).
+  AC: migration applies cleanly; no existing migrations break.
+
+- [ ] `src/db/index.ts` — CRUD: `createConversation`, `closeConversation(id, turnCount)`,
+  `addConversationTurn`, `listConversations(limit?)`, `getConversation(id)`,
+  `getConversationTurns(id)`, `deleteConversationsBefore(date: string)`.
+  AC: all functions tested; FK constraints respected.
+
+- [ ] `src/agent/loop.ts` — `initialize()` calls `createConversation()` → stores `conversationId`.
+  Each `turn()` calls `addConversationTurn()` for user message and assistant response (tool uses
+  serialised as JSON). `finalize()` calls `closeConversation()`.
+  AC: every session creates exactly one `conversations` row; every turn two rows.
+
+- [ ] `src/server/routes/` — Routes: `GET /api/conversations` (last 50), `GET
+  /api/conversations/:id`, `GET /api/conversations/:id/turns`, `GET
+  /api/conversations/:id/export?format=json|markdown`, `DELETE
+  /api/conversations?before=YYYY-MM-DD`. Markdown export: formatted chat log with timestamps,
+  tool call annotations, model used. AC: export tested; Markdown is human-readable.
+
+- [ ] `web/src/pages/ActivityPage.tsx` — Add "Conversations" tab: list with title, date, turn
+  count, cost. Click → read-only replay view. "Export" downloads JSON or Markdown.
+  AC: renders without error; export download works.
+
+### Checkpoint gate
+- [ ] tsc clean
+- [ ] npm test all pass (migration v7 tested)
+- [ ] Manual: CLI session shows up in Conversations list in web console
+- [ ] Manual: Markdown export is readable and complete
+- [ ] security review: export endpoint scoped to authenticated user
+- [ ] ntfy: CP11c sealed
+
+---
+
+### CP11d — watchOS Companion (Phase B)
+
+**Done when**: `xcodebuild -scheme KoaWatch` succeeds; glance shows live data; quick-prompt
+tap returns a Koa response on wrist.
+
+- [ ] `ios/KoaWatch/` (new Xcode target, watchOS 10+) — Swift Package shared between iOS +
+  watchOS. `WatchApp.swift`, `WatchContentView.swift` (Glance / Tasks / Prompts tabs).
+  `WKExtensionDelegate` for background APNs. AC: target compiles on watchOS Simulator.
+
+- [ ] `ios/KoaWatch/GlanceView.swift` — Complication + glance: last Koa message (≤80 chars),
+  open task count, today's calendar event count, session cost today. Reads from shared App Group
+  `UserDefaults` populated by iOS app. AC: data renders on Watch face; updates ≤15 min after iOS
+  sync.
+
+- [ ] `ios/KoaWatch/QuickPromptsView.swift` — 5 configurable quick-prompt buttons (strings in
+  App Group `UserDefaults`). Tap → `POST /api/chat?format=brief`. Response in
+  `WKAlertController`. AC: 5 buttons configurable from iOS Settings; response renders.
+
+- [ ] `ios/KoaWatch/WatchDictationView.swift` — `WKInterfaceTextField` dictation. On confirm,
+  sends to `POST /api/chat?format=brief`. Response shown ≤200 chars.
+  AC: dictation captures speech; response renders.
+
+- [ ] `ios/Koa/SettingsView.swift` — "Watch" section: configure 5 quick-prompt labels. Writes to
+  App Group `UserDefaults`. AC: prompts persist; watchOS target reads them.
+
+### Checkpoint gate
+- [ ] `xcodebuild -scheme KoaWatch -destination 'platform=watchOS Simulator'` succeeds
+- [ ] Glance shows live data within 15 minutes
+- [ ] Quick prompt returns Koa response within 10 s on WiFi
+- [ ] tsc clean; npm test all pass
+- [ ] security review: App Group data exposure, bearer token not in shared defaults
+- [ ] ntfy: CP11d sealed
+
+---
+
+### CP11 End-of-Arc Audit
+1. `npx tsc --noEmit` — zero errors
+2. `npm test` — zero failures
+3. `security-review` skill on all CP11 changes
+4. Generate new TASKS.md from findings
+
+---
+
+## v6 CP12 — Extensibility, Intelligence & Self-Hosted Reach
+
+> **Position**: After CP11 complete.
+> **Theme**: Plugin SDK, semantic context management, optional local LLM (Ollama), conversation graph.
+> **Done-when**: A third-party tool is addable via a JSON manifest; context compaction is cluster-aware
+> and measurably cheaper; `koa --provider=ollama` works against a local Ollama instance.
+
+---
+
+### CP12a — Plugin / Tool Extensibility SDK
+
+**Done when**: Dropping a valid `~/.koa/plugins/my-plugin.json` makes the declared tools
+available in the next koa session; invalid manifests are skipped with a warning.
+
+- [ ] `src/plugins/loader.ts` (new) — `loadPlugins(): PluginDef[]`. Scans `~/.koa/plugins/*.json`.
+  `PluginDef`: `{ name, version, description, tools: ToolManifest[] }`. `ToolManifest`:
+  `{ name, description, inputSchema, transport: 'bash' | 'http' | 'mcp', config }`. Validates
+  with Zod; skips malformed files with a warning. AC: unit tests with fixture manifests; invalid
+  JSON skipped; valid manifests load.
+
+- [ ] `src/plugins/bridge.ts` (new) — `createPluginTool(manifest: ToolManifest): Tool`. `bash`
+  and `http` transports delegate to the existing custom-skill pattern. `mcp` transport establishes
+  stdio/SSE MCP client (`@modelcontextprotocol/sdk`) and proxies calls. AC: bash + http tested;
+  mcp stubs with clear error when server unavailable.
+
+- [ ] `src/agent/tools/registry.ts` — Add `registerMany(tools: Tool[]): void`. Tag each tool
+  with `source: 'builtin' | 'custom-skill' | 'plugin'`. AC: tsc clean; existing tests pass.
+
+- [ ] `src/cli/index.ts` — After loading custom skills, call `loadPlugins()` → `createPluginTool()`
+  → `registry.register()`. AC: plugins in `~/.koa/plugins/` available without restart.
+
+- [ ] `web/src/pages/SkillsPage.tsx` — Add "Plugins" tab: lists loaded plugins with name, version,
+  tool count, source path. Read-only (file-managed). AC: renders; correct tool count shown.
+
+### Checkpoint gate
+- [ ] tsc clean; npm test all pass
+- [ ] Manual: custom plugin tool available in `koa` after dropping manifest
+- [ ] Invalid manifest → warning logged, no crash
+- [ ] security review: manifest path traversal, bash transport injection
+- [ ] ntfy: CP12a sealed
+
+---
+
+### CP12b — Semantic Context Window Compaction
+
+**Done when**: Cluster-based compaction produces summaries measurably shorter than the current
+flat-window approach; context pressure is visible in the web console.
+
+- [ ] `src/agent/loop.ts` — Replace `compressOldMessages()` with `semanticCompact()`:
+  (a) group messages into tool-use clusters (user msg + tool calls + results = one cluster),
+  (b) summarise each cluster with Haiku at ≤300 tokens,
+  (c) assemble summaries chronologically separated by `---`,
+  (d) preserve last 4 clusters verbatim.
+  AC: unit test with 20-message fixture asserts cluster boundaries preserved and summary is
+  ≤40% of original char count.
+
+- [ ] `src/agent/loop.ts` — Add `contextStats(): { totalMessages: number; estimatedTokens: number;
+  clusterCount: number; lastCompactionAt: string | null }`. Include in `TurnResult.contextStats`.
+  AC: non-zero values after a turn; tests assert.
+
+- [ ] `src/server/routes/chat.ts` (after CP10b) — Include `contextStats` in `usage` SSE event.
+  AC: web console receives stats payload.
+
+- [ ] `web/src/components/TopNav.tsx` — Subtle context pressure indicator (arc or % badge beside
+  model badge): `estimatedTokens / 200000`. Turns amber >50%, red >70%.
+  AC: renders; updates after each turn; no layout shift.
+
+- [ ] `src/__tests__/loop_compact.test.ts` — Add: cluster grouping logic; last 4 clusters never
+  summarised; `contextStats()` correct values after compaction. AC: ≥5 new tests.
+
+### Checkpoint gate
+- [ ] tsc clean; npm test all pass
+- [ ] Manual: 30-turn session compacts without losing recent context
+- [ ] Context pressure badge visible in web console
+- [ ] security review: no prompt injection via cluster summary boundaries
+- [ ] ntfy: CP12b sealed
+
+---
+
+### CP12c — Self-Hosted LLM Provider (Ollama)
+
+**Done when**: `koa --provider=ollama` produces a response from a locally running Ollama
+instance; switching back to Anthropic requires no config file surgery.
+
+- [ ] `src/agent/providers/anthropic.ts` (new) — Extract `client.messages.create()` from
+  `AgentLoop` into `AnthropicProvider` implementing `LlmProvider` interface:
+  `{ create(params): Promise<StreamableResponse>; stream(params): AsyncIterable<StreamEvent> }`.
+  Pure refactor — no behaviour change. AC: tsc clean; all existing loop tests pass.
+
+- [ ] `src/agent/providers/ollama.ts` (new) — `OllamaProvider` implementing `LlmProvider`. Calls
+  `http://localhost:11434/api/chat` (OpenAI-compatible). Maps Anthropic `MessageParam[]` to
+  OpenAI `messages[]`; maps response back. Tool use best-effort; logs warning when model doesn't
+  support function calling. Strips Anthropic cache-control blocks.
+  AC: unit tests mock Ollama HTTP; basic chat without tools works; tool-use degrades gracefully.
+
+- [ ] `src/config/index.ts` — Add `provider: 'anthropic' | 'ollama'` and `ollamaModel: string`
+  (default `'llama3.2'`) to `KoaConfig`. AC: tsc clean; persists to `config.json`.
+
+- [ ] `src/agent/loop.ts` — Instantiate `AnthropicProvider` or `OllamaProvider` based on
+  `config.provider`. Replace `client.messages.create()` call sites with `provider.create()`.
+  AC: `koa --provider=ollama` starts; basic turn round-trip works.
+
+- [ ] `web/src/pages/SettingsPage.tsx` — "LLM Provider" section: radio (Anthropic / Ollama).
+  Ollama: model name field + "Test connection" button (`GET /api/admin/ollama/models` →
+  proxies `http://localhost:11434/api/tags`). AC: switching saves to config; test button shows
+  available local models.
+
+### Checkpoint gate
+- [ ] tsc clean; npm test all pass
+- [ ] Manual: `koa --provider=ollama` responds from local Ollama
+- [ ] Manual: Ollama unavailable → clear error, not a crash
+- [ ] security review: SSRF risk on Ollama URL, no proxy to arbitrary hosts
+- [ ] ntfy: CP12c sealed
+
+---
+
+### CP12d — Conversation Intelligence (Auto-Title & Cross-Session Search)
+
+**Done when**: Every closed conversation has an auto-generated title; cross-session FTS search
+returns turn excerpts across all past sessions.
+
+- [ ] `src/db/migrations.ts` — Migration v8: FTS5 virtual table on `conversation_turns.content`.
+  AC: migration tested; FTS5 table populated on first query.
+
+- [ ] `src/db/index.ts` — `updateConversationTitle(id, title)`. `searchConversations(query):
+  Array<{ conversationId: string; turnId: string; excerpt: string }>`. Sanitise query with
+  `escapeFts()` (from pre-CP11 punch list). AC: both functions tested; empty query returns `[]`.
+
+- [ ] `src/agent/loop.ts` — In `finalize()`, after Engram session persist: call Haiku with first
+  3 user messages to generate ≤60-char title; call `updateConversationTitle()`.
+  Cost: ~50 input tokens. AC: `updateConversationTitle` called after `finalize()`; title ≤60 chars.
+
+- [ ] `src/server/routes/` — `GET /api/conversations/search?q=<query>` — returns turn excerpts
+  with conversation metadata. 400 for empty query. AC: tested; ranked results.
+
+- [ ] `web/src/pages/SearchPage.tsx` — "Conversations" tab alongside task results. Turn excerpts
+  with "Open conversation" link (navigates to replay view from CP11c). AC: renders; click
+  navigates correctly.
+
+### Checkpoint gate
+- [ ] tsc clean; npm test all pass (migration v8 tested)
+- [ ] Manual: closed session appears with auto-title in Conversations list
+- [ ] Manual: `GET /api/conversations/search?q=oauth` returns relevant turns
+- [ ] security review: FTS query sanitisation applied
+- [ ] ntfy: CP12d sealed
+
+---
+
+### CP12e — Sandboxed Code Execution
+
+**Done when**: The agent can execute code snippets in an isolated sandbox; Docker backend works
+when available; local backend (child_process) is the zero-dependency fallback.
+
+- [ ] `src/sandbox/runner.ts` (new) — `SandboxRunner` interface:
+  `{ exec(code: string, language: string, opts?: ExecOpts): Promise<ExecResult> }`.
+  `ExecResult`: `{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }`.
+  `ExecOpts`: `{ timeoutMs?: number; memoryMb?: number; env?: Record<string, string> }`.
+  AC: interface exported; tsc clean.
+
+- [ ] `src/sandbox/local.ts` (new) — `LocalRunner` implementing `SandboxRunner`. Wraps
+  `child_process.spawn` with `AbortSignal.timeout(opts.timeoutMs ?? 10_000)`. Writes code to a
+  temp file (`os.tmpdir()`); runs the appropriate interpreter (`node`, `python3`, `bash`).
+  Captures stdout/stderr up to 50 KB; truncates with `[truncated]` marker. Cleans temp file on
+  exit. Supported languages: `javascript`, `python`, `bash`.
+  AC: unit tests mock `spawn`; timeout fires; truncation enforced; temp file cleaned.
+
+- [ ] `src/sandbox/docker.ts` (new) — `DockerRunner` implementing `SandboxRunner`. Calls
+  `docker run --rm --network=none --memory=<memoryMb>m --cpus=0.5 --read-only
+  -v <tmpdir>:/code:ro <image> <interpreter> /code/<file>`. Image per language:
+  `node:22-alpine`, `python:3.12-alpine`, `bash:5`. Falls back to `LocalRunner` when Docker
+  daemon is unreachable. AC: unit test mocks `spawn`; correct flags asserted; fallback tested.
+
+- [ ] `src/sandbox/index.ts` (new) — `createRunner(config: KoaConfig): SandboxRunner`. Returns
+  `DockerRunner` when `config.sandboxBackend === 'docker'` and Docker is reachable; otherwise
+  `LocalRunner`. AC: returns correct runner type based on config.
+
+- [ ] `src/agent/tools/execute_code.ts` (new) — Tool definition: `execute_code`. Input:
+  `language: 'javascript' | 'python' | 'bash'`, `code: string`. Calls `runner.exec()`. Returns
+  formatted string: stdout/stderr + exit code. Rejects blank code and unsupported languages
+  before exec. AC: tool registered in registry; invalid input returns error string without exec;
+  ≥4 tests.
+
+- [ ] `src/config/index.ts` — Add `sandboxBackend: 'local' | 'docker'` (default `'local'`) and
+  `sandboxTimeoutMs: number` (default `10000`) to `KoaConfig`. AC: tsc clean; persists.
+
+- [ ] `web/src/pages/SettingsPage.tsx` — "Code Execution" section: backend radio (Local /
+  Docker), timeout slider (5–60 s). Shows Docker availability status (green/red dot via
+  `GET /api/admin/sandbox/status`). AC: saves to config; status dot accurate.
+
+### Checkpoint gate
+- [ ] tsc clean; npm test all pass
+- [ ] Manual: `koa "write and run a python fizzbuzz"` executes and returns output
+- [ ] Manual: Docker backend runs in isolated container with `--network=none`
+- [ ] Manual: 10-second timeout kills a hanging script
+- [ ] security review: temp file cleanup, no code injection via language param, Docker flag audit
+- [ ] ntfy: CP12e sealed
+
+---
+
+### CP12f — Browser Automation (Playwright)
+
+**Done when**: The agent can navigate to a URL, extract text, fill forms, and take screenshots
+using a headless Playwright browser; SSRF guard prevents access to private network ranges.
+
+- [ ] `src/browser/client.ts` (new) — `BrowserClient` singleton. Lazy-initialises a Playwright
+  `chromium` browser (persistent context, `headless: true`). `getPage(): Promise<Page>` returns
+  or creates a single reusable `Page`. `close(): Promise<void>` tears down. Graceful shutdown
+  registered in `src/server/shutdown.ts`. AC: single browser instance per process; closes cleanly.
+
+- [ ] `src/browser/actions.ts` (new) — Action helpers wrapping Playwright `Page`:
+  - `navigate(url: string): Promise<string>` — validates URL against `ssrfGuard()` (from
+    `src/utils/ssrf.ts`), navigates, returns page title.
+  - `extractText(selector?: string): Promise<string>` — returns `innerText` of selector or
+    `document.body` if omitted; truncated to 20 KB.
+  - `screenshot(): Promise<Buffer>` — full-page PNG ≤2 MB; throws if over limit.
+  - `fillForm(fields: Record<string, string>): Promise<void>` — `locator(key).fill(value)` for
+    each entry.
+  - `click(selector: string): Promise<void>` — `locator(selector).click()`.
+  All helpers share a 15-second per-action timeout. AC: unit tests mock Playwright; SSRF guard
+  tested; truncation enforced.
+
+- [ ] `src/agent/tools/browser.ts` (new) — Five tool definitions sharing one `BrowserClient`:
+  - `browser_navigate` — input: `url`. Returns page title.
+  - `browser_extract` — input: optional `selector`. Returns visible text.
+  - `browser_screenshot` — no input. Returns base64 PNG (Claude vision-compatible).
+  - `browser_fill` — input: `fields` object.
+  - `browser_click` — input: `selector`.
+  All guarded by `ssrfGuard()`; private IPs rejected before navigation.
+  AC: all five tools registered; ≥5 tests (SSRF rejection, text truncation, form fill).
+
+- [ ] `package.json` — Add `playwright` as an optional dependency.
+  `src/browser/client.ts` wraps the import in a try/catch; if Playwright is not installed the
+  tools register but return `"Browser tools unavailable: run npm install playwright"`.
+  AC: server starts cleanly without Playwright installed; tools return helpful error string.
+
+- [ ] `web/src/pages/SettingsPage.tsx` — "Browser Automation" section: enable toggle.
+  Status indicator: green when `chromium` executable found, red when not. "Install Playwright"
+  button triggers `POST /api/admin/browser/install` (runs `npx playwright install chromium`).
+  AC: toggle persists; status accurate; install button triggers install route.
+
+### Checkpoint gate
+- [ ] tsc clean; npm test all pass
+- [ ] Manual: `koa "go to example.com and tell me what you see"` returns page content
+- [ ] Manual: `koa "take a screenshot of the Koa web console"` returns readable PNG
+- [ ] Manual: private-IP URL (192.168.x.x) blocked by SSRF guard
+- [ ] security review: SSRF guard coverage, form fill injection risk, screenshot size limit
+- [ ] ntfy: CP12f sealed
+
+---
+
+### CP12 End-of-Arc Audit
+1. `npx tsc --noEmit` — zero errors
+2. `npm test` — zero failures
+3. `security-review` skill on all CP12 changes
+4. Manual code quality pass: dead code, over-engineering, missing tests
+5. Generate new TASKS.md from findings
+
+---
+
+## Product Radar (CP13+)
+
+Items worth watching — not yet specced, revisit after CP12.
+
+- **Ambient Dashboard (tvOS / macOS screensaver)** — full-screen read-only display of today's
+  task board, calendar, and cost metrics. Applicable to tvOS Phase C or as a macOS screensaver.
+- **Structured tool output via JSON schema** — `output_schema` field in `ToolManifest` auto-validates
+  plugin results, reducing hallucination from malformed tool responses.
+- **Per-project spending budgets** — `budget_usd` on `projects` table; check before each turn;
+  block runaway agent loops on lower-priority projects.
+- **Webhook-triggered delegations** — extend CP10e `delegations` with `trigger_type: 'webhook'`
+  and a generated secret URL, letting GitHub CI, Zapier, or IFTTT trigger Koa actions.
+- **Agent memory diff panel** — "What Koa remembered" section in web console showing the delta
+  to project markdown / Engram after each session, building trust in the memory system.

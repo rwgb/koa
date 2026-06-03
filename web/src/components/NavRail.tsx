@@ -3,11 +3,15 @@ import { Icon } from './Icon.js';
 import type { IconName } from './Icon.js';
 
 const NAV_ITEMS: { to: string; label: string; icon: IconName }[] = [
-  { to: '/chat', label: 'Chat', icon: 'chat' },
+  { to: '/chat',     label: 'Chat',     icon: 'chat' },
+  { to: '/projects', label: 'Projects', icon: 'folder' },
+  { to: '/calendar', label: 'Calendar', icon: 'calendar' },
 ];
 
 const SECONDARY_ITEMS: { to: string; label: string; icon: IconName }[] = [
   { to: '/memory',        label: 'Memory',        icon: 'memory' },
+  { to: '/decisions',     label: 'Decisions',     icon: 'list-checks' },
+  { to: '/search',        label: 'Search',        icon: 'search' },
   { to: '/integrations',  label: 'Integrations',  icon: 'plug' },
   { to: '/skills',        label: 'Skills',        icon: 'wrench' },
   { to: '/notifications', label: 'Notifications', icon: 'bell' },

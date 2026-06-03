@@ -31,10 +31,18 @@ function integrationsPath(): string {
   return path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'integrations.json');
 }
 
+let _cache: { value: Integration[]; ts: number } | null = null;
+const CACHE_TTL_MS = 5_000;
+
 export function loadIntegrations(): Integration[] {
+  if (_cache !== null && Date.now() - _cache.ts < CACHE_TTL_MS) {
+    return _cache.value;
+  }
   try {
     const raw = fs.readFileSync(integrationsPath(), 'utf8');
-    return JSON.parse(raw) as Integration[];
+    const value = JSON.parse(raw) as Integration[];
+    _cache = { value, ts: Date.now() };
+    return value;
   } catch {
     return [];
   }
@@ -74,7 +82,10 @@ export function saveIntegration(integration: Integration): void {
   }
   const p = integrationsPath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(all, null, 2), { mode: 0o600 });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(all, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, p);
+  _cache = null;
 }
 
 export function deleteIntegration(id: string): boolean {
@@ -82,7 +93,10 @@ export function deleteIntegration(id: string): boolean {
   const filtered = all.filter(i => i.id !== id);
   if (filtered.length === all.length) return false;
   const p = integrationsPath();
-  fs.writeFileSync(p, JSON.stringify(filtered, null, 2), { mode: 0o600 });
+  const tmp = p + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(filtered, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, p);
+  _cache = null;
   return true;
 }
 

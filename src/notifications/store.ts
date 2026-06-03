@@ -16,12 +16,18 @@ export interface QuietHours {
   to: string;   // HH:MM 24h
 }
 
+export interface EscalationSettings {
+  enabled: boolean;
+}
+
 interface NotificationsData {
   rules: NotificationRule[];
   quietHours: QuietHours;
+  escalation: EscalationSettings;
 }
 
 const DEFAULT_QUIET_HOURS: QuietHours = { enabled: false, from: '22:00', to: '08:00' };
+const DEFAULT_ESCALATION: EscalationSettings = { enabled: true };
 
 function notificationsPath(): string {
   return path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'notifications.json');
@@ -30,9 +36,14 @@ function notificationsPath(): string {
 function loadData(): NotificationsData {
   try {
     const raw = fs.readFileSync(notificationsPath(), 'utf8');
-    return JSON.parse(raw) as NotificationsData;
+    const parsed = JSON.parse(raw) as Partial<NotificationsData>;
+    return {
+      rules: parsed.rules ?? [],
+      quietHours: parsed.quietHours ?? DEFAULT_QUIET_HOURS,
+      escalation: parsed.escalation ?? DEFAULT_ESCALATION,
+    };
   } catch {
-    return { rules: [], quietHours: DEFAULT_QUIET_HOURS };
+    return { rules: [], quietHours: DEFAULT_QUIET_HOURS, escalation: DEFAULT_ESCALATION };
   }
 }
 
@@ -59,5 +70,15 @@ export function loadQuietHours(): QuietHours {
 export function saveQuietHours(qh: QuietHours): void {
   const data = loadData();
   data.quietHours = qh;
+  saveData(data);
+}
+
+export function loadEscalationSettings(): EscalationSettings {
+  return loadData().escalation;
+}
+
+export function saveEscalationSettings(s: EscalationSettings): void {
+  const data = loadData();
+  data.escalation = s;
   saveData(data);
 }
