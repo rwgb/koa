@@ -1,5 +1,541 @@
 # Koa — DevLog
 
+## [2026-06-02] — Feature: Automatic Context Window Management
+
+### Completed
+- **`src/agent/loop.ts`** — proactive + reactive context compression. When a turn reports >150k input tokens (75% of 200k limit), older messages are summarized by Haiku and replaced with a compressed summary pair. If the API returns a context-length 400 error mid-turn, the same compression fires and the turn retries once automatically. User sees nothing.
+- **`compressOldMessages()`** — splits messages into `recent` (last 4) and `toSummarize` (everything older); calls Haiku with a 1024-token budget; replaces old messages with a `[Context compressed]` user/assistant pair + recent tail. Falls back to truncation if Haiku call fails.
+- **`maybeCompressContext(inputTokens)`** — threshold guard, called after every turn with the actual token count from the API response.
+- **`isContextLengthError()`** — detects Anthropic `BadRequestError` with "prompt is too long" / "context_length" message.
+- **`compressionRetried` flag** — ensures the error-path retry fires at most once per turn.
+- 388 tests, tsc clean.
+
+### Decisions
+- Threshold at 150k (not 180k) to leave headroom for system prompt blocks + tools + next turn output.
+- Haiku (1024 tokens) for summarization — cheap, fast, non-blocking to UX.
+- `CONTEXT_KEEP_RECENT = 4` messages (2 full turns) preserved verbatim — enough for conversation coherence.
+- Compression fires *after* the turn (using that turn's token count as signal), so the first overflowing turn always completes before any compression.
+
+### Security Fixes Applied (pre-checkpoint)
+- **H1**: Prompt injection — `rawSummary` now wrapped in `<conversation>` XML delimiters with explicit "treat as raw data" instruction to Haiku.
+- **H2**: Credential leakage — Haiku prompt instructs model not to reproduce API keys, passwords, or tokens verbatim in the summary.
+- **M1**: Uncaught Haiku exception — `compressOldMessages()` wraps the Haiku call in try/catch; on failure, falls back to `compactMessages()` truncation so the agent turn continues.
+
+### UI/UX
+- Skipped — backend-only change. Stderr log lines: `[koa] context at N tokens — compressing` and `[koa] context compressed: N messages → summary`.
+
+### Next Session
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — Feature: Web Browsing Tools
+
+### Completed
+- **`src/agent/tools/web_fetch.ts`** — new tool. Uses Jina Reader (`https://r.jina.ai/{url}`) to fetch any URL and return clean markdown. Handles JS-rendered sites. 20s timeout, 50KB streaming cap, HTTPS-only + SSRF validation.
+- **`src/agent/tools/web_search.ts`** — new tool. Uses Brave Search API (`BRAVE_API_KEY` credential). Returns top 8 results with title, URL, snippet. 10s timeout, 500-char query cap.
+- **`src/utils/ssrf.ts`** — new shared utility. Extracted `validateSafeUrl()` from `src/server/index.ts`; now shared by server and `web_fetch`.
+- **`web/src/pages/IntegrationsPage.tsx`** — Brave Search card with API key input, connected/not-configured badge, empty-save protection.
+- **`web/src/api.ts`** — `updateBraveApiKey()` helper added.
+- **`web/src/types.ts`** — `braveApiKey: boolean` added to `AdminConfig`.
+- **`src/server/index.ts`** — braveApiKey read/write/delete via credentials; 256-char length guard.
+- Removed `cheerio` dependency (not needed with Jina Reader approach).
+- 388 tests, tsc clean.
+
+### Decisions
+- **Jina Reader over custom HTML parsing** — handles JS-rendered pages (original motivator: base44.app), eliminates `cheerio`, eliminates HTML prompt-injection risk, dramatically simpler code.
+- **Brave Search over DuckDuckGo scraping** — reliable JSON API, free tier (2000/month), no scraping fragility.
+- **SSRF validation still applied in `web_fetch`** — even though Jina is the outbound fetcher, prevents Koa from being used to probe internal network topology via Jina.
+
+### Security Fixes
+- **H1**: newline injection in credentials file → `writeCredential` now rejects newlines in key/value.
+- **M1**: `web_fetch` missing SSRF validation → `validateSafeUrl()` now called before dispatch.
+- **M2**: `ssrf.ts` missing `0.0.0.0` and `::ffff:` patterns → added to SSRF guard.
+- **L2**: empty-save button protection in Brave Search card.
+- **L3**: 256-char max on `braveApiKey` enforced in server.
+
+### Next Session
+- [ ] v6 CP9 definition (web browsing was a standalone feature addition, not a named CP)
+- [ ] Set `BRAVE_API_KEY` via `koa config set BRAVE_API_KEY <key>` to activate `web_search`
+
+---
+
+## [2026-06-01] — Fix: Session Memory Recall
+
+### Problem
+Memory persistence across sessions was unreliable. After a personal chat session (F1 discussion), the next session had no recall of what was discussed. The journal existed but described Koa's behavior abstractly ("Implemented conversational response handling for off-topic queries") rather than what the user actually said ("Who is your favorite F1 driver?").
+
+### Root Causes Found
+1. **Journal prompt was coding-biased** — "Write a concise journal entry for a coding session" → Haiku generated accomplishment lists describing Koa's behavior, not the user's conversation topics. For personal/chat sessions this produces useless journal entries.
+2. **No verbatim user messages in journal** — Generated summaries lost the actual user topics entirely, making it impossible to recall what was discussed even when the journal file existed.
+3. **`escapeXml` on journal content** — The `<recent_sessions>` block was XML-escaping journal content, turning `"` → `&quot;` and `'` → `&apos;`. The model had to read `Koa&apos;s` instead of `Koa's`, degrading readability.
+4. **Today's sessions not labeled** — Journal files contain multiple dated entries but nothing in the injection tells the model which ones are from "today."
+
+### Completed
+- **Rewrote `generateJournalEntry` prompt** — Now conversation-aware: "capture what the USER said — use their actual words and topics. Do not describe Koa's behavior in vague terms." Format changed from Accomplished/Decisions to What User Asked / Resolved / Personal / Next.
+- **Verbatim user messages prepended** — `extractUserMessages()` pulls raw "User: X" lines from the summary and prepends them as a `**User said:**` list at the top of every journal entry. Even if the LLM summary is wrong, the actual user messages are always preserved.
+- **Removed `escapeXml` from journal injection** — Journal content is markdown for LLM consumption. XML-escaping is now only applied to structured markdown files (PROJECT.md, STATE.md, HANDOFF.md) that might contain code with `<>`.
+- **Today's entries labeled** — Journal sections from today get a `<!-- today -->` comment so the model can clearly distinguish current-day vs. older sessions.
+- 388 tests, tsc clean.
+
+### Next Session
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — Backlog Burn: actual_hours UI + Personal Learning
+
+### Completed
+- **`actual_hours` — web UI** — Added `actualHours` state + form field to `TaskDetailPage`; placed alongside Effort in the same `task-field-row`. Fixed `web/src/api.ts` `updateTask` type to include `actual_hours` (was missing, silently dropped on save).
+- **`actual_hours` — iOS** — Added `actualHours: Double?` to `KoaTask` (with `CodingKey`). Added "Time Tracking" section with a `TextField` to `TaskDetailView`. Fixed pre-existing bug: iOS `updateTaskStatus` used `PATCH` which doesn't exist on the server — replaced with `updateTask(taskId:updates:)` using `PUT`.
+- **Personal learning (Engram preferences)** — New `src/engram/preferences.ts` module: `loadPreferences`, `savePreferences`, `buildPreferencesBlock`, `extractAndMergePreferences` (Haiku-backed, fire-and-forget). `AgentLoop` loads preferences at `initialize()`, injects them into Block 1 (cached), and runs background extraction after each turn. New `KOA_HOME`-aware path pattern consistent with the rest of the codebase.
+- **388 tests, tsc clean.**
+
+### Decisions
+- Preferences go in Block 1 (cached) because they're loaded once at session start. Preferences learned in the current session become available on the next session — intentional.
+- `extractAndMergePreferences` is fire-and-forget with a `.catch(() => {})` — a failed Haiku call never blocks or errors a turn.
+- iOS `updateTask` uses `[String: Any]` + `JSONSerialization` (not `Codable`) because the update payload is heterogeneous (status string, optional Double, nullable fields).
+
+### Issues Found
+- iOS `PATCH` route didn't exist — was silently 404-ing. Fixed to `PUT`.
+- `web/src/api.ts` `updateTask` missing `actual_hours` in type — fixed.
+
+### Next Session
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — Koa Self-Awareness: Self-Context Injection
+
+### Completed
+- **`buildSelfContext()` method** — new private method on `AgentLoop` that assembles a `<self_context>` block injected into every turn's dynamic (uncached) system prompt
+- **Injected fields**: current date (ISO + human-readable), active agent mode, all three available agent modes with their routing intent, registered tool names (runtime list — not hardcoded), all configured features (Engram enabled, SpiderBrain brain path, smart routing, auto-checkpoint intervals, response cache), all integrations from `~/.koa/integrations.json` with live status
+- **`buildSystemBlocks()` now accepts `agentName`** — threaded through from `turn()` so `<self_context>` can report the active agent accurately
+- `loadIntegrations` and `AgentName` imported into `loop.ts`
+- tsc clean
+
+### Decisions
+- Self-context goes in the uncached dynamic Block 3 (date must be fresh per session; integrations may change between sessions)
+- Tool list is the runtime registry — Koa reports exactly what tools are loaded, not a hardcoded description
+
+### Issues Found
+- None. tsc clean.
+
+### Next Session
+- [ ] `actual_hours` input in TaskDetailView (web + iOS)
+- [ ] Personal learning in Engram
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — Global Brain: defaultProjectPath + CWD SpiderBrain Overlay
+
+### Completed
+- **`defaultProjectPath` in config** — `KoaConfigFile` gets `defaultProjectPath`; `loadConfig()` uses it as fallback before `process.cwd()`. Bare `koa` from any directory now loads the same Engram brain and project memory.
+- **Auto-save on `--project`** — passing `--project /path` saves it as `defaultProjectPath` for all future invocations; no flag needed after first use.
+- **Pre-seeded** — `defaultProjectPath` set to `/Users/ralph.brynard/active projects/koa` in `~/.koa/config.json` immediately.
+- **CWD SpiderBrain overlay** — `SpiderBrainClient` accepts an optional `cwd` arg (defaults to `projectPath` for test stability). CLI chat command passes `process.cwd()` so running `koa` from inside any code project with a sibling `*-spiderbrain/` dir activates that code graph while keeping personal context from `defaultProjectPath`.
+- **`autoMolt` CWD-aware** — auto-molt runs against CWD when CWD is a code project, not the fixed projectPath.
+- **Settings page** — "Default project path" editable row added; "Active path" shows resolved path.
+- **`readKoaConfigFile` exported** — needed by server's admin config GET handler.
+- **`spiderBrainAvailable`** added to admin config GET response (from previous session, confirmed working).
+
+### Decisions
+- `cwd` defaults to `projectPath` (not `process.cwd()`) in `SpiderBrainClient` constructor so tests don't accidentally pick up the real koa brain via CWD.
+- CWD SpiderBrain is an overlay only — Engram identity and project memory always come from `defaultProjectPath`.
+
+### Issues Found
+- None. tsc clean, 382/382 tests passing, web build clean.
+
+### Next Session
+- [ ] Fix invalid API key in `~/.koa/credentials` (user needs to set real key via `koa config set ANTHROPIC_API_KEY sk-ant-api03-…`)
+- [ ] `actual_hours` input in TaskDetailView (web + iOS)
+- [ ] Personal learning in Engram
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — Web UI Config Fixes & Latency
+
+### Completed
+- **Model badge bug** — `activeTier` in `/api/context` was hardcoded to `'sonnet'` before first turn; now falls back to `modelToTier(config.model)` so Haiku config shows correctly from the start.
+- **Model routing bug** — `AgentLoop.turn()` was passing `agentSpec.model` (specialist's hardcoded model, e.g. Sonnet for code-assistant) to `selectModel`, ignoring `config.model` entirely. Fixed: when `smartRouting=false` (default), `config.model` is used directly; specialist models only take effect when `smartRouting=true`.
+- **Web UI model changes now take effect** — PUT `/api/admin/config` silently dropped `model`, `maxTokens`, `maxToolOutputChars`, `engramEnabled`. All fields now update `config` in-memory and persist to `config.json`.
+- **SpiderBrain brain editable** — Added `spiderBrainBrain` to `KoaConfigFile` so it persists to `config.json`; `loadConfig` reads it as env var fallback; PUT endpoint handles it; Settings page shows an editable row.
+- **API key settable from web UI** — Added `ApiKeyRow` component in Settings; PUT handler calls `setApiKey()` (writes to credentials file) and `loop.updateApiKey()` (recreates Anthropic client immediately).
+- **ChatPage tier ref sync** — `lastTierRef` now initialises from `agentStatus.activeTier` so first-message bubble shows correct tier badge.
+- **Latency** — Primary win is model routing fix: was always using Sonnet for code queries even when Haiku configured; now uses configured model. Haiku has ~3x lower latency.
+
+### Decisions
+- `apiKey` is write-only in `AdminConfig` (type field only, never returned by GET) — keeps credentials out of the API response.
+- Specialist model hardcodes (code→sonnet, pm/life→haiku) are preserved for smart-routing mode; plain config mode honours the user's choice.
+
+### Issues Found
+- None. `tsc --noEmit` clean, 382/382 tests passing, web build clean.
+
+### Next Session
+- [ ] `actual_hours` input in TaskDetailView (web + iOS)
+- [ ] Personal learning in Engram (preference extraction from agent responses)
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — Streaming Response + Karpathy Guidelines
+
+### Completed
+- **Token streaming** — Switched `AgentLoop.turn()` from `messages.create()` to `messages.stream()` with `.on('text', ...)` piped through a new `onTextDelta` callback in `TurnCallbacks`. Responses now stream token-by-token to the browser instead of buffering the full reply first.
+- **PM chain streaming** — The multi-agent PM follow-up text is now emitted via `onTextDelta` before being appended to `finalContent`, so it streams through rather than arriving silently after the `done` event.
+- **Server wiring** — Both `/api/chat` and `/api/sse/chat` handlers pass `onTextDelta` and track `didStreamContent`; the end-of-turn bulk `content` event is only sent on cache hits (where no deltas were emitted), eliminating duplicate delivery.
+- **Karpathy guidelines — global CLAUDE.md** — Added §17 "Karpathy Coding Discipline" with four principles (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) that sharpen §1, §7, §11.
+- **Karpathy guidelines — Koa system prompt** — Distilled the four principles into a concise behavioral addendum appended to `SYSTEM_BASE` in `loop.ts`.
+
+### Decisions
+- **`messages.stream()` over `messages.create()`**: the Anthropic SDK's `MessageStream` exposes `.on('text', cb)` and `.finalMessage()` — usage accounting and tool-call handling are unchanged; only the delivery mechanism changed.
+- **`didStreamContent` flag per-request**: local variable in each handler closure, no shared state, zero contention risk.
+- **Cache hit path unchanged**: `ResponseCache.get()` early-returns before the streaming loop, so `didStreamContent` stays false and the bulk send fires — correct behavior for exact-match cache responses.
+
+### Issues Found
+- None. `tsc --noEmit` clean, 382/382 tests passing.
+
+### Next Session
+- [ ] `actual_hours` input in TaskDetailView (web + iOS)
+- [ ] Personal learning in Engram (preference extraction from agent responses)
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — v6 CP8: UI/UX Polish Pass
+
+### Completed
+- **Design system** — Added ~350 lines of reusable CSS to `web/src/index.css`: `.btn-primary/secondary/ghost/danger/sm`, `.form-input/textarea/select/label/group`, `.card/card-header/card-title`, `.filter-tabs/filter-tab/filter-tab--active`, `.badge-blue/green/purple/muted`, `.empty-state`, `.modal-overlay/modal/modal-header/modal-footer`, `.section/section-header/section-title`, `.setting-row` inline-edit rows, `.page-header/page-title/page-subtitle/page-body/page-toolbar`.
+- **ProjectsPage** — Filter tabs as styled pill tabs; "New Project" opens a proper modal dialog with styled inputs; project cards use `.card`.
+- **SearchPage** — Styled search bar + project selector; `.empty-state` for before/no-results states.
+- **SettingsPage** — Fully inline-editable rows: Model uses a `<select>` dropdown (Haiku/Sonnet/Opus), numeric fields have inline inputs, API key shows SET/NOT SET badge with edit capability; all sections use `.section` grouping.
+- **IntegrationsPage** — Emoji icons removed; `<Icon>` component used throughout; proper empty state with `.empty-state`.
+- **NotificationsPage** — Save buttons changed from full-width blue to natural-width `.btn-primary btn-sm`; time inputs wrapped in `.form-group`; sections use `.section`/`.section-header`.
+- **DecisionsPage** — "Record Decision" opens a modal; `.card` items; `.empty-state` when no decisions.
+- **SkillsPage** — Emoji icons replaced with `<Icon>` components; skill builder form uses `.form-group`/`.form-label`/`.form-input`; 3 template buttons (HTTP Webhook, Bash Script, JSON Parser) pre-fill the form.
+- **ActivityPage** — Light polish: model names use `.badge-blue`, section headers use `.section-header`.
+- **ChatPanel** — Updated `btn btn--sm` → `btn btn-primary btn-sm` (old BEM class removed).
+- **Model default → Haiku** — `src/config/index.ts` default changed from `claude-sonnet-4-6` to `claude-haiku-4-5-20251001`; `standard` tier alias kept as Sonnet (only the unset default changed). Config test updated. Rationale: Haiku is 3-5x faster and 75% cheaper for everyday assistant queries; smart router escalates to Sonnet for complex tasks.
+
+### Decisions
+- **CSS design system over component library**: adding reusable CSS classes keeps the zero-new-dependency constraint and integrates cleanly with the existing monospace design language.
+- **Old `.btn` BEM block removed**: the old `btn--sm/--ghost/--danger` aliases were replaced by the new `btn-sm/btn-ghost/btn-danger` classes; ChatPanel was the only caller needing update.
+- **Haiku as default**: personal assistant workloads (task management, chat, quick lookups) don't need Sonnet. The smart router already handles escalation; changing the default captures the latency and cost improvement on the majority path.
+
+### Issues Found
+- None. Both `tsc` and `vite build` clean after all changes.
+
+### Next Session
+- [ ] `actual_hours` input in TaskDetailView (web + iOS)
+- [ ] Personal learning in Engram (preference extraction from agent responses)
+- [ ] Multi-agent chaining with tool-use PM follow-up
+- [ ] v6 CP9 definition
+
+---
+
+## [2026-06-01] — v6 CP7: Advanced Features
+
+### Completed
+- **Migration v6** — `ALTER TABLE tasks ADD COLUMN actual_hours REAL`: enables effort-vs-actual tracking on every completed task.
+- **`src/analytics/streaks.ts`** — `computeStreak(dates)` (consecutive-day streak with 48h grace window), `buildWeeklyReport()` (this week / last week / velocity / upcoming deadlines / open high-priority), `buildWeeklyReportSummary()` for Life Manager injection.
+- **`src/analytics/forecasting.ts`** — `computeForecast(projectId?)` (per-project and global actual/estimate ratio from done tasks with both fields set), `buildForecastSummaryText()` for PM injection.
+- **`src/analytics/proactive.ts`** — `detectBlockedTasks(minDays)`, `detectStalledTasks(minDays)`, `detectOverdueTasks()`, `detectEndOfWeekAlerts()` (Thu/Fri only), `buildProactiveAlerts()` and `buildProactiveAlertsText()` aggregator.
+- **`src/agent/chaining.ts`** — `detectCompletionSignal(text)` (keyword heuristic with exclusion guard), `buildPmFollowUpPrompt(codeResponse)` for automatic PM follow-up.
+- **`src/agent/loop.ts`** — `buildAnalyticsBlock()` (weekly report + proactive alerts, injected into Life Manager system prompt), `buildForecastBlock()` (forecast injected into PM system prompt); multi-agent chaining after code-assistant completion signals → lightweight PM pass appended to response; both use non-fatal try/catch so chain failure never breaks the primary response.
+- **`src/db/index.ts`** — `actual_hours` added to `RawTask`, `hydrateTask`, `updateTask` (+ validation in server); new analytics helpers: `getCompletionDates()`, `getBlockedTasksSince(days)`, `getForecastData(projectId?)`, `getUpcomingTasks(days, projectId?)`.
+- **`src/server/index.ts`** — `actual_hours` validated in PUT /api/tasks/:id; 4 new analytics routes: `GET /api/analytics/streak`, `GET /api/analytics/weekly-report`, `GET /api/analytics/forecast`, `GET /api/analytics/proactive`.
+- **Web UI** — `web/src/types.ts`: `WeeklyReport`, `ForecastSummary`, `ProjectForecast`, `ProactiveAlert` types; `web/src/api.ts`: `fetchWeeklyReport`, `fetchForecast`, `fetchProactiveAlerts`; `ActivityPage.tsx`: Weekly Snapshot card grid, Proactive Alerts panel with type-colored badges, Effort Forecasting panel with per-project table; CSS: alert styles + badge; layout reordered (analytics first, usage below).
+- **Tests**: `src/__tests__/streaks.test.ts` (11 tests), `src/__tests__/forecasting.test.ts` (8 tests), `src/__tests__/proactive.test.ts` (13 tests). Total: **382 tests passing**, tsc clean (src + web).
+
+### Decisions
+- **actual_hours as nullable column** — NULL means "not yet measured"; only tasks with both fields contribute to forecast ratios, so incomplete data doesn't skew results.
+- **Streak uses audit_log** — `json_extract(payload, '$.status') = 'done'` queries existing data; no new table required.
+- **48-hour grace window in streak** — streak remains active if most recent completion was today or yesterday, accommodating late-night sessions.
+- **Chaining is non-fatal** — if the PM follow-up call fails (API down, etc.), the original code-assistant response is returned unchanged.
+- **Chaining guard: `[chain]` prefix** — injected into the PM prompt to prevent the chained call from triggering another chain (detectCompletionSignal skips messages starting with `[chain]`).
+- **Analytics blocks are non-fatal** — `buildAnalyticsBlock()` / `buildForecastBlock()` / `buildCalendarBlock()` all wrap in try/catch so DB errors or empty data don't break agent turns.
+- **Proactive end-of-week alerts gate on Thu/Fri** — avoids alert fatigue on other days; only surfaces when the deadline window is actually near.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] Personal learning in Engram: extract preference signals from PM/Life Manager responses and store as Engram nodes or project memory entries.
+- [ ] `actual_hours` input in TaskDetailView (web + iOS).
+- [ ] Habit log: distinguish per-project streaks vs. global streaks.
+- [ ] Multi-agent hand-off: Code → PM with tool-use capability (currently PM follow-up is text-only, no task update tools).
+
+### Learnings
+- `json_extract()` in SQLite works on TEXT columns storing JSON without requiring a JSON1 extension build — it's baked in since SQLite 3.9.
+- vitest DB isolation requires `mkdtempSync` + `afterEach` cleanup; a shared `KOA_HOME` path causes test cross-contamination even with `closeDb()` between tests.
+- Chaining guard via prompt prefix (`[chain]`) is simpler and more reliable than a stateful flag on the AgentLoop instance.
+
+---
+
+## [2026-06-01] — v6 CP6: iOS Client
+
+### Completed
+- **`src/notifications/apns.ts`** — APNs push via Node HTTP/2 (zero new deps): ES256 JWT signing (`makeApnsJwt`), device token storage in `~/.koa/apns.json` (0o600), `sendApnsPush()`, `isApnsConfigured()`. Creds from env vars (`APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_KEY_PATH` | `APNS_KEY_BASE64`, `APNS_SANDBOX`).
+- **`src/channels/router.ts`** — `case 'apns'` added to `dispatchToChannel`; users can route escalation events to APNs.
+- **`src/server/index.ts`** — `GET /api/sse/chat` (mobile EventSource endpoint; `?message=...&format=brief` strips ANSI codes, caps tool_result at 500 chars); `GET /api/push/apns-status`; `POST /api/push/apns-token` (hex-validates 64-char token); `DELETE /api/push/apns-token`; imported `sendApnsPush`, `saveApnsToken`, `getApnsToken`, `isApnsConfigured`.
+- **`src/__tests__/apns.test.ts`** — 11 new tests: token storage roundtrip, 0o600 mode, `isApnsConfigured` matrix, `makeApnsJwt` structure (3 parts, correct header/payload, 64-byte P1363 sig), `sendApnsPush` not-configured and no-token paths. 351 tests, tsc clean (src + web).
+- **`ios/` — iOS Swift source files (7 files):**
+  - `ios/README.md` — setup guide: Xcode project creation, capabilities, APNs key setup, Tailscale, Siri Shortcuts, file overview.
+  - `ios/Koa/Models.swift` — `KoaTask`, `TaskStatus`, `KoaProject`, `ChatMessage`, `MessageRole`, `SseEvent`, `UsageResponse`.
+  - `ios/Koa/AppState.swift` — `@Observable AppState`: auth, tab selection, task/project arrays, push state, `save()`.
+  - `ios/Koa/KoaAPI.swift` — `KoaAPI` struct: `ping()`, `fetchTasks()`, `fetchProjects()`, `updateTaskStatus()`, `registerApnsToken()`, `unregisterApnsToken()`, `sseRequest()`.
+  - `ios/Koa/SseStream.swift` — `SseStream.open(_ request)` → `AsyncStream<SseEvent>` using `URLSession.AsyncBytes.lines`.
+  - `ios/Koa/KoaApp.swift` — `@main KoaApp`, `AppDelegate` (APNs registration + deep link: `openTask` Notification), `MainTabView` (Chat / Board / Settings tabs).
+  - `ios/Koa/AuthView.swift` — bearer token login screen with server URL + token fields and ping-based validation.
+  - `ios/Koa/ChatView.swift` — SSE streaming chat: `SseStream.open`, live content update, tool-call-in-progress indicator, `MessageBubble` with agent badge.
+  - `ios/Koa/TaskBoardView.swift` — 3-column Kanban (todo / in_progress / done), `TaskCard` with deadline and priority, sheet to `TaskDetailView`.
+  - `ios/Koa/TaskDetailView.swift` — task detail + status picker + `PATCH /api/tasks/:id` save.
+  - `ios/Koa/SettingsView.swift` — server disconnect, push toggle (APNs permission → register → POST token), build info.
+  - `ios/Koa/KoaIntents.swift` — App Intents: `AskKoaIntent` ("Ask Koa what's next" SSE round-trip), `MarkTaskDoneIntent` (PATCH status), `KoaShortcuts` (autoconfigures Siri phrases).
+
+### Decisions
+- **No new npm dependencies** — APNs HTTP/2 uses Node's built-in `http2` module and `crypto` (ES256 = `createSign('SHA256')` + `ieee-p1363` encoding). Keeps the server lean.
+- **`GET /api/sse/chat` separate from `POST /api/chat`** — iOS native EventSource only supports GET; keeping POST /api/chat unchanged avoids breaking existing web clients.
+- **APNs as routable channel** — added `'apns'` to `dispatchToChannel` so users can create notification rules targeting APNs, consistent with web-push, ntfy, and Slack.
+- **64-char hex token validation** — APNs device tokens are always 32 bytes = 64 hex chars. Regex guard on `POST /api/push/apns-token` rejects garbage before it reaches storage.
+- **SourceKit cross-file diagnostics** — all SourceKit errors in Swift files are cross-file references that resolve in Xcode; not real compilation errors. Noted in ios/README.md setup guide.
+- **iOS 17+ / `@Observable`** — chosen over `ObservableObject` (iOS 16+) for cleaner syntax; acceptable since building fresh.
+- **Siri via App Intents (iOS 16+)** — `AskKoaIntent` does a live SSE round-trip; `MarkTaskDoneIntent` takes taskId parameter; `KoaShortcuts` autoconfigures phrases.
+
+### Issues Found
+- None new.
+
+### Next Session
+- [ ] **v6 CP7: Advanced Features** — habit streaks + weekly report; forecasting (actual/estimate ratio); proactive intelligence; multi-agent chaining; personal learning in Engram.
+- [ ] Wire `getConflicts()` into TaskDetailView in iOS app to show conflict badge.
+- [ ] Add VoiceOver labels (`accessibilityLabel`) to TaskCard and MessageBubble.
+- [ ] Consider adding `backlog` and `cancelled` columns to TaskBoardView (currently only todo/in_progress/done shown).
+- [ ] iOS Xcode project file (`.xcodeproj`) — user must create in Xcode; document in ios/README.md (already done).
+
+### Learnings
+- `crypto.createSign('SHA256').sign({ key, dsaEncoding: 'ieee-p1363' })` produces the IEEE P1363 format required by JWT ES256. Without `dsaEncoding`, Node defaults to DER which makes APNs reject the JWT with a 400.
+- `Buffer.from('...').toString('base64url')` is native in Node 14+ — no external `base64url` package needed.
+- `URLSession.AsyncBytes.lines` in Swift iterates over `\n`-separated strings, making SSE parsing trivial with `.hasPrefix("data: ")`.
+
+---
+
+## [2026-06-01] — v6 CP5: Notifications & Integration Maturity
+
+### Completed
+- **DB migration v5** — `notification_log` table (task_id, escalation_level, channel, sent_at) with compound index on (task_id, escalation_level, sent_at DESC) for 1/task/hr dedup queries.
+- **`src/db/schema.ts`** — `EscalationLevel` union type + `NotificationLog` interface.
+- **`src/db/index.ts`** — `logNotification` + `getLastNotificationFor` helpers; runtime allowlist check on `EscalationLevel` before DB write (guards against type-erasure injection).
+- **`src/notifications/webpush.ts`** — VAPID key pair generation + storage in `~/.koa/vapid.json` (0o600); single-subscriber push subscription store; `sendWebPush(title, body)`; `validatePushEndpoint()` SSRF guard (HTTPS + known push service origin allowlist).
+- **`src/channels/router.ts`** — `case 'web-push':` added to `dispatchToChannel`; users can route rules to `web-push` channel.
+- **`src/notifications/store.ts`** — `EscalationSettings` interface + `loadEscalationSettings` / `saveEscalationSettings`; backward-compatible JSON merge (defaults to `enabled: true`).
+- **`src/notifications/escalation.ts`** — `EscalationScheduler` class: 15-min tick, 4-level ladder (`due-tomorrow` 24–48h, `24h` 8–24h, `8h` 0–8h, `overdue`), 1/task/hr dedup via notification_log, `critical: true` for 8h + overdue levels, `updateConfig()` for runtime toggle; `escalationScheduler` singleton exported.
+- **`src/server/index.ts`** — `GET /api/admin/notifications` updated to include `escalation` field; `PUT /api/admin/notifications/escalation`; `GET /api/push/vapid-key`; `POST /api/push/subscribe` (SSRF-validated endpoint, logs subscription replacement); `DELETE /api/push/subscribe`; `escalationScheduler.start()` on server init.
+- **`src/cli/index.ts`** — `escalationScheduler.stop()` on SIGINT/SIGTERM.
+- **`web/public/sw.js`** — Minimal service worker with push event handler; shows notification from JSON payload.
+- **`web/src/types.ts`** — `EscalationSettings`, `WebPushSubscription` types; `NotificationsResponse.escalation` field.
+- **`web/src/api.ts`** — `saveEscalationSettings`, `fetchVapidKey`, `subscribeWebPush`, `unsubscribeWebPush` API functions.
+- **`web/src/pages/NotificationsPage.tsx`** — `EscalationSection` (enable/disable toggle + 4-level ladder with quiet-hours bypass annotations); `BrowserPushSection` (subscribe/unsubscribe browser push with service worker registration, VAPID key fetch, Notification permission handling).
+- **`web/src/index.css`** — Escalation ladder, critical/info badge, and browser push section styles.
+- **`src/__tests__/escalation.test.ts`** — 21 new tests: `computeLevel()` boundary tests (8), `EscalationScheduler.tick()` integration tests (11 covering dedup, criticality, disabled state, task status skips, far-future tasks).
+- **Security fixes:** SSRF guard on push endpoint (HTTPS + origin allowlist); runtime EscalationLevel validation before DB write; subscription replacement logged server-side.
+- **340/340 tests passing. `tsc --noEmit` clean (both src + web).**
+
+### Decisions
+- **Single subscriber model** — personal assistant use case; one subscription per instance. `saveSubscription(null)` clears on unsubscribe.
+- **Origin allowlist for push endpoints** — Google FCM, Mozilla, Apple, Windows Push. Covers all major browsers. Unknown origins rejected with 400.
+- **15-minute escalation tick** — matches calendar sync cadence; acceptable for personal task management.
+- **`updateConfig()` on `EscalationScheduler`** — allows `PUT /api/admin/notifications/escalation` to take effect immediately without restarting the server; falls back to `loadEscalationSettings()` on next tick if process restarts.
+- **APNs deferred to CP6** — Web Push + ntfy.sh covers the personal laptop + browser use case. APNs requires Apple developer account setup; scoped to CP6 iOS client work.
+- **`validatePushEndpoint` exported** — testable separately from the server route.
+
+### Issues Found
+- **TypeScript `Uint8Array<ArrayBufferLike>` mismatch** in `urlBase64ToUint8Array` — fixed by using `new Uint8Array(...)` constructor instead of `Uint8Array.from()`, which returns the narrower `Uint8Array<ArrayBuffer>`.
+- **`exactOptionalPropertyTypes` in web-push channel return** — `result.error` is `string | undefined`; fixed with `?? 'web push failed'` fallback to satisfy `ChannelSendResult.error?: string`.
+
+### Next Session
+- [ ] **v6 CP6: iOS Client** — Tailscale remote access docs in RUNBOOK.md, Swift SSE streaming + REST, APNs push (task ID deep link), VoiceOver testing, Siri Shortcuts.
+- [ ] Wire `getConflicts()` into TaskDetailPage to show conflict badge on tasks with congested deadlines.
+- [ ] Consider adding push notification test button for `web-push` channel type (currently only ntfy has a test path).
+- [ ] Log push send failures in server logs (currently `console.error` only inside `withRetry`).
+
+### Learnings
+- `new Uint8Array([...str].map(...))` produces `Uint8Array<ArrayBuffer>` (assignable to `BufferSource`) while `Uint8Array.from(...)` produces `Uint8Array<ArrayBufferLike>` (not assignable). A subtle but critical TypeScript strictness distinction.
+- Runtime validation of TypeScript union types at DB boundaries is necessary even with `exactOptionalPropertyTypes` — types are erased at runtime and any refactor can introduce a type mismatch that bypasses compile-time checks.
+- Push subscription SSRF is easy to miss because the server making the outbound request happens asynchronously (at escalation time), far removed from the subscribe endpoint that stored the URL.
+
+---
+
+## [2026-06-01] — v6 CP4: Calendar Integration
+
+### Completed
+- **DB migration v4** — `calendar_events` table (google_id, title, start_at, end_at, all_day, location, description, attendees, recurrence, synced_at) with idx_cal_start/end.
+- **`src/db/schema.ts`** — `CalendarEvent` interface.
+- **`src/db/index.ts`** — `upsertCalendarEvent`, `listCalendarEvents`, `deleteCalendarEventsNotIn` helpers; `rowToCalendarEvent` handles exactOptionalPropertyTypes safely.
+- **`src/calendar/types.ts`** — `CalendarBlock`, `ConflictResult` types.
+- **`src/calendar/oauth.ts`** — Google Calendar OAuth2 (read-only scope, reuses `googleapis`, falls back to `GOOGLE_CLIENT_ID` env vars); `generateCalendarOAuthUrl`, `exchangeCalendarCode`, `getCalendarAccessToken`, `isCalendarConfigured`.
+- **`src/calendar/sync.ts`** — `CalendarSync` class: 15-min polling, 7-day past + 30-day future window, upserts events, prunes stale ones; singleton `calendarSync`.
+- **`src/calendar/conflicts.ts`** — `getConflicts(task)` (flags tasks where deadline day is >4h busy and effort > free time), `getAvailableBlocks(start, end)` (1h+ gaps in 9am-6pm window), `buildCalendarSummary()` (Life Manager injection: next-7-day events + total free hours).
+- **`src/server/index.ts`** — `GET /api/admin/oauth/calendar`, `GET /api/admin/oauth/calendar/callback`, `GET /api/calendar/events`, `GET /api/calendar/conflicts`, `GET /api/calendar/availability`, `POST /api/calendar/sync`; `calendarSync.start()` on server init.
+- **`src/cli/index.ts`** — `calendarSync.stop()` on SIGINT/SIGTERM.
+- **`src/agent/loop.ts`** — `buildCalendarBlock()` method; injected as extra block when Life Manager is selected (`agentName === 'life-manager'`).
+- **`src/agent/specialists.ts`** — Updated LM_SYSTEM to mention calendar awareness.
+- **Web:** `CalendarEvent`, `CalendarBlock`, `ConflictResult` types in `web/src/types.ts`; `google-calendar` added to `IntegrationType`; `fetchCalendarEvents`, `fetchCalendarAvailability`, `fetchTaskConflicts`, `triggerCalendarSync`, `startCalendarOAuth` in `web/src/api.ts`; `calendar` icon in Icon.tsx; `/calendar` route in App.tsx; `CalendarPage` (month grid + agenda sidebar + drag-to-change-deadline); `google-calendar` in IntegrationsPage catalog with "Connect via Google" OAuth button; `/calendar` added to NavRail.
+- **`src/__tests__/calendar.test.ts`** — 17 new tests: getConflicts (8), getAvailableBlocks (5), buildCalendarSummary (4). All timezone-safe using local-midnight helpers.
+- **Pre-existing fix:** JSX fragment wrapper missing in ActivityPage.tsx UsagePanel.
+- **319/319 tests passing. `tsc --noEmit` clean (both src + web).**
+
+### Decisions
+- **Read-only Google Calendar scope** — `calendar.readonly` only; no write access. Conflict detection and availability are advisory, not prescriptive.
+- **15-minute sync, not real-time** — polling fits the personal-assistant use case; avoids webhook complexity and Google Push Notifications setup.
+- **Local-time work hours in conflict detection** — `setHours()` operates in local time, matching how users think about their calendar. Tests use local-midnight string format (no Z suffix) to avoid UTC/local drift in CI.
+- **Calendar block in Life Manager only** — injected as an additional (uncached) dynamic block after the standard system blocks. Code Assistant and PM don't receive calendar data; they don't need it.
+- **Separate OAuth client from Gmail** — `google-calendar` is its own integration entry. Users can reuse the same Google OAuth app (shared `GOOGLE_CLIENT_ID`) but credentials are stored independently. Allows calendar to be disconnected without affecting Gmail.
+- **`deleteCalendarEventsNotIn`** — prunes events that left the sync window (cancelled or >30 days away) to keep the DB current.
+
+### Issues Found
+- **Pre-existing:** `web/src/pages/ActivityPage.tsx` UsagePanel missing JSX fragment around dual top-level elements — fixed.
+
+### Next Session
+- [ ] **v6 CP5: Notifications & Integration Maturity** — escalation ladder, APNs/Web Push, quiet hours enforcement, notification batching, settings UI.
+- [ ] Wire `getConflicts()` into TaskDetailPage to show a conflict warning badge when a task's deadline is congested.
+- [ ] Consider showing task deadlines as draggable chips on the calendar month grid (requires fetching tasks with deadlines per month).
+
+### Learnings
+- `exactOptionalPropertyTypes: true` in tsconfig requires explicit conditional assignment (`if (x != null) obj.field = x`) instead of spread-with-undefined. Worth the strictness — catches a whole class of "accidentally undefined" bugs.
+- Local-time vs UTC is the most common source of flaky calendar tests. The fix: use `new Date('YYYY-MM-DDT00:00:00')` (no Z) for test dates, and start cursors at `new Date(y, m, d)` (local midnight constructor) in implementation.
+
+---
+
+## [2026-06-01] — v6 CP3: Agent Specialization
+
+### Completed
+- **`src/agent/specialists.ts`** — `AgentName` type + `AgentSpec` interface + 3 configs: `code-assistant` (Sonnet, code-focused system addition), `project-manager` (Haiku, task/backlog-focused), `life-manager` (Haiku, personal productivity-focused).
+- **`src/agent/select-agent.ts`** — `selectAgent(message)` keyword router (no ML); `isCodeQuery()`, `hasBacklogSignals()`, `hasLifeSignals()` signal functions. `isCodeQuery`/`hasBacklogSignals` re-exported from `loop.ts` for backward compat.
+- **`src/agent/loop.ts`** — `turn()` calls `selectAgent()` first; uses `agentSpec.model` (bypasses complexity routing, `@tier:` override still works); injects specialist system block as first block; tracks `lastAgent` in `AgentState`; returns `agent: AgentName` in `TurnResult`.
+- **`src/agent/usage.ts`** — per-agent cost accumulation in `addTurn()`; `agentBreakdown: Record<AgentName, AgentCostEntry>` in `getStats()`.
+- **`src/types/index.ts`** — `agent?: AgentName` on `TurnUsage` (typed, not `string`); `AgentCostEntry` + `agentBreakdown` on `SessionUsageStats`; `lastAgent?: AgentName` on `AgentState`; `agent: string` on `TurnResult`.
+- **`src/server/events.ts`** — `agent: string` on `SseEvent` done union member.
+- **`src/server/index.ts`** — `result.agent` in SSE done event; `activeAgent` in `/api/context` response.
+- **Web:** `agent?: string` on `ChatItem` assistant + `SseEvent` done; `lastAgentRef` in `ChatPage`; agent badge chip (Code/PM/Life, colored) in `MessageBubble`; per-agent breakdown table in `ActivityPage`; CSS for 3 agent badge colors.
+- **`src/__tests__/select_agent.test.ts`** — 22 new tests covering all routing paths, signal helpers, edge cases.
+- **Security fixes:** allowlist-validates `agent` string in `MessageBubble` before CSS class injection; `TurnUsage.agent` typed as `AgentName` not `string`.
+- **302/302 tests passing. `tsc --noEmit` clean.**
+
+### Decisions
+- **No automatic hand-off** — deferred. CP3 routes each message independently via `selectAgent()`; PM → Code automatic forwarding would require multi-agent orchestration beyond scope. Noted for CP4/CP5.
+- **Agent model overrides complexity routing** — `smartRouting: false` passed to `selectModel()` with specialist model. `@tier:` prefix still punches through (checked first in `selectModel`). Keeps agent behaviour predictable.
+- **`isCodeQuery`/`hasBacklogSignals` moved to `select-agent.ts`** — re-exported from `loop.ts` so `cost_optimization.test.ts` import path unchanged.
+- **Signals expanded** — `BACKLOG_SIGNALS` gained `project`, `status`, `deadline`, `unblocked` vs the original 9. `CODE_SIGNALS` gained `debug`, `refactor`, `implement`, `fix`, `deploy`, `docker`, `bash`, `script`, `api`, `endpoint`.
+
+### Issues Found
+- None.
+
+### Next Session
+- [ ] **v6 CP4: Calendar Integration** — CalendarSync (Google Calendar OAuth2, read-only), `getConflicts(task)`, `getAvailableBlocks()`, Life Manager prompt injection, `/calendar` web page.
+- [ ] Consider persisting agent selection preference per project (currently always keyword-routed; no memory of prior routing).
+- [ ] Twilio outbound `sendSms` still needs a `to` field in notification rules (CP2 deferred item).
+
+### Learnings
+- Keyword routing is surprisingly robust for a personal assistant where queries are predictable. Life signals (habit, goal, weekly) are distinct enough from code/PM signals to avoid misrouting in practice.
+- `AgentName` as a discriminated union type instead of `string` for `TurnUsage.agent` eliminates a whole class of drift bugs where an unexpected key silently populates `agentBreakdown`.
+
+---
+
+## [2026-05-31] — Config: Input-Required ntfy Hook
+
+### Completed
+- **Global `Notification` hook** — Added `input_required` matcher to `~/.claude/settings.json`; fires `curl` to `ntfy.sh/undaunting_underpants` (Title: "Input Required", tag: bell) async whenever Claude Code stops and waits for user input. HTTP 200 confirmed.
+
+### Decisions
+- Used `Notification` event (not `Stop`) — `Stop` already routes to `notify-agent.sh` which skips non-pipeline sessions; `Notification/input_required` is the precise event for "waiting on you".
+- `async: true` so the curl never blocks the UI.
+
+---
+
+## [2026-05-31] — v6 CP2: Async Channels
+
+### Completed
+- **SSRF fixes** — `validateSafeUrl()` added to `src/server/index.ts`; applied to ntfy (`baseUrl`) and Slack (`webhookUrl`) integration test endpoints. Slack additionally enforces `hooks.slack.com` hostname. Deferred security debt from CP1 resolved.
+- **DB migration v3** — `processed_messages` table with `(channel, external_id)` unique index. `ProcessedMessage` interface added to `src/db/schema.ts`.
+- **`src/channels/` module** — 6 new files:
+  - `types.ts` — `InboundMessage`, `ExtractedIntent`, `ChannelSendResult`
+  - `dedup.ts` — `isDuplicate()`, `markProcessed()`, `contentHash()` backed by SQLite
+  - `router.ts` — `routeResponse()` (rule-based dispatch, exponential retry, batching, quiet hours), `isQuietHours()` (cross-midnight aware)
+  - `slack.ts` — `sendSlack()` with SSRF-safe URL validation + 4000-char truncation
+  - `sms.ts` — `parseTwilioBody()`, `validateTwilioSignature()` (HMAC-SHA1), `sendSms()` with 160-char truncation
+  - `gmail.ts` — `GmailPoller` class (30s IMAP poll, XOAUTH2, 20/hr rate limit, Haiku intent extraction), OAuth2 helpers (`generateOAuthUrl`, `exchangeCodeForTokens`)
+- **Server endpoints** — `POST /webhooks/sms` (Twilio webhook + idempotency), `GET /api/admin/oauth/gmail`, `GET /api/admin/oauth/gmail/callback`, `GET /api/channels/status`; `/api/health` now includes `channels` field; `gmailPoller` starts on server init and stops on SIGTERM/SIGINT.
+- **Agent loop** — `sendNtfyNotification` replaced with `routeResponse('checkpoint', ...)` in `loop.ts`.
+- **`input_required` hook** — After every `end_turn` in the SSE chat handler, `routeResponse('input_required', 'Koa needs your input', ...)` fires. Notifies Ralph whenever Koa is waiting for a response.
+- **Web UI** — `gmail` and `twilio` added to `IntegrationType` and `CATALOG`; "Connect via Google" OAuth button in Gmail SlideOver; `?connected=gmail` param handling on redirect; `channel` field on `ChatItem`; channel badge (`phone`/`envelope`/`chat` icon + label) on inbound user messages in `MessageBubble`.
+- **Tests** — 21 new tests in `src/__tests__/channels.test.ts`: quiet hours (6 cases including cross-midnight), dedup (4), contentHash (3), Twilio sig validation (3), parseTwilioBody (2), SMS truncation (1), extractIntent (2 with mocked Anthropic). 270/270 passing. `tsc --noEmit` clean.
+
+### Decisions
+- **No `twilio` SDK** — Twilio signature validation implemented with Node `crypto.createHmac('sha1')`. Saves a dependency; spec is simple and stable.
+- **`routeResponse` falls back to ntfy** when no matching notification rule is configured — same behaviour as before but now rule-driven.
+- **Gmail XOAUTH2 + empty password** — `imap-simple` types require `password` in `Config`. Empty string satisfies the type; Gmail IMAP ignores it when `xoauth2` is set.
+- **`input_required` event fires on every `end_turn`** — not just when the response contains a `?`. This is intentional: any stopped turn means Koa is waiting. Users can suppress via quiet hours.
+- **`startGmailOAuth()` opens in `_blank` tab** — avoids replacing the web console SPA in-place; OAuth redirect lands back at `/integrations?connected=gmail`.
+
+### Issues Found
+- None new. All 7 CP1 deferred items addressed (SSRF × 2 fixed; channel infrastructure built from scratch).
+
+### Next Session
+- [ ] **v6 CP3: Agent Specialization** — CodeAssistant (Sonnet), ProjectManager (Haiku), LifeManager (Haiku); keyword `selectAgent()` router; hand-off turns; agent badge per chat message; per-agent cost breakdown in Activity page.
+- [ ] Consider persisting quiet-hours bypass decisions to `notifications.json` (currently in-memory only).
+- [ ] Twilio outbound `sendSms` needs a `to` field — currently generic routing skips SMS outbound with a warning. Expose `to` via notification rule config.
+
+### Learnings
+- Vitest hoists all `vi.mock()` calls regardless of nesting depth — `vi.mock` inside a test body causes confusing ordering bugs. Always define the mock factory at module level and control per-test behaviour with `mockReturnValue`/`mockResolvedValue`.
+- `imap-simple` types inherit from the `imap` package's `Config` interface which has `password` as required — satisfy the type with `''`; xoauth2 takes precedence at runtime.
+
+---
+
+## [2026-05-31] — v6 CP1: State Machine
+
+### Completed
+- **`src/db/schema.ts`** — TypeScript interfaces for all DB entities (Project, Task, TaskDependency, Decision, Checkpoint, AuditLog, ProjectStatus, TaskStatus).
+- **`src/db/migrations.ts`** — Two-migration versioned system: v1 creates all 6 tables + standalone FTS5 + 4 indexes; v2 drops content= FTS5 and rebuilds as standalone (fixes "disk image malformed" error on DB close/reopen).
+- **`src/db/index.ts`** — Full CRUD for projects, tasks, dependencies, decisions, checkpoints; FTS5 search with phrase-query sanitization; `generateStateFromDb()` for markdown STATE injection; WAL mode + foreign keys; module-level monotonic counter for task ID collision prevention.
+- **`src/db/first-run.ts`** — `bootstrapFromProjectMemory()` parses `- [ ]` checkboxes from STATE.md/BACKLOG.md, skips case-insensitive duplicates.
+- **`src/__tests__/db.test.ts`** — 33 new tests; full KOA_HOME isolation per test via temp dirs.
+- **`src/server/index.ts`** — 12 new REST endpoints: `/api/health`, `/api/projects` (CRUD), `/api/tasks` (CRUD + next + deps + search), `/api/decisions` (list + create), `/api/checkpoints`. All DB endpoints use `dbError()` helper (internal logging, sanitized 500 response). Input validation for status enums, priority range (1–5), and ISO date format.
+- **`src/agent/loop.ts`** — First-run bootstrap on `initialize()` when no projects exist; imports project memory into SQLite silently.
+- **`src/logger.ts`** — JSON structured logging to `~/.koa/logs/koa-YYYY-MM-DD.log` with secure permissions (dir 0o700, file 0o600).
+- **`src/server/shutdown.ts`** — Graceful SIGTERM/SIGINT handler with cleanup callback.
+- **`src/cli/index.ts`** — 8 new ops commands: `migrate`, `backup`, `restore`, `export`, `import`, `maintenance`, `seed`, `health`.
+- **Web UI** — 5 new pages: ProjectsPage (grid + status tabs + inline create), ProjectDetailPage (Kanban board with 5 columns), TaskDetailPage (full editor + dependency management), DecisionsPage (expandable list + create form), SearchPage (300ms debounced + project filter). ChatPanel QuickTaskAdd widget. NavRail updated with Projects/Decisions/Search links. TopNav HealthPill polls `/api/health` every 30s.
+- **`RUNBOOK.md`** — Ops guide at project root.
+- **`docs/DEPLOYMENT.md`** — Deployment guide (Tailscale, nginx, systemd).
+- **Security hardening** — Recursive CTE cycle detection; LIMIT 500 on all list queries; getNextTasks capped to max 100; CORS disabled in production (NODE_ENV check); error leakage fixed across all 14 DB endpoints; FTS5 phrase-query sanitization (length cap 200 + double-quote escaping); log/dir permission hardening.
+
+### Decisions
+- **Standalone FTS5** (not `content=`) — avoids "disk image is malformed" error on DB close/reopen within the same process. The standalone table uses `DELETE + INSERT` for updates instead of FTS5's special `INSERT ... 'delete'` syntax.
+- **Task ID format:** `<project_slug>-task-<Date.now()>-<counter>` — human-readable, monotonic, no UUID overhead.
+- **Recursive CTE cycle detection** — replaced shallow one-hop check with a full transitive reachability query; prevents multi-hop cycles that the simple reverse-edge check misses.
+- **`dbError()` helper** — single function logs full error internally and returns generic "Internal server error" to the client, preventing SQLite path/message leakage in all 14 DB endpoints.
+- **CORS disabled in production** — `process.env['NODE_ENV'] !== 'production'` guard; in production the web UI is co-located with Express so no cross-origin calls occur.
+- **SSRF in ntfy/slack integration test endpoints** — pre-existing, deferred to CP2 (not introduced in CP1 code).
+
+### Issues Found
+- FTS5 `content=tasks` table corrupts on SQLite close/reopen (even at a different path) within the same process — fixed with standalone FTS5 + migration v2. Severity: HIGH (was causing 500s).
+- Task ID UNIQUE constraint collision at sub-millisecond resolution in tests — fixed with monotonic counter. Severity: MEDIUM (test-only, non-production).
+- `generateStateFromDb()` emitted `## Project: name` instead of `## Projects` — fixed. Severity: LOW.
+- `config.test.ts` failing because real `~/.koa/config.json` had `smartRouting: true` leaking into test — fixed with KOA_HOME isolation. Severity: MEDIUM (test suite was non-deterministic on dev machines).
+
+### Next Session
+- [ ] **v6 CP2: Async Channels** — Gmail IMAP inbound, Twilio SMS inbound, Slack outbound, channel routing, dedup table, quiet hours
+- [ ] SSRF fixes for ntfy/Slack integration test endpoints (deferred from CP1 security review)
+
+### Learnings
+- Worktree-isolated agents create new files correctly but don't propagate edits to existing files — always patch shared files (api.ts, types.ts, Nav, App, CSS) manually when using worktree agents for UI work.
+- SQLite WAL mode + FTS5 standalone is the correct pairing for an embedded DB that may close and reopen within a long-running process.
+- `fs.createWriteStream(path, { flags: 'a', mode: 0o600 })` — `mode` on an append-open only affects the file if it doesn't exist yet; chmod is still needed for files created before the security fix was applied.
+
+---
+
 ## [2026-05-31] — Roadmap Reconciliation: v6 Numbering Adopted
 
 ### Completed
