@@ -1,5 +1,25 @@
 # Koa — DevLog
 
+## [2026-06-03] — CP10d: GitHub Integration
+
+### Completed
+- **`src/integrations/github.ts`** (new) — `getOpenPRs`, `getPRStatus`, `createIssue`; all fetch calls guarded by `validateSafeUrl`; `GITHUB_TOKEN not configured` guard; error messages contain only HTTP status codes (no body leakage)
+- **`src/agent/tools/github.ts`** (new) — `list_prs`, `get_pr_status`, `create_github_issue` tools; credentials read from `loadIntegrations()` (`config['token']`, `config['defaultRepo']`); all errors returned as strings (no throw)
+- **`src/cli/index.ts`** — registered all 3 GitHub tools in `buildRegistry()`
+- **`web/src/pages/IntegrationsPage.tsx`** — GitHub card `defaultOwner` field → `defaultRepo` field (label "Default repo", placeholder "owner/repo")
+- 17 new tests (8 integration, 9 tools) — 451/451 total, tsc clean
+- Security review: no HIGH/MEDIUM findings; token never appears in tool output; SSRF guard on all fetch calls
+
+### Decisions
+- API client takes `token` as a parameter (not read directly) — keeps it pure and testable; tools layer handles credential loading
+- `parseRepo()` splits on `/` — no character sanitization needed since `validateSafeUrl` constrains all calls to `api.github.com`
+- `getPRStatus` runs PR + reviews fetch in parallel via `Promise.all`, then fetches check-runs after getting the commit SHA
+
+### Next Session
+- [ ] CP10e — Morning Briefing & Standing Delegations
+
+---
+
 ## [2026-06-03] — CP10c Calendar Write & Email Compose
 
 ### Completed

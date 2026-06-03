@@ -15,6 +15,7 @@ import { webFetchTool } from '../agent/tools/web_fetch.js';
 import { webSearchTool } from '../agent/tools/web_search.js';
 import { createCalendarEventTool, updateCalendarEventTool, deleteCalendarEventTool } from '../agent/tools/calendar_write.js';
 import { sendEmailTool } from '../agent/tools/send_email.js';
+import { githubTools } from '../agent/tools/github.js';
 import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
 import { loadCustomSkills } from '../skills/store.js';
 import { EngramClient } from '../engram/client.js';
@@ -37,6 +38,7 @@ function buildRegistry(
   registry.register(updateCalendarEventTool);
   registry.register(deleteCalendarEventTool);
   registry.register(sendEmailTool);
+  for (const tool of githubTools) registry.register(tool);
   for (const tool of createFileTools(projectRoot)) registry.register(tool);
   registry.register(createEngramTool(engram));
   registry.register(rememberTool);

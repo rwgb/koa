@@ -31,7 +31,7 @@ const CATALOG: IntegrationDef[] = [
     description: 'Repo access, PR and issue tools.',
     fields: [
       { key: 'token', label: 'Personal Access Token', secret: true, placeholder: 'ghp_...' },
-      { key: 'defaultOwner', label: 'Default owner/org', secret: false, placeholder: 'rwgb' },
+      { key: 'defaultRepo', label: 'Default repo', secret: false, placeholder: 'owner/repo' },
     ],
   },
   {
