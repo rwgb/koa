@@ -175,12 +175,16 @@ export class AgentLoop {
 
     // Engram + SpiderBrain structural context
     if (this.config.engramEnabled) {
-      await this.engram.sync();
-      this.state.engramContext = await this.engram.getContext();
-      await this.engram.startSession(this.state.engramContext.goal);
-      void this.engram.autoIndex();
+      const engramChain = (async () => {
+        await this.engram.sync();
+        this.state.engramContext = await this.engram.getContext();
+        await this.engram.startSession(this.state.engramContext.goal);
+        void this.engram.autoIndex();
+      })();
+      [, this.state.spiderBrainContext] = await Promise.all([engramChain, this.sb.getContext()]);
+    } else {
+      this.state.spiderBrainContext = await this.sb.getContext();
     }
-    this.state.spiderBrainContext = await this.sb.getContext();
     void this.sb.autoMolt();
 
     // Working memory
@@ -765,11 +769,10 @@ export class AgentLoop {
       generateJournalEntry(summary, this.state.turnCount, this.config.apiKey).then((entry) => {
         appendJournalEntry(this.config.projectPath, entry);
       }),
+      this.config.engramEnabled
+        ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)
+        : Promise.resolve(),
     ]);
-
-    if (this.config.engramEnabled) {
-      await this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`);
-    }
   }
 
   getState(): Readonly<AgentState> {
