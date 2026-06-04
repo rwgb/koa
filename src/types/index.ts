@@ -49,6 +49,7 @@ export interface Tool {
   name: string;
   description: string;
   inputSchema: Anthropic.Tool['input_schema'];
+  source?: 'builtin' | 'custom-skill' | 'plugin';
   execute(input: ToolInput): Promise<ToolResultContent>;
 }
 

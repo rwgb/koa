@@ -523,7 +523,7 @@ export default function IntegrationsPage() {
       .finally(() => setLoading(false));
     fetchAdminConfig()
       .then(cfg => {
-        setBraveKeySet(cfg.braveApiKey);
+        setBraveKeySet(cfg.braveApiKey ?? false);
         setElKeySet(cfg.elevenLabsApiKey ?? false);
       })
       .catch(() => { /* non-fatal */ });

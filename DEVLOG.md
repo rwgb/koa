@@ -1,5 +1,43 @@
 # Koa — DevLog
 
+## [2026-06-03] — CP12a: Plugin / Tool Extensibility SDK
+
+### Completed
+
+- **`src/plugins/loader.ts`** — scans `~/.koa/plugins/*.json`, validates with Zod (`name` regex + transport enum + config shape), skips invalid files with `console.warn`
+- **`src/plugins/bridge.ts`** — `createPluginTool(manifest)` factory; bash + http transports mirror `custom_skill_tool.ts` pattern; MCP stubs with clear error; sets `source: 'plugin'` on each tool
+- **`src/types/index.ts`** — added optional `source?: 'builtin' | 'custom-skill' | 'plugin'` to `Tool` interface
+- **`src/agent/tools/registry.ts`** — added `registerMany(tools: Tool[]): void`
+- **`src/cli/index.ts`** — plugin loading wired into `buildRegistry()` after custom skills
+- **`src/server/routes/admin.ts`** — `GET /api/admin/plugins` returns name/version/toolCount/toolNames/sourcePath; `GET /skills` updated to surface `'plugin'` source for plugin-backed tools
+- **`web/src/types.ts`** — `LoadedPlugin` interface added; `InstalledSkill.source` extended to `'plugin'`; `Task.actual_hours` added (pre-existing omission)
+- **`web/src/api.ts`** — `fetchPlugins()` added
+- **`web/src/pages/SkillsPage.tsx`** — 4-tab layout (Installed / Marketplace / Create / Plugins); `PluginsTable` component shows name, version badge, tool names, source path
+- **`web/src/pages/IntegrationsPage.tsx`** — fixed pre-existing `braveApiKey ?? false` narrowing bug
+- **`src/__tests__/plugins.test.ts`** — 7 tests: empty dir, valid manifest, invalid JSON, Zod failure, non-JSON filtering, bash execution, MCP stub
+
+### Security
+
+- Tool name validated by Zod regex `/^[a-z][a-z0-9_]{1,49}$/` — no path traversal via tool name
+- Bash + http transports are user-managed local files (same accepted risk as custom skills)
+- No HIGH/MEDIUM findings
+
+### Decisions
+
+- `source` field on `Tool` is optional to avoid touching all 15+ existing tool definitions; admin route falls back to `'built-in'` when field is absent
+- Plugin manifests are file-managed only (no web UI create/edit — read-only display in Plugins tab)
+
+### QA
+
+- 516/516 tests pass; tsc clean; web build clean
+
+### Next Session
+
+- [ ] CP12b — Semantic Context Window Compaction
+- [ ] CP12c — Self-Hosted LLM Provider (Ollama)
+
+---
+
 ## [2026-06-03] — CP11d: watchOS Companion
 
 ### Completed

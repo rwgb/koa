@@ -32,6 +32,7 @@ import {
   saveCustomSkill,
   deleteCustomSkill,
 } from '../../skills/store.js';
+import { loadPlugins } from '../../plugins/loader.js';
 import { generateOAuthUrl, exchangeCodeForTokens, gmailPoller } from '../../channels/gmail.js';
 import { generateCalendarOAuthUrl, exchangeCalendarCode } from '../../calendar/oauth.js';
 import { calendarSync } from '../../calendar/sync.js';
@@ -636,11 +637,14 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
   router.get('/skills', (_req, res) => {
     const customSkills = loadCustomSkills();
     const customNames = new Set(customSkills.map(s => s.name));
+    const pluginToolNames = new Set(
+      loadPlugins().flatMap(p => p.tools.map(t => t.name))
+    );
     const installedTools = loop.getTools();
     const installed = installedTools.map(t => ({
       name: t.name,
       description: t.description,
-      source: customNames.has(t.name) ? 'custom' : 'built-in' as 'built-in' | 'custom',
+      source: customNames.has(t.name) ? 'custom' : pluginToolNames.has(t.name) ? 'plugin' : 'built-in' as 'built-in' | 'custom' | 'plugin',
       status: 'active' as const,
       ...(customNames.has(t.name)
         ? { type: customSkills.find(s => s.name === t.name)!.type }
@@ -649,6 +653,18 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     const installedNames = new Set(installedTools.map(t => t.name));
     const marketplace = MARKETPLACE.filter(m => !installedNames.has(m.name));
     res.json({ installed, marketplace });
+  });
+
+  router.get('/plugins', (_req, res) => {
+    const plugins = loadPlugins();
+    res.json(plugins.map(p => ({
+      name: p.name,
+      version: p.version,
+      description: p.description,
+      toolCount: p.tools.length,
+      toolNames: p.tools.map(t => t.name),
+      sourcePath: p.sourcePath,
+    })));
   });
 
   router.post('/skills/custom', (req, res) => {

@@ -14,6 +14,7 @@ import type {
   WebPushSubscription,
   SkillsResponse,
   CustomSkillDef,
+  LoadedPlugin,
   Project,
   ProjectStatus,
   Task,
@@ -316,6 +317,12 @@ export async function deleteCustomSkill(name: string): Promise<void> {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`Failed to delete skill: ${res.status}`);
+}
+
+export async function fetchPlugins(): Promise<LoadedPlugin[]> {
+  const res = await authFetch('/api/admin/plugins');
+  if (!res.ok) throw new Error(`Failed to fetch plugins: ${res.status}`);
+  return res.json() as Promise<LoadedPlugin[]>;
 }
 
 // ── Chat (SSE) ────────────────────────────────────────────────────────────────

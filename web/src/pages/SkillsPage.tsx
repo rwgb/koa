@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import type { InstalledSkill, MarketplaceSkill, CustomSkillDef } from '../types.js';
+import type { InstalledSkill, MarketplaceSkill, CustomSkillDef, LoadedPlugin } from '../types.js';
 import type { IconName } from '../components/Icon.js';
 import { Icon } from '../components/Icon.js';
 import {
   fetchSkills,
   saveCustomSkill,
   deleteCustomSkill,
+  fetchPlugins,
 } from '../api.js';
 
 type SkillType = 'bash' | 'http' | 'mcp';
@@ -409,11 +410,63 @@ function SkillBuilder({
   );
 }
 
+// ── Plugins table ─────────────────────────────────────────────────────────────
+
+function PluginsTable({ plugins }: { plugins: LoadedPlugin[] }) {
+  if (plugins.length === 0) {
+    return (
+      <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+        No plugins loaded. Drop a <code>.json</code> manifest into <code>~/.koa/plugins/</code> and restart Koa.
+      </p>
+    );
+  }
+  return (
+    <table className="skill-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Version</th>
+          <th>Tools</th>
+          <th>Source Path</th>
+        </tr>
+      </thead>
+      <tbody>
+        {plugins.map((p) => (
+          <tr key={p.name}>
+            <td>
+              <span className="skill-name">{p.name}</span>
+              {p.description && (
+                <span className="skill-desc">{p.description}</span>
+              )}
+            </td>
+            <td>
+              <span className="badge badge-muted">{p.version}</span>
+            </td>
+            <td>
+              <span className="badge badge-blue" title={p.toolNames.join(', ')}>{p.toolCount}</span>
+              {p.toolNames.length > 0 && (
+                <span className="skill-desc" style={{ marginTop: '2px' }}>{p.toolNames.join(', ')}</span>
+              )}
+            </td>
+            <td>
+              <code style={{ fontSize: '11px', wordBreak: 'break-all' }}>{p.sourcePath}</code>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+type TabId = 'installed' | 'marketplace' | 'create' | 'plugins';
+
 export default function SkillsPage() {
+  const [tab, setTab]                 = useState<TabId>('installed');
   const [installed, setInstalled]     = useState<InstalledSkill[]>([]);
   const [marketplace, setMarketplace] = useState<MarketplaceSkill[]>([]);
+  const [plugins, setPlugins]         = useState<LoadedPlugin[]>([]);
   const [loading, setLoading]         = useState(true);
   const [loadError, setLoadError]     = useState<string | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -423,9 +476,10 @@ export default function SkillsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await fetchSkills();
+      const [data, pluginData] = await Promise.all([fetchSkills(), fetchPlugins()]);
       setInstalled(data.installed);
       setMarketplace(data.marketplace);
+      setPlugins(pluginData);
     } catch (err) {
       setLoadError((err as Error).message);
     } finally {
@@ -445,6 +499,7 @@ export default function SkillsPage() {
     await load();
     setBuilderOpen(false);
     setBuilderForm(EMPTY_FORM);
+    setTab('installed');
   }
 
   function handleInstall(s: MarketplaceSkill) {
@@ -455,6 +510,7 @@ export default function SkillsPage() {
       type: 'bash',
     });
     setBuilderOpen(true);
+    setTab('create');
   }
 
   if (loading) {
@@ -471,38 +527,53 @@ export default function SkillsPage() {
 
   return (
     <div className="page-body" style={{ height: '100%' }}>
-      {/* Installed */}
-      <div className="section">
-        <div className="section-header">
-          <span className="section-title">
-            Installed Skills
-            <span className="badge badge-blue" style={{ marginLeft: '8px', verticalAlign: 'middle' }}>{installed.length}</span>
-          </span>
-        </div>
-        {installed.length === 0 ? (
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No skills installed.</p>
-        ) : (
-          <InstalledTable skills={installed} onDelete={(name) => void handleDelete(name)} />
-        )}
+      {/* Tab nav */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+        {([
+          { id: 'installed' as TabId, label: `Installed (${installed.length})` },
+          { id: 'marketplace' as TabId, label: 'Marketplace' },
+          { id: 'create' as TabId, label: 'Create' },
+          { id: 'plugins' as TabId, label: `Plugins (${plugins.length})` },
+        ] as { id: TabId; label: string }[]).map(({ id, label }) => (
+          <button
+            key={id}
+            className={`btn btn-sm ${tab === id ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Marketplace */}
-      <div className="section">
-        <div className="section-header">
-          <span className="section-title">Skill Marketplace</span>
+      {/* Installed tab */}
+      {tab === 'installed' && (
+        <div className="section">
+          {installed.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No skills installed.</p>
+          ) : (
+            <InstalledTable skills={installed} onDelete={(name) => void handleDelete(name)} />
+          )}
         </div>
-        {marketplace.length === 0 ? (
-          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>All marketplace skills are already installed.</p>
-        ) : (
-          <MarketplaceGrid skills={marketplace} onInstall={handleInstall} />
-        )}
-      </div>
+      )}
 
-      {/* Custom Skill Builder */}
-      <div className="section">
-        <div className="section-header">
-          <span className="section-title">Custom Skill Builder</span>
-          {!builderOpen && (
+      {/* Marketplace tab */}
+      {tab === 'marketplace' && (
+        <div className="section">
+          {marketplace.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>All marketplace skills are already installed.</p>
+          ) : (
+            <MarketplaceGrid skills={marketplace} onInstall={handleInstall} />
+          )}
+        </div>
+      )}
+
+      {/* Create tab */}
+      {tab === 'create' && (
+        <div className="section">
+          <div className="section-header">
+            <span className="section-title">Custom Skill Builder</span>
+          </div>
+          {!builderOpen ? (
             <button
               className="btn btn-secondary btn-sm"
               style={{ borderStyle: 'dashed', color: 'var(--purple)', borderColor: 'color-mix(in srgb, var(--purple) 50%, var(--border))' }}
@@ -510,16 +581,22 @@ export default function SkillsPage() {
             >
               + New Custom Skill
             </button>
+          ) : (
+            <SkillBuilder
+              initialForm={builderForm}
+              onSave={handleSave}
+              onCancel={() => { setBuilderOpen(false); setBuilderForm(EMPTY_FORM); }}
+            />
           )}
         </div>
-        {builderOpen && (
-          <SkillBuilder
-            initialForm={builderForm}
-            onSave={handleSave}
-            onCancel={() => { setBuilderOpen(false); setBuilderForm(EMPTY_FORM); }}
-          />
-        )}
-      </div>
+      )}
+
+      {/* Plugins tab */}
+      {tab === 'plugins' && (
+        <div className="section">
+          <PluginsTable plugins={plugins} />
+        </div>
+      )}
     </div>
   );
 }

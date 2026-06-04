@@ -18,6 +18,8 @@ import { sendEmailTool } from '../agent/tools/send_email.js';
 import { githubTools } from '../agent/tools/github.js';
 import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
 import { loadCustomSkills } from '../skills/store.js';
+import { loadPlugins } from '../plugins/loader.js';
+import { createPluginTool } from '../plugins/bridge.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
 import { loadConfig, writeKoaConfigFile, generateWebToken, setWebToken } from '../config/index.js';
@@ -45,6 +47,9 @@ function buildRegistry(
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
   for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
+  for (const plugin of loadPlugins()) {
+    registry.registerMany(plugin.tools.map(createPluginTool));
+  }
   if (sb.isAvailable()) {
     for (const tool of createSpiderBrainTools(sb)) registry.register(tool);
   }

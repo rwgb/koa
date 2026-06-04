@@ -195,9 +195,18 @@ export interface NotificationsResponse {
 export interface InstalledSkill {
   name: string;
   description: string;
-  source: 'built-in' | 'custom';
+  source: 'built-in' | 'custom' | 'plugin';
   status: 'active';
   type?: 'bash' | 'http' | 'mcp';
+}
+
+export interface LoadedPlugin {
+  name: string;
+  version: string;
+  description: string;
+  toolCount: number;
+  toolNames: string[];
+  sourcePath: string;
 }
 
 export interface MarketplaceSkill {
@@ -244,6 +253,7 @@ export interface Task {
   priority: number;
   deadline: string | null;
   effort_hours: number | null;
+  actual_hours: number | null;
   tags: string[];
   created_at: string;
   updated_at: string;
