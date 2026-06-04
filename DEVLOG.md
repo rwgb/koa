@@ -1,5 +1,44 @@
 # Koa — DevLog
 
+## [2026-06-04] — CP12d: Conversation Intelligence (Auto-Title & Cross-Session Search)
+
+### Completed
+
+- **`src/db/migrations.ts`** — Migration v9: standalone FTS5 virtual table `conversation_turns_fts(turn_id UNINDEXED, content, conversation_id UNINDEXED)`; populated from existing rows; `fts_conv_turns_delete` trigger auto-cleans FTS on turn delete (handles cascade from conversations).
+- **`src/db/index.ts`** — `addConversationTurn` now syncs FTS5 on insert (skips empty content). New `searchConversations(query)` export: FTS5 with phrase-wrapped sanitized query, LIKE fallback on parse error, 30-result limit, 300-char excerpt.
+- **`src/agent/loop.ts`** — Added `getConversationTurns` + `updateConversationTitle` imports. New private `_generateConversationTitle(conversationId)`: collects first 3 user turns, calls Haiku (or Ollama) for ≤60-char title, stores via `updateConversationTitle`. Called fire-and-forget in `finalize()` when `config.apiKey` is set. User content wrapped in `<user_messages>` XML delimiters (prompt injection trust boundary — same fix as CP11b).
+- **`src/server/routes/conversations.ts`** — Added `GET /search?q=<query>` route (before `/:id` to avoid Express param conflict). Enriches FTS hits with conversation title + started_at from a per-request cache. Returns 400 for empty query. Auth covered by global `/api/` middleware.
+- **`web/src/types.ts`** — Added `ConversationSearchResult` interface.
+- **`web/src/api.ts`** — Added `searchConversations(query)` fetch helper with `encodeURIComponent`.
+- **`web/src/pages/SearchPage.tsx`** — Restructured to two-tab layout (Tasks / Conversations). Both tabs share the same debounced query and fire in parallel (`Promise.all`). `ConversationResultCard` shows title, date, truncated excerpt; click navigates to `/activity`. Project filter shown only on Tasks tab.
+- **`src/__tests__/conversation_search.test.ts`** — 7 new tests: empty query, content match, turnId/excerpt fields, FTS special chars safety, cascade delete cleanup, FTS sync on insert, empty content no-op.
+
+### Decisions
+
+- Migration v9 (not v8) because v8 is the conversations/conversation_turns schema from CP11c. The TASKS.md spec said "v8" but that slot was already taken.
+- Fire-and-forget title generation: title is cosmetic, not load-bearing. Blocking `finalize()` on Haiku for a title is not worth the latency.
+- XML trust boundary in title prompt: `<user_messages>` wrapping consistent with the CP11b `buildPmFollowUpPrompt` fix.
+- Global `/api/` requireAuth covers `/api/conversations/search` — no per-route auth needed.
+
+### Security
+
+- Reviewed HIGH-1 (prompt injection): mitigated with XML delimiters.
+- HIGH-2 (missing auth): false positive — covered by `app.use('/api/', requireAuth)`.
+- MEDIUM/LOW findings (FTS edge cases, excerpt size, React XSS): all LOW actual risk; FTS pattern identical to accepted `searchTasks`; React auto-escapes.
+- No HIGH/MEDIUM unresolved findings.
+
+### QA
+
+- 543/543 tests pass (7 new); tsc clean.
+
+### Next Session
+
+- [ ] CP12e — Sandboxed Code Execution
+- [ ] CP12f — Browser Automation (Playwright)
+- [ ] CP12g — Homelab Deployment Scaffolding
+
+---
+
 ## [2026-06-03] — CP12c: Ollama Self-Hosted LLM Provider
 
 ### Completed

@@ -29,6 +29,7 @@ import type {
   ProactiveAlert,
   Conversation,
   ConversationTurn,
+  ConversationSearchResult,
 } from './types.js';
 
 // ── Token storage ─────────────────────────────────────────────────────────────
@@ -721,4 +722,10 @@ export async function fetchConversationTurns(id: string): Promise<ConversationTu
 
 export async function exportConversation(id: string, format: 'json' | 'markdown'): Promise<Response> {
   return authFetch(`/api/conversations/${id}/export?format=${format}`);
+}
+
+export async function searchConversations(query: string): Promise<ConversationSearchResult[]> {
+  const res = await authFetch(`/api/conversations/search?q=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error('Conversation search failed');
+  return res.json() as Promise<ConversationSearchResult[]>;
 }

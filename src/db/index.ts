@@ -887,6 +887,11 @@ export function addConversationTurn(
     opts.costUsd ?? null,
     ts,
   );
+  if (content) {
+    db.prepare(
+      'INSERT INTO conversation_turns_fts(turn_id, content, conversation_id) VALUES (?, ?, ?)',
+    ).run(id, content, conversationId);
+  }
   return db.prepare('SELECT * FROM conversation_turns WHERE id = ?').get(id) as ConversationTurn;
 }
 
@@ -911,4 +916,33 @@ export function deleteConversationsBefore(date: string): number {
     .prepare('DELETE FROM conversations WHERE started_at < ?')
     .run(date);
   return result.changes;
+}
+
+export function searchConversations(
+  query: string,
+): Array<{ conversationId: string; turnId: string; excerpt: string }> {
+  if (!query.trim()) return [];
+  const trimmed = query.slice(0, 200);
+  const ftsQuery = `"${trimmed.replace(/"/g, '""')}"`;
+  const db = getDb();
+  try {
+    return db.prepare(
+      `SELECT ct.conversation_id AS conversationId, ct.id AS turnId,
+              substr(ct.content, 1, 300) AS excerpt
+       FROM conversation_turns ct
+       JOIN conversation_turns_fts ON conversation_turns_fts.turn_id = ct.id
+       WHERE conversation_turns_fts MATCH ?
+       ORDER BY rank
+       LIMIT 30`,
+    ).all(ftsQuery) as Array<{ conversationId: string; turnId: string; excerpt: string }>;
+  } catch {
+    const like = `%${trimmed}%`;
+    return db.prepare(
+      `SELECT conversation_id AS conversationId, id AS turnId,
+              substr(content, 1, 300) AS excerpt
+       FROM conversation_turns
+       WHERE content LIKE ?
+       LIMIT 30`,
+    ).all(like) as Array<{ conversationId: string; turnId: string; excerpt: string }>;
+  }
 }

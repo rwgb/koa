@@ -313,6 +313,14 @@ export interface ConversationTurn {
   created_at: string;
 }
 
+export interface ConversationSearchResult {
+  conversationId: string;
+  turnId: string;
+  excerpt: string;
+  title: string | null;
+  started_at: string | null;
+}
+
 // ── Calendar ──────────────────────────────────────────────────────────────────
 
 export interface CalendarEvent {

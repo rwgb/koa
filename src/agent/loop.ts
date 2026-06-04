@@ -43,6 +43,8 @@ import {
   createConversation,
   addConversationTurn,
   closeConversation,
+  getConversationTurns,
+  updateConversationTitle,
 } from '../db/index.js';
 import { routeResponse } from '../channels/router.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
@@ -846,6 +848,9 @@ export class AgentLoop {
       try {
         closeConversation(this._conversationId, this.state.turnCount);
       } catch { /* non-fatal */ }
+      if (this.config.apiKey) {
+        void this._generateConversationTitle(this._conversationId);
+      }
     }
 
     // Wait for first-session PROJECT.md generation (10s timeout)
@@ -877,6 +882,37 @@ export class AgentLoop {
         ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)
         : Promise.resolve(),
     ]);
+  }
+
+  private async _generateConversationTitle(conversationId: string): Promise<void> {
+    try {
+      const turns = getConversationTurns(conversationId);
+      const userMessages = turns
+        .filter((t) => t.role === 'user')
+        .slice(0, 3)
+        .map((t) => t.content.slice(0, 200))
+        .join('\n---\n');
+      if (!userMessages) return;
+      const model = this.config.provider === 'ollama'
+        ? this.config.ollamaModel
+        : 'claude-haiku-4-5-20251001';
+      const response = await this.provider.create({
+        model,
+        max_tokens: 30,
+        system: [],
+        messages: [{
+          role: 'user',
+          content: `Give this conversation a concise title in 8 words or fewer. Reply with only the title, no punctuation.\n\n<user_messages>\n${userMessages}\n</user_messages>`,
+        }],
+      });
+      const title = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim()
+        .slice(0, 60);
+      if (title) updateConversationTitle(conversationId, title);
+    } catch { /* non-fatal */ }
   }
 
   getState(): Readonly<AgentState> {

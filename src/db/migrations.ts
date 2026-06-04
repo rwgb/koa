@@ -191,6 +191,22 @@ const MIGRATIONS: [number, string][] = [
     CREATE INDEX IF NOT EXISTS idx_conv_turns_conv ON conversation_turns(conversation_id, created_at);
     `,
   ],
+  [
+    9,
+    `
+    CREATE VIRTUAL TABLE IF NOT EXISTS conversation_turns_fts
+      USING fts5(turn_id UNINDEXED, content, conversation_id UNINDEXED);
+
+    INSERT INTO conversation_turns_fts(turn_id, content, conversation_id)
+      SELECT id, content, conversation_id FROM conversation_turns WHERE content != '';
+
+    CREATE TRIGGER IF NOT EXISTS fts_conv_turns_delete
+      AFTER DELETE ON conversation_turns
+    BEGIN
+      DELETE FROM conversation_turns_fts WHERE turn_id = old.id;
+    END;
+    `,
+  ],
 ];
 
 export function runMigrations(db: Database.Database): void {

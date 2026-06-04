@@ -5,8 +5,9 @@ import {
   getConversation,
   getConversationTurns,
   deleteConversationsBefore,
+  searchConversations,
 } from '../../db/index.js';
-import type { ConversationTurn } from '../../db/index.js';
+import type { ConversationTurn, Conversation } from '../../db/index.js';
 
 export function createConversationsRouter(): Router {
   const router = Router();
@@ -14,6 +15,21 @@ export function createConversationsRouter(): Router {
   router.get('/', (_req: Request, res: Response) => {
     const limit = 50;
     res.json(listConversations(limit));
+  });
+
+  router.get('/search', (req: Request, res: Response) => {
+    const q = ((req.query['q'] as string | undefined) ?? '').trim();
+    if (!q) { res.status(400).json({ error: 'q parameter required' }); return; }
+    const hits = searchConversations(q);
+    const convCache = new Map<string, Conversation | null>();
+    const results = hits.map((h) => {
+      if (!convCache.has(h.conversationId)) {
+        convCache.set(h.conversationId, getConversation(h.conversationId));
+      }
+      const conv = convCache.get(h.conversationId);
+      return { ...h, title: conv?.title ?? null, started_at: conv?.started_at ?? null };
+    });
+    res.json(results);
   });
 
   router.get('/:id', (req: Request, res: Response) => {
