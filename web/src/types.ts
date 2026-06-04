@@ -106,6 +106,7 @@ export interface AdminConfig {
   ollamaBaseUrl?: string;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
+  browserEnabled?: boolean;
   // write-only: sent in PUT body, never returned by GET
   apiKey?: string;
 }

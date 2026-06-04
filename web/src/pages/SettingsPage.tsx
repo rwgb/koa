@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAdminConfig, updateAdminConfig, getOllamaModels, getSandboxStatus } from '../api.js';
+import { fetchAdminConfig, updateAdminConfig, getOllamaModels, getSandboxStatus, getBrowserStatus, installBrowser } from '../api.js';
 import type { AdminConfig } from '../types.js';
 
 // ── Inline editable string/number row ──────────────────────────────────────────
@@ -523,6 +523,87 @@ function CodeExecutionSection({
   );
 }
 
+// ── Browser Automation section ─────────────────────────────────────────────────
+
+function BrowserSection({
+  config,
+  onSave,
+}: {
+  config: AdminConfig;
+  onSave: (updates: Partial<AdminConfig>) => Promise<void>;
+}) {
+  const [browserStatus, setBrowserStatus] = useState<{
+    available: boolean;
+    playwrightInstalled: boolean;
+  } | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getBrowserStatus()
+      .then(setBrowserStatus)
+      .catch(() => setBrowserStatus({ available: false, playwrightInstalled: false }));
+  }, []);
+
+  async function handleInstall() {
+    setInstalling(true);
+    setInstallError(null);
+    try {
+      await installBrowser();
+      const status = await getBrowserStatus();
+      setBrowserStatus(status);
+    } catch (e: unknown) {
+      setInstallError((e as Error).message);
+    } finally {
+      setInstalling(false);
+    }
+  }
+
+  return (
+    <div className="section">
+      <div className="section-header">
+        <span className="section-title">Browser Automation</span>
+      </div>
+
+      <BoolRow
+        label="Enable browser tools"
+        value={config.browserEnabled ?? false}
+        onSave={v => onSave({ browserEnabled: v })}
+      />
+
+      <div className="setting-row">
+        <span className="setting-row__label">Playwright status</span>
+        <span className="setting-row__value">
+          {browserStatus === null && (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Checking…</span>
+          )}
+          {browserStatus?.playwrightInstalled && (
+            <span className="badge badge-green">Playwright installed</span>
+          )}
+          {browserStatus !== null && !browserStatus.playwrightInstalled && (
+            <span className="badge badge-muted">Not installed</span>
+          )}
+        </span>
+        <div className="setting-row__actions">
+          {browserStatus !== null && !browserStatus.playwrightInstalled && (
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => void handleInstall()}
+              disabled={installing}
+            >
+              {installing ? 'Installing…' : 'Install Playwright'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {installError && (
+        <p style={{ fontSize: '12px', color: 'var(--red)', marginTop: '4px' }}>{installError}</p>
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 const MODEL_OPTIONS = [
@@ -588,6 +669,9 @@ export default function SettingsPage() {
 
         {/* Code Execution */}
         <CodeExecutionSection config={config} onSave={handleSave} />
+
+        {/* Browser Automation */}
+        <BrowserSection config={config} onSave={handleSave} />
 
         {/* Auto-checkpoint + Agent */}
         <CheckpointSection config={config} onSave={handleSave} />

@@ -1,5 +1,38 @@
 # Koa — DevLog
 
+## [2026-06-04] — CP12f: Browser Automation (Playwright)
+
+### Completed
+
+- **`src/browser/client.ts`** — `BrowserClient` singleton; lazy `chromium.launch()`; `require.resolve('playwright')` at module load for zero-crash optional detection; `isBrowserAvailable()` export; `browserClient` singleton instance.
+- **`src/browser/actions.ts`** — Five action helpers (`navigate`, `extractText`, `screenshot`, `fillForm`, `click`); all share 15s timeout; SSRF guard via `validateSafeUrl`; text truncated at 20,480 chars; screenshot throws on >2 MB.
+- **`src/agent/tools/browser.ts`** — Five tool definitions (`browser_navigate`, `browser_extract`, `browser_screenshot`, `browser_fill`, `browser_click`); `isBrowserAvailable()` guard on every execute; exports `browserTools: Tool[]`.
+- **`src/server/routes/admin.ts`** — `GET /api/admin/browser/status` + `POST /api/admin/browser/install` (idempotency guard: no-ops if already installed).
+- **`src/config/index.ts`** — Added `browserEnabled: boolean` (default `false`).
+- **`src/cli/index.ts`** — `browserTools` registered in `buildRegistry`.
+- **`web/src/types.ts`** — `browserEnabled?` on `AdminConfig`.
+- **`web/src/api.ts`** — `getBrowserStatus()` + `installBrowser()`.
+- **`web/src/pages/SettingsPage.tsx`** — "Browser Automation" section: enable toggle, Playwright status dot, Install button.
+- **`src/__tests__/browser.test.ts`** — 14 new tests; no live Playwright required (fully mocked).
+
+### Security
+
+- SSRF guard applied at both tool layer and action layer (belt-and-suspenders) — all private IP ranges, loopback, and non-HTTPS blocked.
+- HIGH finding from review: install endpoint could be triggered repeatedly → fixed with idempotency check using `require.resolve`.
+- MEDIUM accepted: screenshots capture full rendered DOM state (inherent to feature; documented).
+- Screenshot 2MB cap, text 20KB cap, form-fill uses Playwright locators (safe-by-design).
+
+### QA
+
+- `tsc --noEmit`: 0 errors
+- `npm test`: 576/576 passed (14 new, 562 pre-existing)
+
+### Next Session
+
+- [ ] CP12g — Homelab Deployment Scaffolding (Dockerfile, systemd, Caddyfile, bootstrap.sh, deploy.sh)
+
+---
+
 ## [2026-06-04] — CP12e: Sandboxed Code Execution
 
 ### Completed

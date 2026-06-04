@@ -64,6 +64,7 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     ollamaBaseUrl: 'http://localhost:11434',
     sandboxBackend: 'local' as const,
     sandboxTimeoutMs: 10000,
+    browserEnabled: false,
     ...overrides,
   };
 }

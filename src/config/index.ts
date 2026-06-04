@@ -30,6 +30,7 @@ const ConfigSchema = z.object({
   ollamaBaseUrl: z.string().default('http://localhost:11434'),
   sandboxBackend: z.enum(['local', 'docker']).default('local'),
   sandboxTimeoutMs: z.number().default(10000),
+  browserEnabled: z.boolean().default(false),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -61,6 +62,7 @@ export interface KoaConfigFile {
   ollamaBaseUrl?: string;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
+  browserEnabled?: boolean;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -137,6 +139,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
     sandboxTimeoutMs: process.env['KOA_SANDBOX_TIMEOUT_MS']
       ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)
       : (fileConfig.sandboxTimeoutMs ?? 10000),
+    browserEnabled: fileConfig.browserEnabled ?? false,
   });
 }
 

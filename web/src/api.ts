@@ -168,6 +168,17 @@ export async function getSandboxStatus(): Promise<{ available: boolean; backend:
   return res.json() as Promise<{ available: boolean; backend: string }>;
 }
 
+export async function getBrowserStatus(): Promise<{ available: boolean; playwrightInstalled: boolean }> {
+  const res = await authFetch('/api/admin/browser/status');
+  if (!res.ok) throw new Error(`Failed to fetch browser status: ${res.status}`);
+  return res.json() as Promise<{ available: boolean; playwrightInstalled: boolean }>;
+}
+
+export async function installBrowser(): Promise<void> {
+  const res = await authFetch('/api/admin/browser/install', { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to install browser: ${res.status}`);
+}
+
 export async function getOllamaModels(): Promise<string[]> {
   const res = await authFetch('/api/admin/ollama/models');
   if (!res.ok) throw new Error(`Failed to fetch Ollama models: ${res.status}`);

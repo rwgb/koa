@@ -40,6 +40,8 @@ import { TelegramPoller } from '../../channels/telegram.js';
 import { setTelegramPoller } from '../../channels/router.js';
 import { tokenEqual } from '../utils.js';
 import { DockerRunner } from '../../sandbox/docker.js';
+import { isBrowserAvailable } from '../../browser/client.js';
+import { spawn } from 'child_process';
 
 export interface AdminRouterDeps {
   loop: AgentLoop;
@@ -503,6 +505,52 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     DockerRunner.isAvailable()
       .then((available) => res.json({ available, backend: 'docker' }))
       .catch(() => res.json({ available: false, backend: 'docker' }));
+  });
+
+  // ── Browser Automation ───────────────────────────────────────────────────────
+
+  router.get('/browser/status', (_req, res) => {
+    let playwrightInstalled = false;
+    try {
+      require.resolve('playwright');
+      playwrightInstalled = true;
+    } catch {
+      playwrightInstalled = false;
+    }
+    res.json({ available: isBrowserAvailable(), playwrightInstalled });
+  });
+
+  router.post('/browser/install', (_req, res: Response) => {
+    // Idempotency guard: skip the spawn if Playwright is already installed.
+    let alreadyInstalled = false;
+    try { require.resolve('playwright'); alreadyInstalled = true; } catch { /* not installed */ }
+    if (alreadyInstalled) {
+      return res.status(200).type('text/plain').send('Playwright is already installed.\n');
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const child = spawn('npx', ['playwright', 'install', 'chromium'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    child.stdout?.on('data', (chunk: Buffer) => {
+      res.write(chunk);
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      res.write(chunk);
+    });
+    child.on('close', (code) => {
+      if (code === 0) {
+        res.status(200).end();
+      } else {
+        res.status(500).end(`\nProcess exited with code ${code}\n`);
+      }
+    });
+    child.on('error', (err) => {
+      res.status(500).end(`\nFailed to spawn install: ${err.message}\n`);
+    });
   });
 
   // ── Ollama model list ─────────────────────────────────────────────────────────
