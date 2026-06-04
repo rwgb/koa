@@ -4,6 +4,7 @@ import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
 import type { SseEvent } from '../events.js';
 import { routeResponse } from '../../channels/router.js';
+import { synthesizeStream } from '../../voice/tts.js';
 
 export interface ChatRouterDeps {
   loop: AgentLoop;
@@ -61,6 +62,7 @@ function runChatStream(
       onClassifying: () => send({ type: 'classifying' }),
       onClassified: (tier) => send({ type: 'classified', tier }),
       onTextDelta: (delta) => { didStreamContent = true; send({ type: 'content', text: delta }); },
+      onChainStart: (agent) => send({ type: 'chain_start', agent }),
     })
     .then((result) => {
       if (!didStreamContent) send({ type: 'content', text: result.content });
@@ -138,6 +140,32 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
     }
     setIsBusy(true);
     runChatStream(loop, message, req, res, { setIsBusy });
+  });
+
+  router.get('/voice/synthesize', (req: Request, res: Response) => {
+    const text = (req.query as Record<string, string>)['text'];
+    if (!text?.trim()) {
+      res.status(400).json({ error: 'text required' });
+      return;
+    }
+    if (text.length > 500) {
+      res.status(400).json({ error: 'text too long (max 500 chars)' });
+      return;
+    }
+
+    synthesizeStream(text, {
+      provider: config.ttsProvider,
+      elevenLabsVoiceId: config.elevenLabsVoiceId,
+      elevenLabsModel: config.elevenLabsModel,
+    })
+      .then(({ stream, contentType }) => {
+        res.setHeader('Content-Type', contentType);
+        stream.pipe(res);
+        stream.on('error', () => { if (!res.headersSent) res.status(503).json({ error: 'TTS stream error' }); });
+      })
+      .catch(() => {
+        if (!res.headersSent) res.status(503).json({ error: 'TTS not available' });
+      });
   });
 
   // iOS URLSession / native EventSource can only issue GET requests for SSE.

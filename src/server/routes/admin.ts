@@ -291,6 +291,13 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       autoCheckpointMinutes: config.autoCheckpointMinutes,
       apiKeySet: !!config.apiKey,
       braveApiKey: !!creds['BRAVE_API_KEY'],
+      autoChaining: config.autoChaining ?? false,
+      briefingEnabled: config.briefingEnabled ?? false,
+      briefingTime: config.briefingTime ?? '08:00',
+      ttsProvider: config.ttsProvider ?? 'say',
+      elevenLabsVoiceId: config.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
+      elevenLabsModel: config.elevenLabsModel ?? 'eleven_turbo_v2_5',
+      elevenLabsApiKey: !!creds['ELEVENLABS_API_KEY'],
     });
   });
 
@@ -308,6 +315,13 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       defaultProjectPath?: unknown;
       apiKey?: unknown;
       braveApiKey?: unknown;
+      autoChaining?: unknown;
+      briefingEnabled?: unknown;
+      briefingTime?: unknown;
+      ttsProvider?: unknown;
+      elevenLabsVoiceId?: unknown;
+      elevenLabsModel?: unknown;
+      elevenLabsApiKey?: unknown;
     };
     const updates: Record<string, unknown> = {};
 
@@ -339,6 +353,10 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       updates['smartRouting'] = body.smartRouting;
       config.smartRouting = body.smartRouting;
     }
+    if (typeof body.autoChaining === 'boolean') {
+      updates['autoChaining'] = body.autoChaining;
+      config.autoChaining = body.autoChaining;
+    }
     if (typeof body.compactAfterTurns === 'number') {
       updates['compactAfterTurns'] = body.compactAfterTurns;
       config.compactAfterTurns = body.compactAfterTurns;
@@ -368,6 +386,55 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         writeCredential('BRAVE_API_KEY', body.braveApiKey);
       } else {
         deleteCredential('BRAVE_API_KEY');
+      }
+    }
+    if (typeof body.briefingEnabled === 'boolean') {
+      updates['briefingEnabled'] = body.briefingEnabled;
+      config.briefingEnabled = body.briefingEnabled;
+    }
+    if (typeof body.briefingTime === 'string') {
+      const match = /^(\d{2}):(\d{2})$/.exec(body.briefingTime);
+      if (!match) {
+        return res.status(400).json({ error: 'briefingTime must be HH:MM' });
+      }
+      const hh = parseInt(match[1]!, 10);
+      const mm = parseInt(match[2]!, 10);
+      if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+        return res.status(400).json({ error: 'briefingTime out of range' });
+      }
+      updates['briefingTime'] = body.briefingTime;
+      config.briefingTime = body.briefingTime;
+    }
+    if (typeof body.ttsProvider === 'string') {
+      if (body.ttsProvider !== 'say' && body.ttsProvider !== 'elevenlabs') {
+        return res.status(400).json({ error: 'ttsProvider must be say or elevenlabs' });
+      }
+      updates['ttsProvider'] = body.ttsProvider;
+      config.ttsProvider = body.ttsProvider as 'say' | 'elevenlabs';
+    }
+    if (typeof body.elevenLabsVoiceId === 'string') {
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(body.elevenLabsVoiceId)) {
+        return res.status(400).json({ error: 'elevenLabsVoiceId invalid' });
+      }
+      updates['elevenLabsVoiceId'] = body.elevenLabsVoiceId;
+      config.elevenLabsVoiceId = body.elevenLabsVoiceId;
+    }
+    if (typeof body.elevenLabsModel === 'string') {
+      if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(body.elevenLabsModel)) {
+        return res.status(400).json({ error: 'elevenLabsModel invalid' });
+      }
+      updates['elevenLabsModel'] = body.elevenLabsModel;
+      config.elevenLabsModel = body.elevenLabsModel;
+    }
+    // elevenLabsApiKey goes to credentials file, not config.json
+    if (typeof body.elevenLabsApiKey === 'string') {
+      if (body.elevenLabsApiKey.length > 256) {
+        return res.status(400).json({ error: 'elevenLabsApiKey too long' });
+      }
+      if (body.elevenLabsApiKey) {
+        writeCredential('ELEVENLABS_API_KEY', body.elevenLabsApiKey);
+      } else {
+        deleteCredential('ELEVENLABS_API_KEY');
       }
     }
 

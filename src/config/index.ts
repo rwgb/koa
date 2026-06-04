@@ -19,6 +19,12 @@ const ConfigSchema = z.object({
   autoCheckpointMinutes: z.number().default(15),
   webToken: z.string().optional(),
   noCache: z.boolean().default(false),
+  autoChaining: z.boolean().default(false),
+  briefingEnabled: z.boolean().default(false),
+  briefingTime: z.string().default('08:00'),
+  ttsProvider: z.enum(['say', 'elevenlabs']).default('say'),
+  elevenLabsVoiceId: z.string().default('21m00Tcm4TlvDq8ikWAM'),
+  elevenLabsModel: z.string().default('eleven_turbo_v2_5'),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -39,6 +45,12 @@ export interface KoaConfigFile {
   noCache?: boolean;
   spiderBrainBrain?: string;
   defaultProjectPath?: string;
+  autoChaining?: boolean;
+  briefingEnabled?: boolean;
+  briefingTime?: string;
+  ttsProvider?: 'say' | 'elevenlabs';
+  elevenLabsVoiceId?: string;
+  elevenLabsModel?: string;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -102,6 +114,12 @@ export function loadConfig(projectPath?: string): KoaConfig {
       : (fileConfig.autoCheckpointMinutes ?? 15),
     webToken,
     noCache: process.env['KOA_NO_CACHE'] === 'true' || (fileConfig.noCache ?? false),
+    autoChaining: fileConfig.autoChaining ?? false,
+    briefingEnabled: fileConfig.briefingEnabled ?? false,
+    briefingTime: fileConfig.briefingTime ?? '08:00',
+    ttsProvider: (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | undefined) ?? fileConfig.ttsProvider ?? 'say',
+    elevenLabsVoiceId: fileConfig.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
+    elevenLabsModel: fileConfig.elevenLabsModel ?? 'eleven_turbo_v2_5',
   });
 }
 

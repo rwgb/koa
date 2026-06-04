@@ -16,7 +16,7 @@ import { isCalendarConfigured } from '../calendar/oauth.js';
 import { buildWeeklyReport, buildWeeklyReportSummary } from '../analytics/streaks.js';
 import { computeForecast, buildForecastSummaryText } from '../analytics/forecasting.js';
 import { buildProactiveAlerts, buildProactiveAlertsText } from '../analytics/proactive.js';
-import { detectCompletionSignal, buildPmFollowUpPrompt } from './chaining.js';
+import { shouldAutoChain, buildPmFollowUpPrompt } from './chaining.js';
 import { loadIntegrations } from '../integrations/store.js';
 import type { AgentName } from './specialists.js';
 import {
@@ -49,6 +49,7 @@ export interface TurnCallbacks {
   onClassifying?: () => void;
   onClassified?: (tier: string) => void;
   onTextDelta?: (delta: string) => void;
+  onChainStart?: (agent: string) => void;
 }
 
 const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with persistent project memory.
@@ -656,23 +657,17 @@ export class AgentLoop {
       this._autoCheckpoint();
     }
 
-    // Multi-agent chaining: after a code-assistant turn with completion signals,
-    // run a lightweight PM follow-up to update the task board in context.
-    // Guard: only chain once (not if this is already a chained PM call).
-    if (
-      agentName === 'code-assistant' &&
-      finalContent &&
-      detectCompletionSignal(finalContent) &&
-      !cleanMessage.startsWith('[chain]')
-    ) {
+    let chainedResult: { content: string; agent: string } | undefined;
+    if (this.config.autoChaining && shouldAutoChain(agentName, finalContent)) {
       try {
+        callbacks?.onChainStart?.('project-manager');
         const pmPrompt = buildPmFollowUpPrompt(finalContent);
         const pmSpec = AGENT_SPECS['project-manager'];
         const pmResponse = await this.client.messages.create({
           model: pmSpec.model,
           max_tokens: 512,
           system: [{ type: 'text', text: pmSpec.systemAddition }],
-          messages: [{ role: 'user', content: `[chain] ${pmPrompt}` }],
+          messages: [{ role: 'user', content: pmPrompt }],
           tools,
         });
         const pmText = pmResponse.content
@@ -683,6 +678,7 @@ export class AgentLoop {
           const sep = '\n\n---\n**PM:** ';
           callbacks?.onTextDelta?.(sep + pmText);
           finalContent = `${finalContent}${sep}${pmText}`;
+          chainedResult = { content: pmText, agent: 'project-manager' };
         }
       } catch {
         // Chain failure is non-fatal — return the original response
@@ -705,6 +701,7 @@ export class AgentLoop {
       agent: agentName,
       usage: { ...acc, model: selectedModel, agent: agentName },
       ...(classifierLatencyMs !== undefined ? { classifierLatencyMs } : {}),
+      ...(chainedResult ? { chainedResult } : {}),
     };
   }
 

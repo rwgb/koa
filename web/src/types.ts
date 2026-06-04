@@ -33,7 +33,8 @@ export type SseEvent =
   | { type: 'usage'; turn: TurnUsage; session: SessionUsageStats }
   | { type: 'error'; message: string }
   | { type: 'classifying' }
-  | { type: 'classified'; tier: string };
+  | { type: 'classified'; tier: string }
+  | { type: 'chain_start'; agent: string };
 
 export interface EngramContext {
   goal?: string;
@@ -85,7 +86,14 @@ export interface AdminConfig {
   autoCheckpointTurns: number;
   autoCheckpointMinutes: number;
   apiKeySet: boolean;
-  braveApiKey: boolean;
+  braveApiKey?: boolean;
+  autoChaining?: boolean;
+  briefingEnabled?: boolean;
+  briefingTime?: string;
+  ttsProvider?: 'say' | 'elevenlabs';
+  elevenLabsVoiceId?: string;
+  elevenLabsModel?: string;
+  elevenLabsApiKey?: boolean;
   // write-only: sent in PUT body, never returned by GET
   apiKey?: string;
 }

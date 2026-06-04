@@ -8,4 +8,5 @@ export type SseEvent =
   | { type: 'usage'; turn: TurnUsage; session: SessionUsageStats }
   | { type: 'error'; message: string }
   | { type: 'classifying' }
-  | { type: 'classified'; tier: string };
+  | { type: 'classified'; tier: string }
+  | { type: 'chain_start'; agent: string };

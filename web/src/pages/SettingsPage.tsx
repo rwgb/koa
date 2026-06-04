@@ -162,6 +162,7 @@ function CheckpointSection({
   const [cpMins, setCpMins]           = useState(String(config.autoCheckpointMinutes));
   const [compactTurns, setCompactTurns] = useState(String(config.compactAfterTurns));
   const [smartRouting, setSmartRouting] = useState(config.smartRouting);
+  const [autoChaining, setAutoChaining] = useState(config.autoChaining ?? false);
   const [saving, setSaving]           = useState(false);
   const [saved, setSaved]             = useState(false);
   const [error, setError]             = useState<string | null>(null);
@@ -175,6 +176,7 @@ function CheckpointSection({
         autoCheckpointMinutes: parseInt(cpMins, 10) || 0,
         compactAfterTurns:    parseInt(compactTurns, 10) || 10,
         smartRouting,
+        autoChaining,
       });
       setEditing(false);
       setSaved(true);
@@ -215,6 +217,10 @@ function CheckpointSection({
             <label className="form-label" style={{ margin: 0 }}>Smart routing</label>
             <input type="checkbox" checked={smartRouting} onChange={e => setSmartRouting(e.target.checked)} />
           </div>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: 0 }}>
+            <label className="form-label" style={{ margin: 0 }}>Auto chaining</label>
+            <input type="checkbox" checked={autoChaining} onChange={e => setAutoChaining(e.target.checked)} />
+          </div>
         </div>
         {error && <p style={{ color: 'var(--red)', fontSize: '12px', marginTop: '8px' }}>{error}</p>}
         <p style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>Some changes take effect on next restart.</p>
@@ -241,6 +247,12 @@ function CheckpointSection({
         <DisplayRow label="Compact after turns">{config.compactAfterTurns}</DisplayRow>
         <DisplayRow label="Smart routing">
           {config.smartRouting
+            ? <span className="badge badge-green">on</span>
+            : <span className="badge badge-muted">off</span>
+          }
+        </DisplayRow>
+        <DisplayRow label="Auto chaining">
+          {config.autoChaining
             ? <span className="badge badge-green">on</span>
             : <span className="badge badge-muted">off</span>
           }
@@ -433,6 +445,37 @@ export default function SettingsPage() {
             <span className="section-title">API Key</span>
           </div>
           <ApiKeyRow isSet={config.apiKeySet} onSave={v => handleSave({ apiKey: v })} />
+        </div>
+
+        {/* Voice / TTS */}
+        <div className="section">
+          <div className="section-header">
+            <span className="section-title">Voice / TTS</span>
+          </div>
+          <EditableRow
+            label="TTS provider"
+            value={config.ttsProvider ?? 'say'}
+            type="select"
+            options={[
+              { value: 'say', label: 'macOS say (built-in)' },
+              { value: 'elevenlabs', label: 'ElevenLabs' },
+            ]}
+            onSave={v => handleSave({ ttsProvider: v as 'say' | 'elevenlabs' })}
+          />
+          {config.ttsProvider === 'elevenlabs' && (
+            <>
+              <EditableRow
+                label="ElevenLabs voice ID"
+                value={config.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM'}
+                onSave={v => handleSave({ elevenLabsVoiceId: v })}
+              />
+              <EditableRow
+                label="ElevenLabs model"
+                value={config.elevenLabsModel ?? 'eleven_turbo_v2_5'}
+                onSave={v => handleSave({ elevenLabsModel: v })}
+              />
+            </>
+          )}
         </div>
 
         {/* Project */}
