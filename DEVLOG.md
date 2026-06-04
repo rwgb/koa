@@ -1,5 +1,46 @@
 # Koa — DevLog
 
+## [2026-06-03] — CP11d: watchOS Companion
+
+### Completed
+
+- **`ios/KoaWatch/WatchApp.swift`** — `@main KoaWatchApp`; injects `WatchSession.shared` as `@EnvironmentObject`
+- **`ios/KoaWatch/WatchSession.swift`** — `WCSessionDelegate` singleton; receives serverURL + bearerToken via `updateApplicationContext` / `transferUserInfo` from iOS; stores in watch-local UserDefaults (not shared App Group); `sendChat()` streams SSE from `/api/sse/chat?format=brief`, parses `done` event
+- **`ios/KoaWatch/WatchContentView.swift`** — `TabView.page` style: GlanceView / QuickPromptsView / WatchDictationView; shows pairing prompt when credentials missing
+- **`ios/KoaWatch/GlanceView.swift`** — Reads `glance_lastMessage`, `glance_openTaskCount`, `glance_calendarCount`, `glance_sessionCostToday` from `group.io.koa.shared` App Group on appear
+- **`ios/KoaWatch/QuickPromptsView.swift`** — 5 prompt buttons from App Group defaults (fallback to built-in defaults); tap → `WatchSession.sendChat()` → response ≤ 200 chars
+- **`ios/KoaWatch/WatchDictationView.swift`** — `TextField` dictation; on Send → `WatchSession.sendChat()` → response ≤ 200 chars
+- **`ios/Koa/WatchBridge.swift`** (new) — iOS-side WCSession coordinator (NSObject, not mixed into `@Observable AppState`); `syncCredentials()` via `updateApplicationContext`; `updateGlance()` writes to `group.io.koa.shared`
+- **`ios/Koa/AppState.swift`** — `save()` now calls `WatchBridge.shared.syncCredentials(...)` after Keychain write
+- **`ios/Koa/ChatView.swift`** — `done` SSE event now calls `WatchBridge.shared.updateGlance(lastMessage:)` (max 80 chars)
+- **`ios/Koa/SettingsView.swift`** — "Apple Watch" section: 5 editable quick-prompt TextFields (written to App Group on change) + "Sync credentials to Watch" button
+
+### Security
+
+- Bearer token transmitted via WCSession (OS-encrypted), stored in watch-local UserDefaults — NOT in shared App Group defaults. Security gate passed.
+- M1 (low, deferred): watch-local UserDefaults vs watch Keychain — acceptable for CP11d; migrate in hardening pass.
+
+### Decisions
+
+- WatchBridge is a separate NSObject singleton to keep `@Observable AppState` free of NSObject inheritance constraints.
+- Glance data is non-sensitive (last message excerpt, counts) → shared App Group is appropriate; credentials are not.
+- `WatchSession.sendChat()` uses `URLSession.bytes(for:)` to stream SSE, parses `event: done` to extract final content.
+
+### Xcode Setup Required
+
+The `ios/KoaWatch/` files need a new **watchOS 10+ App** target (`KoaWatch`) added to the iOS Xcode project:
+1. Add `WatchConnectivity.framework` to both iOS and watchOS targets
+2. Enable App Group `group.io.koa.shared` on both targets in Entitlements
+3. Add `ios/Koa/WatchBridge.swift` to the iOS target
+4. `xcodebuild -scheme KoaWatch -destination 'platform=watchOS Simulator'` to verify
+
+### Next Session
+
+- [ ] CP11 End-of-Arc Audit (tsc, tests, security-review on CP11 branch changes)
+- [ ] CP12a — Plugin / Tool Extensibility SDK
+
+---
+
 ## [2026-06-03] — CP11c: Conversation Persistence & Export
 
 ### Completed

@@ -123,6 +123,7 @@ struct ChatView: View {
                         toolCallInProgress = nil
                         if !assistantMsg.content.isEmpty {
                             speakResponse(assistantMsg.content)
+                            WatchBridge.shared.updateGlance(lastMessage: assistantMsg.content)
                         }
                     case "error":
                         assistantMsg.content = event.message ?? "Unknown error"

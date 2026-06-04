@@ -39,6 +39,7 @@ final class AppState {
     func save() {
         UserDefaults.standard.set(serverURL, forKey: "serverURL")
         KeychainHelper.set("bearerToken", bearerToken)
+        WatchBridge.shared.syncCredentials(serverURL: serverURL, bearerToken: bearerToken)
     }
 
     // Returns the base URL with no trailing slash.
