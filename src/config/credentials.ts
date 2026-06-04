@@ -33,6 +33,9 @@ export function readCredentials(): Record<string, string> {
 }
 
 export function writeCredential(key: string, value: string): void {
+  if (/[\r\n]/.test(key) || /[\r\n]/.test(value)) {
+    throw new Error('Credential key/value must not contain newlines');
+  }
   fs.mkdirSync(koaDir(), { recursive: true, mode: 0o700 });
 
   let existing: Record<string, string> = {};
@@ -49,6 +52,7 @@ export function writeCredential(key: string, value: string): void {
     .join('\n') + '\n';
 
   fs.writeFileSync(credentialsFile(), content, { mode: 0o600 });
+  fs.chmodSync(credentialsFile(), 0o600);
 }
 
 export function deleteCredential(key: string): void {
@@ -66,6 +70,7 @@ export function deleteCredential(key: string): void {
     .join('\n') + '\n';
 
   fs.writeFileSync(credentialsFile(), content, { mode: 0o600 });
+  fs.chmodSync(credentialsFile(), 0o600);
 }
 
 export function getCredentialsPath(): string {

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Rebuild SpiderBrain graph after merge (background, non-blocking)
+SCRIPT="$HOME/.claude/skills/spiderbrain/core/scripts/molt.mjs"
+PROJECT_DIR="$(git rev-parse --show-toplevel)"
+BRAIN_DIR="$(dirname "$PROJECT_DIR")/$(basename "$PROJECT_DIR")-spiderbrain"
+[[ -f "$SCRIPT" ]] && [[ -f "$BRAIN_DIR/synganglion.json" ]] || exit 0
+(cd "$PROJECT_DIR" && node "$SCRIPT" --brain "$BRAIN_DIR" &>/dev/null) &
+disown
+exit 0

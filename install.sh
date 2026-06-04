@@ -142,6 +142,23 @@ if [[ "$SKIP_GLOBAL" == false ]]; then
   fi
 fi
 
+# ─── Git hooks ────────────────────────────────────────────────────────────────
+header "Installing git hooks"
+
+HOOKS_SRC="$SCRIPT_DIR/scripts/git-hooks"
+HOOKS_DST="$SCRIPT_DIR/.git/hooks"
+
+for hook in post-commit post-merge post-checkout; do
+  src="$HOOKS_SRC/$hook"
+  dst="$HOOKS_DST/$hook"
+  if [[ -L "$dst" ]] && [[ "$(readlink "$dst")" == "../../scripts/git-hooks/$hook" ]]; then
+    success "$hook already linked"
+  else
+    ln -sf "../../scripts/git-hooks/$hook" "$dst"
+    success "$hook → scripts/git-hooks/$hook"
+  fi
+done
+
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}Installation complete.${RESET}"

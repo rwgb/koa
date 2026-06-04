@@ -49,23 +49,35 @@ const STALE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export class SpiderBrainClient {
   private brainDir: string | null;
   private projectPath: string;
+  private cwd: string;
   private _moltPromise?: Promise<void>;
 
-  constructor(projectPath: string, brainDirOverride?: string) {
+  constructor(projectPath: string, brainDirOverride?: string, cwd?: string) {
     this.projectPath = projectPath;
+    // Default to projectPath so detection is stable in tests and non-CLI contexts.
+    // The CLI passes process.cwd() explicitly to enable per-invocation project overlay.
+    this.cwd = cwd ?? projectPath;
     this.brainDir = brainDirOverride ?? this.detectBrainDir();
   }
 
-  private detectBrainDir(): string | null {
-    const parent = path.dirname(this.projectPath);
-    const name = path.basename(this.projectPath);
-    const candidate = path.join(parent, `${name}-spiderbrain`);
+  private siblingBrainDir(dir: string): string | null {
+    const candidate = path.join(path.dirname(dir), `${path.basename(dir)}-spiderbrain`);
     try {
       fs.accessSync(path.join(candidate, 'synganglion.json'));
       return candidate;
     } catch {
       return null;
     }
+  }
+
+  private detectBrainDir(): string | null {
+    // Prefer CWD — lets `koa` from inside any code project pick up its brain.
+    // Fall back to the configured project path (the "home" project).
+    if (this.cwd !== this.projectPath) {
+      const cwdBrain = this.siblingBrainDir(this.cwd);
+      if (cwdBrain) return cwdBrain;
+    }
+    return this.siblingBrainDir(this.projectPath);
   }
 
   isAvailable(): boolean {
@@ -83,9 +95,9 @@ export class SpiderBrainClient {
     }
   }
 
-  private isProjectDir(): boolean {
+  private isCodeDir(dir: string): boolean {
     const markers = ['.git', 'package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'setup.py'];
-    return markers.some(m => fs.existsSync(path.join(this.projectPath, m)));
+    return markers.some(m => fs.existsSync(path.join(dir, m)));
   }
 
   autoMolt(): Promise<void> {
@@ -94,12 +106,16 @@ export class SpiderBrainClient {
     const scriptPath = path.join(SCRIPTS_DIR, 'molt.mjs');
     if (!fs.existsSync(scriptPath)) return Promise.resolve();
 
-    // Don't create a new brain for non-project directories (e.g. home dir)
-    if (!this.brainDir && !this.isProjectDir()) return Promise.resolve();
+    // Prefer CWD for auto-molt if it's a real code project; fall back to projectPath.
+    const moldDir = (this.cwd !== this.projectPath && this.isCodeDir(this.cwd))
+      ? this.cwd
+      : this.projectPath;
 
-    const parent = path.dirname(this.projectPath);
-    const name = path.basename(this.projectPath);
-    const targetDir = this.brainDir ?? path.join(parent, `${name}-spiderbrain`);
+    // Don't create a new brain for non-project directories (e.g. home dir)
+    if (!this.brainDir && !this.isCodeDir(moldDir)) return Promise.resolve();
+
+    const targetDir = this.brainDir
+      ?? path.join(path.dirname(moldDir), `${path.basename(moldDir)}-spiderbrain`);
 
     if (!this.isStale(targetDir)) return Promise.resolve();
 
@@ -108,7 +124,7 @@ export class SpiderBrainClient {
       try {
         fs.mkdirSync(targetDir, { recursive: true });
         await execa('node', [scriptPath, '--brain', targetDir], {
-          cwd: this.projectPath,
+          cwd: moldDir,
           reject: false,
         });
         this.brainDir = targetDir;

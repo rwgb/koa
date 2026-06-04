@@ -2,7 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-const MEMORY_FILE = path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'memory.json');
+function memoryFilePath(): string {
+  return path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'memory.json');
+}
 const MAX_MEMORIES = 200;
 
 export interface MemoryEntry {
@@ -16,16 +18,16 @@ interface MemoryFile {
 
 function read(): MemoryFile {
   try {
-    return JSON.parse(fs.readFileSync(MEMORY_FILE, 'utf8')) as MemoryFile;
+    return JSON.parse(fs.readFileSync(memoryFilePath(), 'utf8')) as MemoryFile;
   } catch {
     return { memories: [] };
   }
 }
 
 function write(file: MemoryFile): void {
-  const dir = path.dirname(MEMORY_FILE);
+  const dir = path.dirname(memoryFilePath());
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(file, null, 2), { mode: 0o600 });
+  fs.writeFileSync(memoryFilePath(), JSON.stringify(file, null, 2), { mode: 0o600 });
 }
 
 export function loadMemories(): MemoryEntry[] {

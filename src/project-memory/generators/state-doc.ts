@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { HAIKU_MODEL } from '../../config/index.js';
+import { MODELS } from '../../agent/router.js';
 
 export async function generateStateDoc(
   conversationSummary: string,
@@ -9,12 +9,12 @@ export async function generateStateDoc(
   const client = new Anthropic({ apiKey });
 
   const response = await client.messages.create({
-    model: HAIKU_MODEL,
+    model: MODELS.haiku,
     max_tokens: 512,
     messages: [
       {
         role: 'user',
-        content: `Based on this coding session (${turnCount} turns), write a STATE.md capturing what is currently in-flight.
+        content: `Based on this session (${turnCount} turns), write a STATE.md capturing what is currently in-flight.
 
 Session summary:
 ${conversationSummary}
@@ -48,6 +48,14 @@ Output ONLY markdown using this exact structure (omit empty sections):
   return `# STATE — Last updated: ${date}\n\n${text}`;
 }
 
+function extractUserMessages(summary: string): string[] {
+  return summary
+    .split('\n')
+    .filter((line) => line.startsWith('User: '))
+    .map((line) => line.slice(6).trim())
+    .filter(Boolean);
+}
+
 export async function generateJournalEntry(
   conversationSummary: string,
   turnCount: number,
@@ -55,32 +63,36 @@ export async function generateJournalEntry(
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
 
+  const userMessages = extractUserMessages(conversationSummary);
+
   const response = await client.messages.create({
-    model: HAIKU_MODEL,
+    model: MODELS.haiku,
     max_tokens: 512,
     messages: [
       {
         role: 'user',
-        content: `Write a concise journal entry for a coding session (${turnCount} turns).
+        content: `You are writing a memory journal for a personal AI assistant. Future sessions read this journal to recall past conversations. Accuracy matters — be specific.
 
-Summary:
+Session transcript (${turnCount} turns):
 ${conversationSummary}
 
-Output ONLY the markdown entry (no heading — the caller adds the date heading):
+Write a journal entry. The MOST IMPORTANT thing is capturing what the USER said — use their actual words and topics. Do not describe Koa's behavior in vague terms like "handled off-topic queries."
 
-### Accomplished
-- what was completed
+Output ONLY the journal body using this structure (omit empty sections):
 
-### Decisions
-- decision: rationale
+### What User Asked / Discussed
+- [specific topic or question — use the user's actual words]
 
-### What Didn't Work
-- attempt: reason
+### Resolved
+- [what was answered, created, or completed — be concrete]
+
+### Personal / Preferences
+- [personal info or preferences the user expressed — omit if none]
 
 ### Next
-- [ ] what to do next session
+- [ ] [open follow-up or action]
 
-150–250 words max. Omit empty sections.`,
+100–200 words max.`,
       },
     ],
   });
@@ -92,5 +104,11 @@ Output ONLY the markdown entry (no heading — the caller adds the date heading)
     .map((b) => b.text)
     .join('');
 
-  return `## ${date} ${time} (${turnCount} turns)\n\n${text}`;
+  // Prepend verbatim user messages so future sessions always know what was said,
+  // even if the generated summary is imperfect.
+  const verbatim = userMessages.length > 0
+    ? `**User said:**\n${userMessages.map((m) => `- ${m}`).join('\n')}\n\n`
+    : '';
+
+  return `## ${date} ${time} (${turnCount} turns)\n\n${verbatim}${text}`;
 }

@@ -1,16 +1,18 @@
 import { createContext, useContext, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { fetchStatus } from '../api.js';
-import type { AgentStatus, SessionUsageStats } from '../types.js';
+import type { AgentStatus, SessionUsageStats, ContextStats } from '../types.js';
 
 interface AgentContextValue {
   isThinking: boolean;
   activeTool: string | null;
   usage: SessionUsageStats | null;
   agentStatus: AgentStatus | null;
+  contextStats: ContextStats | null;
   setIsThinking: Dispatch<SetStateAction<boolean>>;
   setActiveTool: Dispatch<SetStateAction<string | null>>;
   setUsage: Dispatch<SetStateAction<SessionUsageStats | null>>;
   setAgentStatus: Dispatch<SetStateAction<AgentStatus | null>>;
+  setContextStats: Dispatch<SetStateAction<ContextStats | null>>;
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null);
@@ -20,6 +22,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [usage, setUsage] = useState<SessionUsageStats | null>(null);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [contextStats, setContextStats] = useState<ContextStats | null>(null);
 
   useEffect(() => {
     fetchStatus()
@@ -31,7 +34,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AgentContext.Provider value={{ isThinking, activeTool, usage, agentStatus, setIsThinking, setActiveTool, setUsage, setAgentStatus }}>
+    <AgentContext.Provider value={{ isThinking, activeTool, usage, agentStatus, contextStats, setIsThinking, setActiveTool, setUsage, setAgentStatus, setContextStats }}>
       {children}
     </AgentContext.Provider>
   );

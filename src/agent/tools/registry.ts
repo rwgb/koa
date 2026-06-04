@@ -8,6 +8,12 @@ export class ToolRegistry {
     this.tools.set(tool.name, tool);
   }
 
+  registerMany(tools: Tool[]): void {
+    for (const tool of tools) {
+      this.tools.set(tool.name, tool);
+    }
+  }
+
   get(name: string): Tool | undefined {
     return this.tools.get(name);
   }

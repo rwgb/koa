@@ -1,4 +1,4 @@
-import type { TurnUsage, SessionUsageStats } from '../types/index.js';
+import type { TurnUsage, SessionUsageStats, AgentCostEntry } from '../types/index.js';
 
 interface PricingTier {
   inputPerM: number;
@@ -52,6 +52,7 @@ export class UsageTracker {
   private classifierCalls = 0;
   private classifierInputTokens = 0;
   private classifierOutputTokens = 0;
+  private agentBreakdown: Record<string, AgentCostEntry> = {};
 
   addTurn(usage: TurnUsage): void {
     this.inputTokens += usage.inputTokens;
@@ -71,6 +72,21 @@ export class UsageTracker {
 
     const denominator = this.inputTokens + this.cacheReadTokens + this.cacheWriteTokens;
     this.cacheHitRate = denominator === 0 ? 0 : this.cacheReadTokens / denominator;
+
+    if (usage.agent) {
+      const turnCost = computeCost(
+        pricing,
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cacheWriteTokens,
+        usage.cacheReadTokens,
+      );
+      const entry = this.agentBreakdown[usage.agent] ?? { turns: 0, estimatedCostUsd: 0 };
+      this.agentBreakdown[usage.agent] = {
+        turns: entry.turns + 1,
+        estimatedCostUsd: entry.estimatedCostUsd + turnCost,
+      };
+    }
   }
 
   addClassifierCall(inputTokens: number, outputTokens: number): void {
@@ -94,6 +110,7 @@ export class UsageTracker {
       classifierCalls: this.classifierCalls,
       classifierInputTokens: this.classifierInputTokens,
       classifierOutputTokens: this.classifierOutputTokens,
+      agentBreakdown: { ...this.agentBreakdown },
     };
   }
 
@@ -108,5 +125,6 @@ export class UsageTracker {
     this.classifierCalls = 0;
     this.classifierInputTokens = 0;
     this.classifierOutputTokens = 0;
+    this.agentBreakdown = {};
   }
 }

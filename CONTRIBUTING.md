@@ -1,6 +1,6 @@
 # Contributing to Koa
 
-Koa is a personal project. This document describes the development workflow, conventions, and the patterns used to extend the system.
+Koa is a personal project. This document describes the development workflow and the patterns you need to follow when extending the system.
 
 ---
 
@@ -10,56 +10,57 @@ Koa is a personal project. This document describes the development workflow, con
 git clone git@github.com:rwgb/koa.git
 cd koa
 ./install.sh
-export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The install script installs all dependencies, compiles TypeScript, builds the Vite web console, and links the `koa` binary globally. See `README.md` for details on install flags.
+The install script installs all dependencies, compiles TypeScript, builds the Vite web console, links the `koa` binary globally, and wires git hooks. See `README.md` for install flags.
 
 ---
 
 ## Dev Workflow
 
-Run the backend API server and the Vite dev server in two separate terminals:
+Run the backend and Vite dev server in separate terminals:
 
 ```bash
-# Terminal 1 — Express + AgentLoop (hot-reload via tsx watch)
+# Terminal 1 — Express + AgentLoop, hot-reload via tsx watch
 npm run dev
 
-# Terminal 2 — Vite dev server with /api proxy to port 3000
+# Terminal 2 — Vite dev server, /api proxied to port 3000
 cd web && npm run dev
 ```
 
-Open `http://localhost:5173` for the web console. The Vite dev server proxies all `/api` requests to `http://localhost:3000`.
-
-> The TUI does not need the Express server. Run `npm run dev` and interact via the terminal directly.
+Open `http://localhost:5173` for the web console. The TUI (`koa chat`) does not need the Express server — `npm run dev` alone is sufficient.
 
 ---
 
 ## Testing
 
 ```bash
-# Run the full test suite once
-npm test
-
-# Watch mode (re-runs affected tests on save)
-npm run test:watch
-
-# Coverage report
-npm run test:coverage
-
-# Type-check without emitting
-npm run typecheck
-
-# Lint
-npm run lint
-
-# Auto-fix lint issues
-npm run lint:fix
+npm test                  # Run the full suite once
+npm run test:watch        # Watch mode — reruns affected tests on save
+npm run test:coverage     # Coverage report
+npm run typecheck         # tsc --noEmit, zero tolerance
+npm run lint              # ESLint
+npm run lint:fix          # Auto-fix lint issues
+npm run format            # Prettier
 ```
 
-All tests live in `src/__tests__/`. Test files follow the pattern `<subject>.test.ts`. The test runner is Vitest. The `.claude/` worktree directory is excluded from test scanning in `vitest.config.ts`.
+All tests live in `src/__tests__/`. Test files follow the pattern `<subject>.test.ts`. The test runner is Vitest. Do not commit with failing tests or type errors.
 
-Do not commit with failing tests or type errors.
+---
+
+## Pipeline Gates
+
+Every change must pass these stages in order before being committed:
+
+| Stage | What passes |
+|-------|-------------|
+| **Coding** | Architecture reviewed; implementation complete |
+| **UI/UX** | Any affected frontend path works in the browser |
+| **QA** | `npm run typecheck` = 0 errors, `npm test` = all pass, `npm run lint` = 0 warnings |
+| **Security** | No HIGH/MEDIUM findings in the diff |
+| **Docs** | DEVLOG.md, inline comments for non-obvious decisions, affected docs updated |
+
+Skipping a stage is allowed only if it doesn't apply (e.g., no UI for a backend-only change). Document the skip.
 
 ---
 
@@ -82,102 +83,165 @@ Do not commit with failing tests or type errors.
 type(scope): description
 ```
 
-**Types:**
-
 | Type | When to use |
 |------|-------------|
 | `feature` | New functionality |
 | `fix` | Bug fix |
-| `refactor` | Code improvement with no behaviour change |
+| `refactor` | Code improvement, no behaviour change |
 | `test` | Test additions or fixes |
 | `docs` | Documentation only |
 | `chore` | Dependency updates, config changes |
 | `perf` | Performance improvement |
 | `ci` | CI/CD configuration |
-| `merge` | Merge commits |
 
-Rules:
-- Keep the description under 50 characters
-- Use imperative mood: "add" not "added"
-- No period at the end
-- Reference issue numbers when applicable: `fix(#456): resolve...`
+Rules: description under 50 characters, imperative mood ("add" not "added"), no trailing period. Reference issues: `fix(#456): resolve...`
+
+---
+
+## Code Style
+
+- 2-space indentation (TypeScript/JavaScript)
+- ESLint + Prettier non-negotiable — run `npm run lint` and `npm run format` before committing
+- No `console.log` in production paths — use `process.stderr.write()` for diagnostics
+- No swallowed exceptions — propagate with context
+- Explicit `unknown` narrowing before use (TypeScript strict mode)
+- Match existing file style even if you would do it differently
 
 ---
 
 ## Adding a New Tool
 
-Tools live in `src/agent/tools/`. Each tool implements the `Tool` interface from `src/types/index.ts`:
+Tools live in `src/agent/tools/`. Each tool implements the `Tool` interface:
 
 ```ts
 interface Tool {
   name: string;
   description: string;
-  inputSchema: Anthropic.Tool['input_schema']; // JSON Schema object
+  inputSchema: Anthropic.Tool['input_schema']; // JSON Schema
   execute(input: ToolInput): Promise<string>;
 }
 ```
 
 Steps:
 
-1. **Create the tool file** in `src/agent/tools/my_tool.ts`. Export a `Tool` object or a factory function (use a factory if the tool needs configuration like a project root).
+1. **Create** `src/agent/tools/my_tool.ts`. Export a `Tool` object, or a factory function if the tool needs configuration (like a project root).
 
-2. **Apply sandboxing if the tool accesses the filesystem**. Import the `sandboxPath` pattern from `files.ts` — all path arguments must be validated against the project root before use.
+2. **Sandbox filesystem access**. If the tool reads or writes files, copy the `sandboxPath()` pattern from `files.ts`. Every path argument must be validated against the project root before any filesystem operation.
 
-3. **Register the tool** in `src/cli/index.ts` inside `buildRegistry()`:
+3. **Register** in `src/cli/index.ts` inside `buildRegistry()`:
    ```ts
    registry.register(myTool);
-   // or for factories:
+   // factory tools:
    registry.register(createMyTool(config));
    ```
 
-4. **Write tests** in `src/__tests__/my_tool.test.ts`. Cover:
-   - Normal execution
-   - Error cases (invalid input, execution failures)
-   - Sandbox escape attempts if the tool accesses files
+4. **Test** in `src/__tests__/my_tool.test.ts`. Cover normal execution, error cases, and sandbox escape attempts if the tool touches files.
 
-5. **Document the tool** in `docs/API.md` under the MCP Tools section.
+5. **Document** the tool in `docs/TOOLS.md`.
+
+---
+
+## Writing a Plugin
+
+Plugins are JSON manifests dropped in `~/.koa/plugins/`. They are loaded at server startup and registered as agent tools. No code compilation required.
+
+See `docs/PLUGINS.md` for the full manifest format and transport options. The short version:
+
+```json
+{
+  "name": "my_plugin",
+  "version": "1.0.0",
+  "description": "My plugin",
+  "tools": [
+    {
+      "name": "my_tool",
+      "description": "Does something",
+      "transport": "bash",
+      "config": {
+        "command": "echo {{input.value}}"
+      }
+    }
+  ]
+}
+```
+
+Drop it at `~/.koa/plugins/my_plugin.json` and restart the server.
+
+---
+
+## Writing a Custom Skill
+
+Custom skills are the web-console equivalent of plugins — bash or HTTP tools you create through the Settings → Skills UI without touching JSON files directly.
+
+They are stored at `~/.koa/custom-skills.json` and follow the same `bash`/`http` transport model as plugins. You can also create them via the REST API:
+
+```bash
+curl -X POST http://localhost:3000/api/admin/skills/custom \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ping_service",
+    "description": "Ping a homelab service",
+    "type": "bash",
+    "config": { "command": "curl -sf http://{{input.host}}/health" }
+  }'
+```
+
+---
+
+## Adding a New Channel (Slack/SMS/etc.)
+
+Channels are incoming message sources that route to the agent loop. The existing pattern (see `src/channels/`):
+
+1. **Validate the inbound request** — check signatures/tokens specific to the channel provider.
+2. **Parse the inbound message** — extract the user's text into a plain string.
+3. **Deduplicate** — use `isDuplicate` / `markProcessed` from `src/channels/dedup.ts` to prevent double-processing.
+4. **Call `loop.turn(message)`** — the agent loop is channel-agnostic.
+5. **Reply** — send the agent's response back to the channel.
+
+Wire the new router in `src/server/routes/webhooks.ts` and mount it in `src/server/index.ts`.
 
 ---
 
 ## Adding a New SSE Event
 
-SSE events are the primary way the backend communicates with the web console. To add a new event type:
+SSE events are the real-time channel between the Express backend and the React web console.
 
-1. **`src/server/events.ts`** — add a new member to the `SseEvent` union:
+1. **`src/server/events.ts`** — add a member to the `SseEvent` discriminated union:
    ```ts
    | { type: 'my_event'; fieldA: string; fieldB: number }
    ```
 
-2. **`src/server/index.ts`** — emit the event from the appropriate place in the `POST /api/chat` handler using the `send()` helper.
+2. **`src/server/routes/chat.ts`** — emit from the appropriate `runChatStream` callback.
 
-3. **`web/src/types.ts`** — mirror the new event type in the web-side `SseEvent` union (the two files are kept in sync manually).
+3. **`web/src/types.ts`** — mirror the event type in the web-side `SseEvent` union (kept in sync manually).
 
-4. **`web/src/App.tsx`** — handle the new event in the `streamChat` callback inside `handleSubmit`. The `sseEventToChatItem()` function converts events to `ChatItem` values for rendering; update it if the event should appear in the chat timeline.
+4. **`web/src/App.tsx`** — handle the event in `handleSubmit`. Update `sseEventToChatItem()` if the event should appear in the chat timeline.
 
 ---
 
 ## Adding a New Environment Variable
 
-1. **`src/config/index.ts`** — add the variable to the `ConfigSchema` Zod object with a sensible default and a corresponding `process.env` read in `loadConfig()`.
+1. **`src/config/index.ts`** — add to the Zod `ConfigSchema` with a sensible default and a `process.env` read in `loadConfig()`.
 
-2. **`src/types/index.ts`** — if the new config field is part of `KoaConfig` (the type inferred from the schema), it appears automatically. If you need a separate interface field, add it there.
+2. **`src/types/index.ts`** — if the field is part of `KoaConfig`, it appears automatically.
 
-3. **`README.md`** — add a row to the Environment Variables table.
+3. **`.env.example`** — add a commented entry.
 
-4. Write a test in `src/__tests__/config.test.ts` covering the default value and the env-var override.
+4. **`README.md`** — add a row to the Environment Variables table.
+
+5. **Test** in `src/__tests__/config.test.ts` covering default value and env-var override.
 
 ---
 
 ## Pull Request Checklist
-
-Before opening a PR:
 
 - [ ] Branch is up to date with `develop` (rebase or merge)
 - [ ] `npm run typecheck` — zero errors
 - [ ] `npm test` — all tests pass
 - [ ] `npm run lint` — zero warnings
 - [ ] No `console.log`, debug code, or commented-out code
-- [ ] No secrets or API keys in any file
+- [ ] No secrets or API keys in any committed file
 - [ ] Commit history is clean (squash micro-commits)
 - [ ] New behaviour is covered by tests
-- [ ] If the change affects the API, `docs/API.md` is updated
+- [ ] Affected docs updated (`docs/API.md`, `docs/TOOLS.md`, etc.)
+- [ ] DEVLOG.md updated with decisions made

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
-import { compactMessages } from '../agent/loop.js';
+import { compactMessages, groupIntoClusters } from '../agent/loop.js';
 
 // Helpers to build the message shapes Koa actually produces
 const userText = (text: string): Anthropic.MessageParam => ({ role: 'user', content: text });
@@ -117,6 +117,7 @@ describe('compactMessages()', () => {
   });
 
   it('never leaves a tool_result block without a matching tool_use in the preceding message', () => {
+
     // Exhaustively test all slice positions on a realistic 10-message history
     const msgs: Anthropic.MessageParam[] = [
       userText('q1'),
@@ -157,5 +158,81 @@ describe('compactMessages()', () => {
         }
       }
     }
+  });
+});
+
+describe('groupIntoClusters()', () => {
+  it('single user message with no following turns → one cluster', () => {
+    const msgs = [userText('hello')];
+    const clusters = groupIntoClusters(msgs);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toEqual([userText('hello')]);
+  });
+
+  it('two user messages with assistant responses → two clusters', () => {
+    const msgs = [
+      userText('q1'), assistantText('a1'),
+      userText('q2'), assistantText('a2'),
+    ];
+    const clusters = groupIntoClusters(msgs);
+    expect(clusters).toHaveLength(2);
+    expect(clusters[0]).toEqual([userText('q1'), assistantText('a1')]);
+    expect(clusters[1]).toEqual([userText('q2'), assistantText('a2')]);
+  });
+
+  it('cluster includes tool calls and results within the same request-response loop', () => {
+    const msgs = [
+      userText('run ls'),
+      assistantToolUse('T1'),
+      userToolResult('T1'),
+      assistantText('done'),
+      userText('now do something else'),
+      assistantText('ok'),
+    ];
+    const clusters = groupIntoClusters(msgs);
+    expect(clusters).toHaveLength(2);
+    // First cluster: all 4 messages from the tool-call loop
+    expect(clusters[0]).toHaveLength(4);
+    expect(clusters[0]![0]).toEqual(userText('run ls'));
+    expect(clusters[0]![3]).toEqual(assistantText('done'));
+    // Second cluster: the final exchange
+    expect(clusters[1]).toHaveLength(2);
+  });
+
+  it('last 4 clusters are preserved verbatim when slicing', () => {
+    // Build 5 clusters of 2 messages each (10 messages total)
+    const msgs: Anthropic.MessageParam[] = [];
+    for (let i = 1; i <= 5; i++) {
+      msgs.push(userText(`q${i}`), assistantText(`a${i}`));
+    }
+    const clusters = groupIntoClusters(msgs);
+    expect(clusters).toHaveLength(5);
+
+    const KEEP = 4;
+    const preserved = clusters.slice(-KEEP);
+    expect(preserved).toHaveLength(4);
+    // The oldest preserved cluster should be the 2nd cluster (q2/a2)
+    expect(preserved[0]![0]).toEqual(userText('q2'));
+    // The newest preserved cluster should be the 5th cluster (q5/a5)
+    expect(preserved[3]![0]).toEqual(userText('q5'));
+  });
+
+  it('empty message array → empty clusters array', () => {
+    expect(groupIntoClusters([])).toEqual([]);
+  });
+
+  it('messages starting with tool results (no leading user text) grouped into first cluster', () => {
+    // Edge case: history starts with a tool result user message (compacted history)
+    const msgs = [
+      userToolResult('T0'),
+      assistantText('summary reply'),
+      userText('follow up'),
+      assistantText('done'),
+    ];
+    const clusters = groupIntoClusters(msgs);
+    // The first cluster has no user text opener, so it accumulates until the next user text
+    expect(clusters).toHaveLength(2);
+    expect(clusters[0]).toHaveLength(2);
+    expect(clusters[1]![0]).toEqual(userText('follow up'));
   });
 });

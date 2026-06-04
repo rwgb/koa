@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import type { Tool } from '../../types/index.js';
 import { writeHandoff } from '../../project-memory/store.js';
-import { HAIKU_MODEL } from '../../config/index.js';
+import { MODELS } from '../router.js';
 
 const TEMPLATES_DIR = path.join(os.homedir(), 'claudeAgents', 'tools', 'agent-templates');
 const ALLOWED_AGENTS = ['architect', 'reviewer', 'debug', 'security-reviewer'] as const;
@@ -79,7 +79,7 @@ export function createAgentDispatchTool(projectPath: string, apiKey?: string): T
       try {
         const client = new Anthropic({ apiKey });
         const response = await client.messages.create({
-          model: HAIKU_MODEL,
+          model: MODELS.haiku,
           max_tokens: 2048,
           system: systemPrompt,
           messages: [{ role: 'user', content: userMessage }],
