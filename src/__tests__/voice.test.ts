@@ -60,7 +60,7 @@ describe('transcribeAudio', () => {
       json: async () => ({ text: 'ok' }),
     });
     await transcribeAudio(Buffer.from('audio'));
-    const [_url, init] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
     expect(init.headers['Authorization']).toBe('Bearer sk-secret');
   });
 });

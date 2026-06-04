@@ -1,7 +1,6 @@
 import { loadRules, loadQuietHours } from '../notifications/store.js';
 import { sendNtfyNotification } from '../integrations/store.js';
 import { sendSlack } from './slack.js';
-import { sendSms } from './sms.js';
 import { sendWebPush } from '../notifications/webpush.js';
 import { sendApnsPush } from '../notifications/apns.js';
 import { readCredentials } from '../config/credentials.js';

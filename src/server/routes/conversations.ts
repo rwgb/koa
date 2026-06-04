@@ -7,7 +7,7 @@ import {
   deleteConversationsBefore,
   searchConversations,
 } from '../../db/index.js';
-import type { ConversationTurn, Conversation } from '../../db/index.js';
+import type { Conversation } from '../../db/index.js';
 
 export function createConversationsRouter(): Router {
   const router = Router();

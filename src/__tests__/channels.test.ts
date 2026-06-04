@@ -10,6 +10,7 @@ import { validateSlackSignature, parseSlackInbound } from '../channels/slack.js'
 import { extractIntent } from '../channels/gmail.js';
 import { TelegramPoller } from '../channels/telegram.js';
 import { closeDb } from '../db/index.js';
+import type { AgentLoop } from '../agent/loop.js';
 
 // ── Anthropic mock ─────────────────────────────────────────────────────────────
 // Must be at module level so Vitest can hoist it correctly.
@@ -331,7 +332,7 @@ describe('TelegramPoller', () => {
         tier: 'sonnet',
         agent: 'code-assistant',
       }),
-    } as unknown as InstanceType<typeof import('../agent/loop.js').AgentLoop>;
+    } as unknown as AgentLoop;
   }
 
   it('start() sets running=true and logs to stderr', () => {

@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import type { LlmProvider, LlmStream, LlmCallParams } from './types.js';
 
 export class AnthropicProvider implements LlmProvider {

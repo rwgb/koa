@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { HAIKU_CLASSIFIER_TIMEOUT_MS } from '../config/index.js';
 
 // Model tier identifiers

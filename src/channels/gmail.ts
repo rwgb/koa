@@ -177,10 +177,9 @@ export class GmailPoller {
         }
 
         const uid = String(msg.attributes.uid);
-        const headerPart = msg.parts.find((p: imapSimple.Message['parts'][number]) => p.which === 'HEADER.FIELDS (FROM SUBJECT)');
+        msg.parts.find((p: imapSimple.Message['parts'][number]) => p.which === 'HEADER.FIELDS (FROM SUBJECT)');
         const textPart = msg.parts.find((p: imapSimple.Message['parts'][number]) => p.which === 'TEXT');
         const body = typeof textPart?.body === 'string' ? textPart.body : '';
-        const headerBody = headerPart?.body as Record<string, string[]> | undefined;
         if (isDuplicate('gmail', uid)) continue;
 
         const hash = contentHash(body);

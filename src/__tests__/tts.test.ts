@@ -13,7 +13,7 @@ vi.mock('../config/credentials.js', () => ({
   readCredentials: vi.fn(() => ({})),
 }));
 
-import { isTtsAvailable, cleanText, speak } from '../voice/tts.js';
+import { isTtsAvailable, cleanText } from '../voice/tts.js';
 import { spawnSync } from 'child_process';
 import { readCredentials } from '../config/credentials.js';
 

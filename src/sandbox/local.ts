@@ -66,9 +66,16 @@ export class LocalRunner implements SandboxRunner {
     }, timeoutMs);
 
     try {
+      const SAFE_ENV_KEYS = new Set(['PATH', 'HOME', 'TMPDIR', 'LANG', 'TERM']);
+      const safeEnv: Record<string, string> = {};
+      for (const key of SAFE_ENV_KEYS) {
+        if (process.env[key] !== undefined) safeEnv[key] = process.env[key]!;
+      }
+      const childEnv = { ...safeEnv, ...(opts?.env ?? {}) };
+
       return await new Promise<ExecResult>((resolve) => {
         const child = this.spawnFn(cfg.cmd, [...cfg.args, tmpFile], {
-          env: { ...process.env, ...(opts?.env ?? {}) },
+          env: childEnv,
           signal: controller.signal,
         }) as ChildProcess;
 

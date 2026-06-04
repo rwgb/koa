@@ -17,14 +17,14 @@ describe('AudioRecorder', () => {
   });
 
   it('isAvailable returns true when sox is found', () => {
-    mockSpawnSync.mockReturnValueOnce({ status: 0 } as any);
+    mockSpawnSync.mockReturnValueOnce({ status: 0 } as never);
     const rec = new AudioRecorder();
     expect(rec.isAvailable()).toBe(true);
     expect(mockSpawnSync).toHaveBeenCalledWith('which', ['sox']);
   });
 
   it('isAvailable returns false when sox is not found', () => {
-    mockSpawnSync.mockReturnValueOnce({ status: 1 } as any);
+    mockSpawnSync.mockReturnValueOnce({ status: 1 } as never);
     const rec = new AudioRecorder();
     expect(rec.isAvailable()).toBe(false);
   });
@@ -37,7 +37,7 @@ describe('AudioRecorder', () => {
 
   it('stop kills the process and returns concatenated buffer', () => {
     const mockProc = { stdout: null, on: vi.fn(), kill: vi.fn() };
-    mockSpawn.mockReturnValueOnce(mockProc as any);
+    mockSpawn.mockReturnValueOnce(mockProc as never);
     const rec = new AudioRecorder();
     rec.start();
     const buf = rec.stop();

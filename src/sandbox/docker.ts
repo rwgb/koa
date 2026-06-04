@@ -5,8 +5,8 @@ import path from 'path';
 import crypto from 'crypto';
 import type { ChildProcess } from 'child_process';
 import type { SandboxRunner, ExecOpts, ExecResult } from './runner.js';
-import { LocalRunner, UnsupportedLanguageError } from './local.js';
-import type { SpawnFn, FsAdapter } from './local.js';
+import { UnsupportedLanguageError } from './local.js';
+import type { LocalRunner, SpawnFn, FsAdapter } from './local.js';
 
 const LANGUAGE_CONFIG: Record<string, { ext: string; image: string; interpreter: string }> = {
   javascript: { ext: '.js',  image: 'node:22-alpine',    interpreter: 'node' },

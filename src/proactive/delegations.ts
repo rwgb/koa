@@ -34,7 +34,11 @@ export async function runDueDelegations(loop: AgentLoop): Promise<void> {
         await loop.turn(d.action);
         updateDelegation(d.id, { last_run: now.toISOString() });
       } catch (err) {
-        process.stderr.write(`[koa/delegations] error running delegation ${d.id}: ${err}\n`);
+        if (err instanceof Error && err.message === 'Agent is already processing a request') {
+          process.stderr.write(`[koa/delegations] skipping delegation ${d.id}: agent busy\n`);
+        } else {
+          process.stderr.write(`[koa/delegations] error running delegation ${d.id}: ${err}\n`);
+        }
       }
     }
   }

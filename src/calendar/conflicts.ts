@@ -30,7 +30,6 @@ export function getConflicts(task: Pick<Task, 'deadline' | 'effort_hours'>): Con
 
   const deadlineDayStart = new Date(task.deadline);
   deadlineDayStart.setHours(0, 0, 0, 0);
-  const deadlineDayEnd = new Date(deadlineDayStart.getTime() + 86_400_000);
 
   const workStart = new Date(deadlineDayStart);
   workStart.setHours(WORK_START_HOUR, 0, 0, 0);

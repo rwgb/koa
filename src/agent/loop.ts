@@ -174,6 +174,7 @@ export class AgentLoop {
   private _checkpointTimer: ReturnType<typeof setInterval> | undefined = undefined;
   private _conversationId?: string;
   private lastCompactionAt: string | null = null;
+  private _busy = false;
 
   constructor(
     config: KoaConfig,
@@ -530,6 +531,16 @@ export class AgentLoop {
   }
 
   async turn(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
+    if (this._busy) throw new Error('Agent is already processing a request');
+    this._busy = true;
+    try {
+      return await this._turnImpl(userMessage, callbacks);
+    } finally {
+      this._busy = false;
+    }
+  }
+
+  private async _turnImpl(userMessage: string, callbacks?: TurnCallbacks): Promise<TurnResult> {
     // Agent routing: determine specialist first; its model overrides complexity routing.
     // @tier: prefix still punches through (selectModel checks override before config.model).
     const agentName = selectAgent(userMessage);

@@ -42,6 +42,14 @@ import { tokenEqual } from '../utils.js';
 import { DockerRunner } from '../../sandbox/docker.js';
 import { isBrowserAvailable } from '../../browser/client.js';
 import { spawn } from 'child_process';
+import {
+  createDelegation,
+  listDelegations,
+  getDelegation,
+  updateDelegation,
+  deleteDelegation,
+} from '../../db/index.js';
+import type { Delegation } from '../../db/index.js';
 
 export interface AdminRouterDeps {
   loop: AgentLoop;
@@ -740,6 +748,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
         res.json({ ok: false, message: 'ntfy topic not set' });
         return;
       }
+      try { validateSafeUrl(baseUrl); } catch (e) {
+        res.json({ ok: false, message: (e as Error).message }); return;
+      }
       fetch(`${baseUrl}/${topic}`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
@@ -874,6 +885,50 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       hasDefaultChatId: !!creds['TELEGRAM_DEFAULT_CHAT_ID'],
       polling: getTelegramPoller() !== null,
     });
+  });
+
+  // ── Delegations ───────────────────────────────────────────────────────────────
+
+  router.get('/delegations', (_req, res) => {
+    res.json(listDelegations());
+  });
+
+  router.post('/delegations', (req, res) => {
+    const { pattern, action, schedule, enabled } = req.body as Record<string, unknown>;
+    if (typeof pattern !== 'string' || typeof action !== 'string' || typeof schedule !== 'string' ||
+        !pattern.trim() || !action.trim() || !schedule.trim()) {
+      res.status(400).json({ error: 'pattern, action, and schedule must be non-empty strings' });
+      return;
+    }
+    if (action.length > 2000) {
+      res.status(400).json({ error: 'action must be 2000 characters or fewer' });
+      return;
+    }
+    let d = createDelegation({ pattern, action, schedule });
+    if (enabled === false) {
+      updateDelegation(d.id, { enabled: 0 });
+      d = getDelegation(d.id)!;
+    }
+    res.status(201).json(d);
+  });
+
+  router.put('/delegations/:id', (req, res) => {
+    const existing = getDelegation(req.params['id']!);
+    if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
+    const body = req.body as Partial<Delegation>;
+    if (typeof body.action === 'string' && body.action.length > 2000) {
+      res.status(400).json({ error: 'action must be 2000 characters or fewer' });
+      return;
+    }
+    updateDelegation(req.params['id']!, body);
+    res.json(getDelegation(req.params['id']!));
+  });
+
+  router.delete('/delegations/:id', (req, res) => {
+    const d = getDelegation(req.params['id']!);
+    if (!d) { res.status(404).json({ error: 'Not found' }); return; }
+    deleteDelegation(req.params['id']!);
+    res.status(204).send();
   });
 
   return router;

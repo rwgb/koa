@@ -1,5 +1,6 @@
 import express from 'express';
 import type { Request, Response, NextFunction } from 'express';
+import type { IncomingMessage, ServerResponse } from 'http';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -79,13 +80,13 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   const rawBodyMap = new WeakMap<object, Buffer>();
 
   app.use(express.json({
-    verify: (req: import('http').IncomingMessage, _res: import('http').ServerResponse, buf: Buffer) => {
+    verify: (req: IncomingMessage, _res: ServerResponse, buf: Buffer) => {
       rawBodyMap.set(req, buf);
     },
   }));
   app.use(express.urlencoded({
     extended: false,
-    verify: (req: import('http').IncomingMessage, _res: import('http').ServerResponse, buf: Buffer) => {
+    verify: (req: IncomingMessage, _res: ServerResponse, buf: Buffer) => {
       rawBodyMap.set(req, buf);
     },
   }));
@@ -97,9 +98,6 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
 
   // ── Webhooks (unauthenticated — use channel-specific auth) ────────────────────
   app.use('/webhooks', createWebhooksRouter({ loop, config, rawBodyMap }));
-
-  // Voice transcription lives under /api/voice (unauthenticated — auth is via API key check)
-  app.use('/api/voice', createVoiceRouter({ rawBodyMap }));
 
   // Token verification — rate-limited to prevent brute-force
   app.post('/api/auth', authRateLimit, (req: Request, res: Response) => {
@@ -149,6 +147,7 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   app.use('/api/push', createPushRouter({ loop }));
   app.use('/api/calendar', createCalendarRouter());
   app.use('/api/conversations', createConversationsRouter());
+  app.use('/api/voice', createVoiceRouter({ rawBodyMap }));
 
   // Serve built web UI; fall back gracefully when not yet built
   const webDist = path.join(__dirname, '../../web/dist');

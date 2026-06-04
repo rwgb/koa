@@ -100,13 +100,15 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
     const integrations = loadIntegrations();
     const twilio = integrations.find(i => i.type === 'twilio' && i.status === 'connected');
 
-    if (twilio?.config['authToken']) {
-      const sig = req.headers['x-twilio-signature'] as string | undefined;
-      const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-      if (!sig || !validateTwilioSignature(twilio.config['authToken'], url, body, sig)) {
-        res.status(403).type('text/xml').send('<Response/>');
-        return;
-      }
+    if (!twilio?.config['authToken']) {
+      res.status(403).type('text/xml').send('<Response/>');
+      return;
+    }
+    const sig = req.headers['x-twilio-signature'] as string | undefined;
+    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+    if (!sig || !validateTwilioSignature(twilio.config['authToken'], url, body, sig)) {
+      res.status(403).type('text/xml').send('<Response/>');
+      return;
     }
 
     const msg = parseTwilioBody(body);

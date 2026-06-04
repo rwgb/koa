@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import type { Integration } from '../integrations/store.js';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-function makeIntegration(overrides: Partial<import('../integrations/store.js').Integration> = {}) {
+function makeIntegration(overrides: Partial<Integration> = {}) {
   return {
     id: 'test-1',
     type: 'slack',

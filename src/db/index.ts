@@ -515,7 +515,6 @@ export function searchTasks(query: string, projectId?: string): Task[] {
 // ── STATE.md generation ────────────────────────────────────────────────────
 
 export function generateStateFromDb(projectId?: string): string {
-  const db = getDb();
   const ts = new Date().toISOString().slice(0, 19).replace('T', ' ');
   const lines: string[] = [`# STATE.md — generated ${ts} UTC\n`];
 
