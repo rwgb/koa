@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SpiderBrainContext } from '../../types/index.js';
-import { HAIKU_MODEL } from '../../config/index.js';
+import { MODELS } from '../../agent/router.js';
 
 export async function generateProjectDoc(
   projectPath: string,
@@ -37,7 +37,7 @@ Include these sections:
 Target: 300–500 words.`;
 
   const response = await client.messages.create({
-    model: HAIKU_MODEL,
+    model: MODELS.haiku,
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }],
   });

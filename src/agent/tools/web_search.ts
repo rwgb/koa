@@ -61,9 +61,9 @@ export const webSearchTool: Tool = {
           'Accept': 'application/json',
         },
       });
-    } catch (e: any) {
-      if (e.name === 'AbortError') throw new Error('Search timed out after 10s');
-      throw new Error(`Search failed: ${e.message}`);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') throw new Error('Search timed out after 10s');
+      throw new Error(`Search failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       clearTimeout(timer);
     }

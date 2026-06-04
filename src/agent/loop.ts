@@ -37,6 +37,11 @@ import {
   appendJournalEntry,
   readRecentJournals,
 } from '../project-memory/store.js';
+import {
+  createConversation,
+  addConversationTurn,
+  closeConversation,
+} from '../db/index.js';
 import { routeResponse } from '../channels/router.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
 import { generateProjectDoc } from '../project-memory/generators/project-doc.js';
@@ -144,6 +149,7 @@ export class AgentLoop {
   private _projectDocGeneration?: Promise<void>;
   private _checkpointInProgress = false;
   private _checkpointTimer: ReturnType<typeof setInterval> | undefined = undefined;
+  private _conversationId?: string;
 
   constructor(
     config: KoaConfig,
@@ -223,6 +229,14 @@ export class AgentLoop {
     }
 
     this.memories = loadMemories();
+
+    // Start conversation record
+    try {
+      const conv = createConversation();
+      this._conversationId = conv.id;
+    } catch {
+      // non-fatal — conversation persistence is best-effort
+    }
 
     if (this.config.autoCheckpointMinutes > 0) {
       const ms = this.config.autoCheckpointMinutes * 60_000;
@@ -491,6 +505,12 @@ export class AgentLoop {
     this.state.messages.push({ role: 'user', content: cleanMessage });
     this.state.turnCount++;
 
+    if (this._conversationId) {
+      try {
+        addConversationTurn(this._conversationId, 'user', cleanMessage);
+      } catch { /* non-fatal */ }
+    }
+
     const { blocks, injectedSpiderBrain, injectedBacklog, hasState, hasHandoff } =
       this.buildSystemBlocks(cleanMessage, agentName);
 
@@ -685,6 +705,22 @@ export class AgentLoop {
       }
     }
 
+    if (this._conversationId) {
+      try {
+        const costUsd = (() => {
+          const p = pricingFor(selectedModel);
+          return acc.inputTokens * p.input + acc.cacheWriteTokens * p.cacheWrite +
+                 acc.cacheReadTokens * p.cacheRead + acc.outputTokens * p.output;
+        })();
+        addConversationTurn(this._conversationId, 'assistant', finalContent, {
+          agentName,
+          model: selectedModel,
+          costUsd,
+          toolUses: toolUses.map((t) => ({ id: t.id, name: t.name })),
+        });
+      } catch { /* non-fatal */ }
+    }
+
     // Background preference extraction — non-blocking, non-fatal
     if (this.config.apiKey && finalContent) {
       void extractAndMergePreferences(userMessage, finalContent, this.preferences, this.client)
@@ -740,6 +776,12 @@ export class AgentLoop {
       this._checkpointTimer = undefined;
     }
     if (this.state.turnCount === 0) return;
+
+    if (this._conversationId) {
+      try {
+        closeConversation(this._conversationId, this.state.turnCount);
+      } catch { /* non-fatal */ }
+    }
 
     // Wait for first-session PROJECT.md generation (10s timeout)
     if (this._projectDocGeneration) {

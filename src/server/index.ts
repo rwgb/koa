@@ -13,14 +13,48 @@ import { escalationScheduler } from '../notifications/escalation.js';
 import { TelegramPoller } from '../channels/telegram.js';
 import { setTelegramPoller } from '../channels/router.js';
 import { tokenEqual } from './utils.js';
+import { buildDailyBriefing } from '../proactive/briefing.js';
+import { runDueDelegations } from '../proactive/delegations.js';
+import { routeResponse } from '../channels/router.js';
 import { createChatRouter } from './routes/chat.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createDbRouter } from './routes/db.js';
 import { createPushRouter } from './routes/push.js';
 import { createCalendarRouter } from './routes/calendar.js';
 import { createWebhooksRouter, createVoiceRouter } from './routes/webhooks.js';
+import { createConversationsRouter } from './routes/conversations.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function scheduleBriefing(loop: AgentLoop, config: KoaConfig): void {
+  const [hStr, mStr] = (config.briefingTime ?? '08:00').split(':');
+  const h = parseInt(hStr ?? '8', 10);
+  const m = parseInt(mStr ?? '0', 10);
+
+  function msUntilNext(): number {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(h, m, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next.getTime() - now.getTime();
+  }
+
+  function scheduleNext(): void {
+    setTimeout(async () => {
+      if (config.briefingEnabled) {
+        try {
+          const text = await buildDailyBriefing();
+          void routeResponse('briefing', 'Good morning', text);
+        } catch (err) {
+          process.stderr.write(`[koa/briefing] error: ${err}\n`);
+        }
+      }
+      scheduleNext(); // reschedule for next day
+    }, msUntilNext());
+  }
+
+  scheduleNext();
+}
 
 const authRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -114,6 +148,7 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   app.use('/api', createDbRouter());
   app.use('/api/push', createPushRouter({ loop }));
   app.use('/api/calendar', createCalendarRouter());
+  app.use('/api/conversations', createConversationsRouter());
 
   // Serve built web UI; fall back gracefully when not yet built
   const webDist = path.join(__dirname, '../../web/dist');
@@ -142,6 +177,14 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
     telegramPoller.start();
     setTelegramPoller(telegramPoller);
   }
+
+  // Daily morning briefing (checks config.briefingEnabled internally)
+  scheduleBriefing(loop, config);
+
+  // Check delegations every 5 minutes
+  setInterval(() => {
+    void runDueDelegations(loop);
+  }, 5 * 60_000);
 
   return { app, getTelegramPoller: () => telegramPoller };
 }

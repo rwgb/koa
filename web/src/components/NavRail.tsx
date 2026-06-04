@@ -16,6 +16,7 @@ const SECONDARY_ITEMS: { to: string; label: string; icon: IconName }[] = [
   { to: '/skills',        label: 'Skills',        icon: 'wrench' },
   { to: '/notifications', label: 'Notifications', icon: 'bell' },
   { to: '/activity',      label: 'Activity',      icon: 'chart' },
+  { to: '/delegations',   label: 'Delegations',   icon: 'repeat' },
 ];
 
 const BOTTOM_ITEMS: { to: string; label: string; icon: IconName }[] = [

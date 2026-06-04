@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { validateSafeUrl } from '../utils/ssrf.js';
 
 export interface Integration {
   id: string;
@@ -107,7 +108,8 @@ export async function sendNtfyNotification(title: string, body: string): Promise
   const topic = integration.config['topic'];
   const baseUrl = integration.config['baseUrl'] || 'https://ntfy.sh';
   if (!topic) return;
-  await fetch(`${baseUrl}/${topic}`, {
+  try { validateSafeUrl(baseUrl); } catch { return; }
+  await fetch(`${baseUrl}/${encodeURIComponent(topic)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', 'Title': title },
     body,

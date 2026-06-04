@@ -270,6 +270,29 @@ export interface HealthStatus {
 
 export type InboundChannel = 'sms' | 'gmail' | 'slack';
 
+// ── Conversations ─────────────────────────────────────────────────────────────
+
+export interface Conversation {
+  id: string;
+  title: string | null;
+  started_at: string;
+  ended_at: string | null;
+  turn_count: number;
+  project_id: string | null;
+}
+
+export interface ConversationTurn {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  tool_uses: string;
+  agent_name: string | null;
+  model: string | null;
+  cost_usd: number | null;
+  created_at: string;
+}
+
 // ── Calendar ──────────────────────────────────────────────────────────────────
 
 export interface CalendarEvent {

@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { loadIntegrations } from '../integrations/store.js';
 
 const EMAIL_RE = /^[^@\s\r\n]+@[^@\s\r\n]+\.[^@\s\r\n]+$/;
+const MSG_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
 
 function sanitizeHeader(value: string): string {
   return value.replace(/[\r\n]/g, ' ').trim();
@@ -44,6 +45,9 @@ export async function sendEmail(opts: {
   const { to, subject, body, replyToMessageId } = opts;
 
   if (!isValidEmail(to)) throw new Error(`Invalid email address: ${to}`);
+  if (replyToMessageId && !MSG_ID_RE.test(replyToMessageId)) {
+    throw new Error('Invalid replyToMessageId format');
+  }
 
   const oauth2 = makeOAuth2Client();
   const refreshToken = await getRefreshToken();
@@ -69,8 +73,9 @@ export async function sendEmail(opts: {
     if (msg.data.threadId) threadId = msg.data.threadId;
     const msgIdHeader = msg.data.payload?.headers?.find(h => h.name === 'Message-ID')?.value;
     if (msgIdHeader) {
-      extraHeaders.push(`In-Reply-To: ${msgIdHeader}`);
-      extraHeaders.push(`References: ${msgIdHeader}`);
+      const safeId = sanitizeHeader(msgIdHeader);
+      extraHeaders.push(`In-Reply-To: ${safeId}`);
+      extraHeaders.push(`References: ${safeId}`);
     }
   }
 

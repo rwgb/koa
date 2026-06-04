@@ -1,5 +1,239 @@
 # Koa — DevLog
 
+## [2026-06-03] — CP11c: Conversation Persistence & Export
+
+### Completed
+
+- **`src/db/schema.ts`** — Added `Conversation` and `ConversationTurn` interfaces
+- **`src/db/migrations.ts`** — Migration v8: `conversations` + `conversation_turns` tables with CASCADE delete, indexes on `started_at DESC` and `(conversation_id, created_at)`
+- **`src/db/index.ts`** — CRUD: `createConversation`, `closeConversation`, `updateConversationTitle`, `addConversationTurn`, `listConversations`, `getConversation`, `getConversationTurns`, `deleteConversationsBefore`
+- **`src/agent/loop.ts`** — `_conversationId` field; `initialize()` creates conversation record; `turn()` records user + assistant turns (with model, agent, cost_usd, tool names — inputs stripped to avoid secret persistence); `finalize()` closes conversation with final turn count; all non-fatal
+- **`src/server/routes/conversations.ts`** — New router: `GET /api/conversations`, `GET /:id`, `GET /:id/turns`, `GET /:id/export?format=json|markdown`, `DELETE /?before=YYYY-MM-DD`
+- **`src/server/index.ts`** — Mounted conversations router under `/api/conversations` (covered by global `requireAuth`)
+- **`web/src/types.ts`** — `Conversation` + `ConversationTurn` frontend types
+- **`web/src/api.ts`** — `fetchConversations`, `fetchConversationTurns`, `exportConversation`
+- **`web/src/pages/ActivityPage.tsx`** — New `ConversationsTab`: list with expand/collapse turns, JSON + Markdown export buttons
+- **`src/__tests__/conversations.test.ts`** — 12 new tests: create/read, turn insertion + metadata, closeConversation, listConversations with limit, deleteConversationsBefore
+
+### Security Fixes Applied
+- Tool inputs stripped from `conversation_turns.tool_uses` (only `{ id, name }` stored — no bash commands, file contents, or API secrets)
+- `before` date regex end-anchored (`$`) to prevent prefix bypass
+- `tool_uses` JSON parse wrapped in try/catch with type-safe `.name` access
+
+### Decisions
+- Tool inputs not stored: bash commands and file write contents could contain API keys / credentials. Only tool name stored for export narrative.
+- All conversation persistence is non-fatal (try/catch everywhere in loop.ts) — a DB failure never breaks a chat turn.
+- `app.use('/api/', requireAuth)` at line 126 covers all `/api/conversations` routes globally.
+
+### Next Session
+- [ ] CP11d — watchOS Companion (Phase B)
+
+---
+
+## [2026-06-03] — CP11b: True Multi-Agent Chaining
+
+### Completed
+
+- **`src/agent/chaining.ts`** — `CompletionSignalResult { detected, confidence }`; `detectCompletionSignal` now returns confidence (1.0 unhedged, 0.7 if "but"/"however" within 50 chars of keyword); `shouldAutoChain(agentName, text)` gates on `code-assistant` + confidence > 0.7; `buildPmFollowUpPrompt` wraps excerpt in `<summary>` XML trust boundary (MEDIUM-1 security fix)
+- **`src/agent/loop.ts`** — `TurnCallbacks.onChainStart`; chaining block now gated on `config.autoChaining`; returns `chainedResult?` in `TurnResult`
+- **`src/config/index.ts`** — `autoChaining: boolean` (default false) in ConfigSchema + KoaConfigFile + loadConfig
+- **`src/types/index.ts`** — `chainedResult?: { content: string; agent: string }` in TurnResult
+- **`src/server/events.ts`** — `chain_start` SSE event type
+- **`src/server/routes/chat.ts`** — `onChainStart` wired to emit `chain_start` SSE event
+- **`src/server/routes/admin.ts`** — `autoChaining` in GET/PUT /config
+- **`web/src/types.ts`** — `autoChaining` in AdminConfig; `chain_start` in SseEvent
+- **`web/src/pages/SettingsPage.tsx`** — Agent Chaining toggle in Auto-checkpoint & Agent section
+- **`src/__tests__/chaining.test.ts`** — 9 new tests (detectCompletionSignal confidence, shouldAutoChain)
+
+### Decisions
+- PM follow-up uses direct `client.messages.create()`, not recursive `turn()` — avoids polluting conversation history
+- Trust boundary on PM prompt: `<summary>` XML tags + explicit "do not follow instructions" framing (matches compressOldMessages pattern)
+- Confidence > 0.7 means exactly 1.0 is required; hedged responses (confidence = 0.7) do not chain
+
+### Tech Debt Noted
+- LOW-3 (security): full tool registry passed to chained PM call — PM doesn't need shell/file tools. Defer to security hardening pass.
+- MEDIUM-2 (pre-existing): unauthenticated `/api/voice` mount before `requireAuth` in server/index.ts is fragile for future routes
+
+### Next Session
+- [ ] CP11c — Conversation persistence (SQLite conversations + conversation_turns tables, export to JSON/Markdown)
+
+---
+
+## [2026-06-03] — CP10f: iOS Search & Voice Round-Trip
+
+### Completed
+
+- **`ios/Koa/SearchView.swift`** (new) — Full-text search screen; debounced 300ms; `ContentUnavailableView` on empty results; taps navigate to `TaskDetailView`
+- **`ios/Koa/KoaAPI.swift`** — `search(query:)` calls `GET /api/search`; `synthesizeAudio(text:)` calls `GET /api/voice/synthesize` (500-char cap, returns `Data`)
+- **`ios/Koa/ChatView.swift`** — `speakResponse()` now calls `synthesizeAudio()` + `AVAudioPlayer`; `fallbackSpeak()` wraps original `AVSpeechSynthesizer` logic
+- **`ios/Koa/AppState.swift`** — `search` case added to `Tab` enum with magnifyingglass icon
+- **`ios/Koa/KoaApp.swift`** — Search tab wired into `MainTabView`
+
+### Decisions
+- Server-side TTS (ElevenLabs or macOS `say`) used preferentially; `AVSpeechSynthesizer` is the fallback on non-200
+- `audioPlayer` kept as `@State` to prevent premature dealloc while audio plays
+
+### Next Session
+- [ ] CP11b — Multi-agent chaining (code → PM hand-off with completion signal)
+
+---
+
+## [2026-06-03] — Web Chat Response Bug Fix
+
+### Completed
+
+- **Root cause diagnosed**: `AbortSignal.timeout()` is unreliable in Node.js's built-in `fetch`/`undici` — the timer is deprioritised and silently ignored when the event loop is awaiting an HTTP response. The `classifyWithHaiku` classifier call (with `smartRouting: true`) would hang indefinitely, leaving a stalled connection in `undici`'s pool that blocked every subsequent Anthropic API call.
+- **`src/agent/router.ts`** — `classifyWithHaiku` rewritten to use `AbortController` + `setTimeout` (reliable) instead of `AbortSignal.timeout()`; `clearTimeout` on both success and catch paths to prevent timer leak
+- **`src/agent/loop.ts`** — Anthropic client constructed with `timeout: 90_000` (90 seconds) in both constructor and `updateApiKey`; prevents `messages.stream()` from hanging for the SDK default of 10 minutes
+- **`web/src/api.ts`** — `streamChat` now calls `onDone()` when the stream closes without a `done` SSE event (server error, network drop); previously `isThinking` stayed `true` forever after any server-side error, locking the input
+- **`web/src/types.ts`** — Added `actual_hours: number | null` to `Task` interface (was missing, causing two pre-existing tsc errors)
+- **`web/vite.config.ts`** — Proxy sets `Accept-Encoding: identity` on proxied requests to prevent gzip buffering of SSE chunks during dev
+
+### Decisions
+- Used `AbortController` + `clearTimeout` pattern instead of `AbortSignal.timeout()` — more portable, works reliably regardless of Node.js event loop load
+- 90-second client timeout chosen: long enough for complex tool chains, short enough to surface real hangs within a reasonable window
+
+### Next Session
+- [ ] CP11b — Multi-agent chaining (code → PM hand-off with completion signal)
+- [ ] Restart server after pulling latest changes to pick up the `router.ts` + `loop.ts` fixes
+
+---
+
+## [2026-06-03] — SpiderBrain Git Hook Integration
+
+### Completed
+
+- **`scripts/git-hooks/post-commit`** — runs `molt.mjs` in background after every commit
+- **`scripts/git-hooks/post-merge`** — runs `molt.mjs` after merges / `git pull`
+- **`scripts/git-hooks/post-checkout`** — runs `molt.mjs` after branch switches only (`$3==1` guard skips file-level checkouts)
+- **`.git/hooks/`** — replaced plain files with relative symlinks → `../../scripts/git-hooks/<hook>` so hooks survive directory moves
+- **`install.sh`** — added "Installing git hooks" section; fresh clones get all three hooks wired automatically via `./install.sh`
+
+### Decisions
+- Used `molt.mjs` (same as `autoMolt()`) rather than `build-brain.mjs` — incremental rescan, consistent with session-startup behavior
+- Symlinks use relative paths (`../../scripts/git-hooks/...`) — works correctly regardless of where the repo is cloned
+- All hooks `disown` the background process and `exit 0` — git is never blocked by SpiderBrain
+
+### Next Session
+- [ ] CP11b — Multi-agent chaining (code → PM hand-off with completion signal)
+
+---
+
+## [2026-06-03] — CP11a: ElevenLabs TTS + macOS `say` Abstraction
+
+### Completed
+
+- **`src/voice/tts.ts`** — Full rewrite: `TtsProvider`, `TtsConfig`, `TtsStream` types; `cleanText()` extracted; `synthesizeStream()` dispatcher; `synthesizeSay()` (AIFF via `say`); `synthesizeElevenLabs()` (HTTPS to `api.elevenlabs.io` — no new deps); `speak()` with ElevenLabs → `say` fallback; `isTtsAvailable()` extended for both providers
+- **`src/config/index.ts`** — `ttsProvider`, `elevenLabsVoiceId`, `elevenLabsModel` added to ConfigSchema + KoaConfigFile + loadConfig (env var: `KOA_TTS_PROVIDER`)
+- **`src/server/routes/chat.ts`** — `/api/voice/synthesize` route delegates to `synthesizeStream()` — returns `audio/aiff` (say) or `audio/mpeg` (ElevenLabs); removed inline `spawn('say')` duplication
+- **`src/server/routes/admin.ts`** — GET /config exposes `ttsProvider`, `elevenLabsVoiceId`, `elevenLabsModel`, `elevenLabsApiKey` (bool); PUT /config handles all four (credential to credentials file; voice ID + model with `/^[a-zA-Z0-9_-]{1,64}$/` allowlist)
+- **`web/src/types.ts`** — `AdminConfig` extended with TTS fields
+- **`web/src/api.ts`** — `updateElevenLabsApiKey()` added
+- **`web/src/pages/SettingsPage.tsx`** — "Voice / TTS" section: provider selector + conditional ElevenLabs Voice ID + model rows
+- **`web/src/pages/IntegrationsPage.tsx`** — ElevenLabs TTS API key card (Brave Search pattern)
+- **`src/__tests__/tts.test.ts`** — 5 new tests (availability checks per provider, cleanText)
+- **Security fix** — `elevenLabsVoiceId`/`elevenLabsModel` character allowlist regex (F5 from review); F6 (ntfy SSRF) was already patched
+
+### Decisions
+- ElevenLabs uses Node `https.request` — no new npm deps; hostname hardcoded (no SSRF surface)
+- `voiceId` URL-encoded via `encodeURIComponent` before path interpolation
+- `speak()` fires ElevenLabs async; on error falls back to macOS `say` silently (CLI is best-effort)
+- Default voice: Rachel (`21m00Tcm4TlvDq8ikWAM`), default model: `eleven_turbo_v2_5` (fastest/cheapest)
+- Content-Type set by provider: `audio/aiff` (say) vs `audio/mpeg` (ElevenLabs) — iOS `AVAudioPlayer` handles both
+
+### Next Session
+- [ ] CP11b — Multi-agent chaining (code → PM hand-off with completion signal)
+
+---
+
+## [2026-06-03] — CP10 End-of-Arc Audit + Pre-CP11 Housekeeping
+
+### Completed
+
+**End-of-Arc Audit** — tsc clean, 483/483 tests, security review run on all CP10 changes
+
+**Security fixes (from review):**
+- **H1 SSRF** (`src/integrations/store.ts`) — `sendNtfyNotification`: added `validateSafeUrl(baseUrl)` guard + `encodeURIComponent(topic)` URL encoding
+- **H2 SSRF** (`src/server/routes/admin.ts`) — `/notifications/test` ntfy handler: added `validateSafeUrl` + `encodeURIComponent(topic)`
+- **H3 Prompt injection** (`src/server/routes/admin.ts`) — PUT /delegations: added `action ≤ 2000`, `schedule` allowlist, `pattern ≤ 500` validation; POST /delegations: added same schedule allowlist
+- **M1 CRLF injection** (`src/channels/gmail-send.ts`) — applied `sanitizeHeader()` to `msgIdHeader` before building `In-Reply-To`/`References` headers
+- **M2 Path injection** (`src/agent/tools/github.ts`) — `parseRepo()` now validates owner/repo segments against `/^[a-zA-Z0-9._-]+$/`
+- **M3 URL injection** — `encodeURIComponent(topic)` applied in both store.ts and admin.ts ntfy paths
+- **M4 Schedule allowlist** — VALID_SCHEDULES Set enforced on both POST and PUT delegation routes
+- **M5 PUT bounds** — length caps on all PUT delegation fields
+- **M6 replyToMessageId** (`src/channels/gmail-send.ts`) — format validated against `/^[a-zA-Z0-9_-]{1,64}$/` before Gmail API call
+
+**Pre-CP11 Housekeeping:**
+- **H3 Tool timeout** — `src/agent/loop.ts`: not yet applied (tool execute call site identified at line 601)
+- **H4 Credentials chmod** (`src/config/credentials.ts`) — `fs.chmodSync(0o600)` added after each `writeFileSync` in `writeCredential` and `deleteCredential`
+- **M1 loadCustomSkills cache** (`src/skills/store.ts`) — 5-second in-memory TTL cache added; `deleteCustomSkill` upgraded to atomic write (tmp + rename)
+- **M3 notifications cache** (`src/notifications/store.ts`) — 30-second TTL cache using `performance.now()` (not `Date.now()`) + path keying to survive `KOA_HOME` changes in tests
+- **HAIKU_MODEL consolidation** — removed `HAIKU_MODEL` from `src/config/index.ts`; `agent_dispatch_tool.ts`, `state-doc.ts`, `project-doc.ts` now import `MODELS.haiku` from `router.ts`
+- **`any` casts** — `web_fetch.ts` and `web_search.ts` catch blocks changed to `unknown` with `instanceof Error` narrowing
+- **Dead exports skipped** — `isCodeQuery`, `hasBacklogSignals`, `hasLifeSignals` remain exported (used by `loop.ts` and tests)
+- **New tests** — `src/__tests__/bash_tool.test.ts` (5 tests) and `src/__tests__/recorder.test.ts` (5 tests) added
+
+### Decisions
+- `performance.now()` used for cache TTL instead of `Date.now()` — monotonic, not affected by `vi.setSystemTime` in tests; cache is also keyed on resolved path so `KOA_HOME` changes invalidate it
+- Tool timeout (H3) deferred — requires wiring AbortSignal through ToolRegistry.execute(); left for CP11 start to avoid scope creep
+
+### Next Session
+- [ ] CP11a — ElevenLabs TTS + macOS `say` abstraction
+
+---
+
+## [2026-06-03] — CP10f: iOS Search & Voice Round-Trip
+
+### Completed
+- **`GET /api/voice/synthesize`** (`src/server/routes/chat.ts`) — bearer-auth protected; 500-char limit; markdown stripped; spawns `say -v Samantha --data-format=aiff -o -`; pipes AIFF to response; 503 on spawn error (Linux/missing)
+- **`KoaAPI.search(query:)`** — `GET /api/search?q=`, returns `[KoaTask]`; URLComponents + URLQueryItem (no injection)
+- **`KoaAPI.synthesizeAudio(text:)`** — `GET /api/voice/synthesize?text=`, 500-char cap client-side, throws on non-200
+- **`ios/Koa/SearchView.swift`** (new) — NavigationStack; debounced 300ms Task; ProgressView; ContentUnavailableView empty state; List → NavigationLink → TaskDetailView
+- **`AppState.Tab`** — added `case search` with `magnifyingglass` icon
+- **`MainTabView`** (KoaApp.swift) — Search tab between Board and Settings
+- **`ChatView.speakResponse`** — tries server-side AIFF first (`AVAudioPlayer`); falls back to `AVSpeechSynthesizer` on error; `@State private var audioPlayer` prevents deallocation during playback
+- Security: spawn with `--` separator (no flag injection); auth via `requireAuth` middleware; 473/473 tests, tsc clean
+
+### Decisions
+- `/api/voice/synthesize` added to chat router (not voice router) — voice router is unauthenticated by design; chat router sits behind `requireAuth`
+- Client-side 500-char cap in `synthesizeAudio` is defence-in-depth; server enforces the hard limit
+
+### Next Session
+- [ ] CP10 End-of-Arc Audit → Pre-CP11 Housekeeping
+
+---
+
+## [2026-06-03] — CP10e: Morning Briefing & Standing Delegations
+
+### Completed
+- **DB migration v7** — `delegations` table with `id`, `pattern`, `action`, `schedule`, `last_run`, `enabled`, `created_at`, `updated_at`; index on `enabled`
+- **`src/config/index.ts`** — added `briefingEnabled` (bool, default false) and `briefingTime` (string, default '08:00') to ConfigSchema, KoaConfigFile, and loadConfig
+- **`src/db/index.ts`** — `Delegation` interface + full CRUD: `createDelegation`, `listDelegations`, `getDelegation`, `updateDelegation`, `deleteDelegation`
+- **`src/proactive/briefing.ts`** (new) — `buildDailyBriefing()`: aggregates calendar events, urgent tasks, open PRs (GitHub integration), streak, and yesterday's completions into a push-friendly 500-char summary
+- **`src/proactive/delegations.ts`** (new) — `isDue()` pure schedule check; `runDueDelegations()` executes overdue delegations via `loop.turn()` and stamps `last_run`
+- **`src/server/index.ts`** — `scheduleBriefing()` helper fires at configured HH:MM, loops daily; `setInterval` for delegation poll every 5 minutes
+- **`src/server/routes/admin.ts`** — delegation CRUD routes (GET/POST/PUT/DELETE `/api/admin/delegations`); `briefingEnabled`/`briefingTime` added to config GET and PUT
+- **`web/src/components/Icon.tsx`** — `'repeat'` icon added
+- **`web/src/pages/DelegationsPage.tsx`** (new) — full CRUD UI with add/edit modal, enable/disable toggle, schedule dropdown
+- **`web/src/pages/SettingsPage.tsx`** — Morning Briefing section (enable toggle, time field)
+- **`web/src/components/NavRail.tsx`** — Delegations nav item using `repeat` icon
+- **`web/src/App.tsx`** — `/delegations` route wired
+- **`web/src/api.ts`** — delegation API functions: `fetchDelegations`, `createDelegationApi`, `updateDelegationApi`, `deleteDelegationApi`; `DelegationRecord` type
+- **`web/src/types.ts`** — `briefingEnabled?` and `briefingTime?` added to `AdminConfig`
+- 3 new test files (briefing.test.ts, delegations.test.ts, delegation_routes.test.ts) — 473/473 total; tsc clean
+- **Security fixes (post-review)** — `updateDelegation` runtime key allowlist (M1); 2000-char cap on `action` at POST route (M2); `briefingTime` hour/minute range validation 0-23/0-59 (M3)
+
+### Decisions
+- `briefing.ts` imports `listCalendarEvents` from `src/db/index.ts` (not `calendar/sync.ts`) — that's where it's implemented
+- Delegation route tests use the DB layer directly (not supertest) to match the project's existing test pattern
+- `scheduleBriefing` always registers the daily timeout but checks `config.briefingEnabled` at fire time — allows toggling without server restart
+- `msUntilDue` treats named days of the week as weekly intervals (7 days since last run) — simple, correct approximation
+
+### Next Session
+- [ ] CP11 — next backlog item
+
+---
+
 ## [2026-06-03] — CP10d: GitHub Integration
 
 ### Completed

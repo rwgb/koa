@@ -14,6 +14,7 @@ import TaskDetailPage from './pages/TaskDetailPage.js';
 import DecisionsPage from './pages/DecisionsPage.js';
 import SearchPage from './pages/SearchPage.js';
 import CalendarPage from './pages/CalendarPage.js';
+import DelegationsPage from './pages/DelegationsPage.js';
 import { pingServer, verifyToken, getStoredToken, setStoredToken } from './api.js';
 
 type AuthState = 'loading' | 'ready' | 'needs-token';
@@ -109,6 +110,7 @@ export default function App() {
           <Route path="decisions" element={<DecisionsPage />} />
           <Route path="search" element={<SearchPage />} />
           <Route path="calendar" element={<CalendarPage />} />
+          <Route path="delegations" element={<DelegationsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -8,6 +8,7 @@ import {
   startCalendarOAuth,
   fetchAdminConfig,
   updateBraveApiKey,
+  updateElevenLabsApiKey,
   updateTelegramConfig,
   getTelegramStatus,
 } from '../api.js';
@@ -500,6 +501,13 @@ export default function IntegrationsPage() {
   const [braveSaved, setBraveSaved] = useState(false);
   const [braveError, setBraveError] = useState<string | null>(null);
 
+  // ElevenLabs TTS state
+  const [elKeySet, setElKeySet] = useState(false);
+  const [elInput, setElInput] = useState('');
+  const [elSaving, setElSaving] = useState(false);
+  const [elSaved, setElSaved] = useState(false);
+  const [elError, setElError] = useState('');
+
   // Telegram state
   const [telegramStatus, setTelegramStatus] = useState<{ configured: boolean; hasDefaultChatId: boolean; polling: boolean }>({ configured: false, hasDefaultChatId: false, polling: false });
   const [telegramToken, setTelegramToken] = useState('');
@@ -514,7 +522,10 @@ export default function IntegrationsPage() {
       .catch(err => setError((err as Error).message))
       .finally(() => setLoading(false));
     fetchAdminConfig()
-      .then(cfg => setBraveKeySet(cfg.braveApiKey))
+      .then(cfg => {
+        setBraveKeySet(cfg.braveApiKey);
+        setElKeySet(cfg.elevenLabsApiKey ?? false);
+      })
       .catch(() => { /* non-fatal */ });
     getTelegramStatus()
       .then(setTelegramStatus)
@@ -746,6 +757,50 @@ export default function IntegrationsPage() {
             >
               {telegramSaving ? 'Saving…' : 'Save'}
             </button>
+          </div>
+        </div>
+
+        <div className={`intg-card intg-card--${elKeySet ? 'connected' : 'not_configured'}`} style={{ marginTop: '0.75rem' }}>
+          <div className="intg-card__header">
+            <div className="intg-card__name">ElevenLabs TTS</div>
+            {statusBadge(elKeySet ? 'connected' : 'not_configured')}
+          </div>
+          <div className="intg-card__body">
+            <p className="intg-card__desc">High-quality neural text-to-speech. Set your API key to enable cloud synthesis.</p>
+            <div className="slide-over__fields">
+              <div className="intg-field">
+                <label className="intg-field__label">API Key</label>
+                <div className="intg-field__input-wrap">
+                  <input
+                    type="password"
+                    className="intg-field__input"
+                    placeholder={elKeySet ? '••••••••' : 'sk-...'}
+                    value={elInput}
+                    onChange={e => { setElInput(e.target.value); setElSaved(false); setElError(''); }}
+                  />
+                </div>
+              </div>
+              {elError && <p className="intg-field__error">{elError}</p>}
+              <button
+                className="btn btn--primary"
+                disabled={elSaving || (!elInput && !elKeySet)}
+                onClick={async () => {
+                  setElSaving(true); setElError('');
+                  try {
+                    await updateElevenLabsApiKey(elInput);
+                    setElKeySet(!!elInput);
+                    setElInput(''); setElSaved(true);
+                    setTimeout(() => setElSaved(false), 3000);
+                  } catch (e) {
+                    setElError(e instanceof Error ? e.message : 'Failed to save');
+                  } finally {
+                    setElSaving(false);
+                  }
+                }}
+              >
+                {elSaving ? 'Saving…' : elSaved ? 'Saved ✓' : (!elInput && elKeySet) ? 'Remove' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

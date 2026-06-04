@@ -4,8 +4,8 @@ import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
 import { runMigrations } from './migrations.js';
-import type { Project, Task, TaskDependency, Decision, Checkpoint, AuditLog, ProjectStatus, TaskStatus, CalendarEvent, NotificationLog, EscalationLevel } from './schema.js';
-export type { Project, Task, TaskDependency, Decision, Checkpoint, AuditLog, ProjectStatus, TaskStatus, CalendarEvent, NotificationLog, EscalationLevel };
+import type { Project, Task, TaskDependency, Decision, Checkpoint, AuditLog, ProjectStatus, TaskStatus, CalendarEvent, NotificationLog, EscalationLevel, Conversation, ConversationTurn } from './schema.js';
+export type { Project, Task, TaskDependency, Decision, Checkpoint, AuditLog, ProjectStatus, TaskStatus, CalendarEvent, NotificationLog, EscalationLevel, Conversation, ConversationTurn };
 
 // ── Singleton ──────────────────────────────────────────────────────────────
 
@@ -786,4 +786,129 @@ export function getUpcomingTasks(days: number, projectId?: string): Task[] {
     )
     .all(...values) as RawTask[];
   return rows.map(hydrateTask);
+}
+
+// ── Delegations ────────────────────────────────────────────────────────────────
+
+export interface Delegation {
+  id: string;
+  pattern: string;
+  action: string;
+  schedule: string;
+  last_run: string | null;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function createDelegation(data: { pattern: string; action: string; schedule: string }): Delegation {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const ts = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO delegations (id, pattern, action, schedule, last_run, enabled, created_at, updated_at)
+    VALUES (?, ?, ?, ?, NULL, 1, ?, ?)
+  `).run(id, data.pattern, data.action, data.schedule, ts, ts);
+  return getDelegation(id)!;
+}
+
+export function listDelegations(): Delegation[] {
+  return getDb()
+    .prepare('SELECT * FROM delegations ORDER BY created_at DESC')
+    .all() as Delegation[];
+}
+
+export function getDelegation(id: string): Delegation | null {
+  return (getDb().prepare('SELECT * FROM delegations WHERE id = ?').get(id) as Delegation) ?? null;
+}
+
+const DELEGATION_ALLOWED_KEYS = new Set(['pattern', 'action', 'schedule', 'enabled', 'last_run']);
+
+export function updateDelegation(
+  id: string,
+  updates: Partial<Pick<Delegation, 'pattern' | 'action' | 'schedule' | 'enabled' | 'last_run'>>,
+): Delegation | null {
+  const keys = Object.keys(updates);
+  for (const k of keys) {
+    if (!DELEGATION_ALLOWED_KEYS.has(k)) throw new Error(`updateDelegation: disallowed key "${k}"`);
+  }
+  const db = getDb();
+  const ts = new Date().toISOString();
+  const fields = keys.map(k => `${k} = ?`).join(', ');
+  if (!fields) return getDelegation(id);
+  db.prepare(`UPDATE delegations SET ${fields}, updated_at = ? WHERE id = ?`).run(...Object.values(updates), ts, id);
+  return getDelegation(id);
+}
+
+export function deleteDelegation(id: string): void {
+  getDb().prepare('DELETE FROM delegations WHERE id = ?').run(id);
+}
+
+// ── Conversations ──────────────────────────────────────────────────────────
+
+export function createConversation(projectId?: string): Conversation {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const ts = now();
+  db.prepare(
+    'INSERT INTO conversations (id, started_at, turn_count, project_id) VALUES (?, ?, 0, ?)',
+  ).run(id, ts, projectId ?? null);
+  return getConversation(id) as Conversation;
+}
+
+export function closeConversation(id: string, turnCount: number): void {
+  getDb().prepare(
+    'UPDATE conversations SET ended_at = ?, turn_count = ? WHERE id = ?',
+  ).run(now(), turnCount, id);
+}
+
+export function updateConversationTitle(id: string, title: string): void {
+  getDb().prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, id);
+}
+
+export function addConversationTurn(
+  conversationId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  opts: { agentName?: string; model?: string; costUsd?: number; toolUses?: unknown[] } = {},
+): ConversationTurn {
+  const db = getDb();
+  const id = crypto.randomUUID();
+  const ts = now();
+  db.prepare(
+    `INSERT INTO conversation_turns
+       (id, conversation_id, role, content, tool_uses, agent_name, model, cost_usd, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    id, conversationId, role, content,
+    JSON.stringify(opts.toolUses ?? []),
+    opts.agentName ?? null,
+    opts.model ?? null,
+    opts.costUsd ?? null,
+    ts,
+  );
+  return db.prepare('SELECT * FROM conversation_turns WHERE id = ?').get(id) as ConversationTurn;
+}
+
+export function listConversations(limit = 50): Conversation[] {
+  return getDb()
+    .prepare('SELECT * FROM conversations ORDER BY started_at DESC LIMIT ?')
+    .all(limit) as Conversation[];
+}
+
+export function getConversation(id: string): Conversation | null {
+  return (getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id) as Conversation | undefined) ?? null;
+}
+
+export function getConversationTurns(conversationId: string): ConversationTurn[] {
+  return getDb()
+    .prepare('SELECT * FROM conversation_turns WHERE conversation_id = ? ORDER BY created_at ASC')
+    .all(conversationId) as ConversationTurn[];
+}
+
+export function deleteConversationsBefore(date: string): number {
+  const result = getDb()
+    .prepare('DELETE FROM conversations WHERE started_at < ?')
+    .run(date);
+  return result.changes;
 }

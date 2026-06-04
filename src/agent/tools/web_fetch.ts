@@ -46,9 +46,9 @@ export const webFetchTool: Tool = {
           'User-Agent': 'Koa/1.0',
         },
       });
-    } catch (e: any) {
-      if (e.name === 'AbortError') throw new Error(`Request timed out after ${TIMEOUT_MS / 1000}s`);
-      throw new Error(`Fetch failed: ${e.message}`);
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') throw new Error(`Request timed out after ${TIMEOUT_MS / 1000}s`);
+      throw new Error(`Fetch failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       clearTimeout(timer);
     }

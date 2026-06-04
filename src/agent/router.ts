@@ -49,6 +49,8 @@ export async function classifyWithHaiku(
   message: string,
   anthropicClient: Anthropic,
 ): Promise<{ complexity: MessageComplexity; inputTokens: number; outputTokens: number }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HAIKU_CLASSIFIER_TIMEOUT_MS);
   try {
     const response = await anthropicClient.messages.create(
       {
@@ -58,8 +60,9 @@ export async function classifyWithHaiku(
         system: CLASSIFIER_SYSTEM,
         messages: [{ role: 'user', content: message }],
       },
-      { signal: AbortSignal.timeout(HAIKU_CLASSIFIER_TIMEOUT_MS) },
+      { signal: controller.signal },
     );
+    clearTimeout(timer);
 
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
@@ -77,6 +80,7 @@ export async function classifyWithHaiku(
       outputTokens: response.usage.output_tokens,
     };
   } catch {
+    clearTimeout(timer);
     return { complexity: 'moderate', inputTokens: 0, outputTokens: 0 };
   }
 }

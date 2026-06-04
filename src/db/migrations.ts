@@ -147,6 +147,50 @@ const MIGRATIONS: [number, string][] = [
     ALTER TABLE tasks ADD COLUMN actual_hours REAL;
     `,
   ],
+  [
+    7,
+    `
+    CREATE TABLE IF NOT EXISTS delegations (
+      id         TEXT PRIMARY KEY,
+      pattern    TEXT NOT NULL DEFAULT '',
+      action     TEXT NOT NULL,
+      schedule   TEXT NOT NULL,
+      last_run   TEXT,
+      enabled    INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_delegations_enabled ON delegations(enabled);
+    `,
+  ],
+  [
+    8,
+    `
+    CREATE TABLE IF NOT EXISTS conversations (
+      id          TEXT PRIMARY KEY,
+      title       TEXT,
+      started_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      ended_at    TEXT,
+      turn_count  INTEGER NOT NULL DEFAULT 0,
+      project_id  TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_turns (
+      id              TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      role            TEXT NOT NULL,
+      content         TEXT NOT NULL DEFAULT '',
+      tool_uses       TEXT NOT NULL DEFAULT '[]',
+      agent_name      TEXT,
+      model           TEXT,
+      cost_usd        REAL,
+      created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_convs_started ON conversations(started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_conv_turns_conv ON conversation_turns(conversation_id, created_at);
+    `,
+  ],
 ];
 
 export function runMigrations(db: Database.Database): void {

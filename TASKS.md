@@ -845,6 +845,48 @@ using a headless Playwright browser; SSRF guard prevents access to private netwo
 
 ---
 
+### CP12g — Homelab Deployment Scaffolding
+
+**Done when**: A fresh Proxmox LXC can be bootstrapped with one script; a dev-machine push-and-restart
+deploys a new build in under 60 seconds; all deployment config lives in `deploy/` and `scripts/`.
+
+No source code changes. Pure infra files.
+
+- [ ] `Dockerfile` — Multi-stage build. Stage 1: `node:20-slim`, install deps, compile TS + build
+  web. Stage 2: copy `dist/`, `web/dist/`, `node_modules/` (prod only). `ENV KOA_HOME=/data`.
+  `EXPOSE 3000`. AC: `docker build .` produces a working image; `docker run -e ANTHROPIC_API_KEY=x`
+  starts the server.
+
+- [ ] `deploy/koa.service` — systemd unit. Runs as unprivileged `koa` user. `ExecStart=node
+  /opt/koa/dist/cli/index.js web`. `EnvironmentFile=/etc/koa/env`. `KOA_HOME=/var/lib/koa`.
+  `Restart=on-failure`. `RestartSec=5`. AC: `systemctl enable koa` survives reboot.
+
+- [ ] `deploy/Caddyfile` — Template. `{$KOA_DOMAIN}` proxies to `localhost:3000`. Auto-TLS via
+  ACME or Tailscale cert. Header forwarding for bearer auth. AC: `caddy validate` passes.
+
+- [ ] `deploy/bootstrap.sh` — One-shot LXC setup. Installs Node.js 20 LTS (via NodeSource), Caddy
+  (via apt), creates `koa` system user, mkdir `/var/lib/koa` + `/etc/koa` with correct permissions,
+  copies `deploy/koa.service` to `/etc/systemd/system/`, enables and starts service. Idempotent
+  (safe to re-run). AC: runs clean on a fresh Debian 12 LXC; `systemctl status koa` is active.
+
+- [ ] `scripts/deploy.sh` — Push-and-restart. `rsync -az dist/ web/dist/ node_modules/ $KOA_HOST:/opt/koa/`.
+  SSH `systemctl restart koa`. Reads target from `KOA_HOST` env var. Aborts if `npm run build`
+  fails. AC: full deploy cycle completes in <60 s on LAN.
+
+- [ ] `.env.example` — Documents every env/credential var Koa reads: `ANTHROPIC_API_KEY`,
+  `KOA_WEB_TOKEN`, `KOA_HOME`, `KOA_MODEL`, `KOA_TTS_PROVIDER`, `ELEVENLABS_API_KEY`,
+  `SPIDERBRAIN_BRAIN`, plus optional channel vars (`TELEGRAM_BOT_TOKEN`, `SLACK_BOT_TOKEN`, etc.).
+  Each line has a one-line comment explaining the var. AC: no secrets; safe to commit.
+
+### Checkpoint gate
+- [ ] `docker build .` succeeds; server starts
+- [ ] `deploy/bootstrap.sh` runs clean on Debian 12
+- [ ] `scripts/deploy.sh` pushes and restarts in <60 s
+- [ ] security review: Dockerfile runs non-root, bootstrap file permissions, no secrets in committed files
+- [ ] ntfy: CP12g sealed
+
+---
+
 ### CP12 End-of-Arc Audit
 1. `npx tsc --noEmit` — zero errors
 2. `npm test` — zero failures

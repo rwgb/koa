@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchActivitySessions, fetchStatus, fetchWeeklyReport, fetchForecast, fetchProactiveAlerts } from '../api.js';
+import { fetchActivitySessions, fetchStatus, fetchWeeklyReport, fetchForecast, fetchProactiveAlerts, fetchConversations, fetchConversationTurns, exportConversation } from '../api.js';
 import { Icon } from '../components/Icon.js';
-import type { JournalSession, AgentStatus, WeeklyReport, ForecastSummary, ProactiveAlert } from '../types.js';
+import type { JournalSession, AgentStatus, WeeklyReport, ForecastSummary, ProactiveAlert, Conversation, ConversationTurn } from '../types.js';
 
 const ANTHROPIC_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
@@ -279,6 +279,81 @@ function PricingTable() {
   );
 }
 
+// ── Conversations ─────────────────────────────────────────────────────────────
+
+function ConversationsTab() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [turns, setTurns] = useState<Record<string, ConversationTurn[]>>({});
+
+  useEffect(() => {
+    setLoading(true);
+    fetchConversations()
+      .then(setConversations)
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function expandConversation(id: string) {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!turns[id]) {
+      const t = await fetchConversationTurns(id);
+      setTurns((prev) => ({ ...prev, [id]: t }));
+    }
+  }
+
+  async function handleExport(id: string, format: 'json' | 'markdown') {
+    const res = await exportConversation(id, format);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `conversation-${id.slice(0, 8)}.${format === 'markdown' ? 'md' : 'json'}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (loading) return <div className="mem-empty__text">Loading…</div>;
+  if (conversations.length === 0) {
+    return <div className="mem-empty"><span className="mem-empty__text">No conversations recorded yet.</span></div>;
+  }
+
+  return (
+    <ul className="activity-session-list">
+      {conversations.map((c) => (
+        <li key={c.id} className="activity-session-item">
+          <div className="activity-session-item__header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              className="activity-session-item__header"
+              style={{ flex: 1, textAlign: 'left' }}
+              onClick={() => expandConversation(c.id)}
+            >
+              <span className="activity-session-item__date">
+                {c.title ?? 'Untitled'} — {new Date(c.started_at).toLocaleDateString()} ({c.turn_count} turns)
+              </span>
+              <span className="activity-session-item__toggle">{expanded === c.id ? '▲' : '▼'}</span>
+            </button>
+            <button onClick={() => handleExport(c.id, 'json')} style={{ fontSize: 11 }}>JSON</button>
+            <button onClick={() => handleExport(c.id, 'markdown')} style={{ fontSize: 11 }}>MD</button>
+          </div>
+          {expanded === c.id && turns[c.id] && (
+            <div style={{ padding: '8px 16px' }}>
+              {turns[c.id]!.map((t) => (
+                <div key={t.id} style={{ marginBottom: 8 }}>
+                  <strong>{t.role === 'user' ? 'User' : 'Koa'}</strong>
+                  {t.model && <span style={{ fontSize: 11, color: '#888', marginLeft: 4 }}>({t.model})</span>}
+                  <pre style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0', fontSize: 12 }}>{t.content.slice(0, 800)}{t.content.length > 800 ? '…' : ''}</pre>
+                </div>
+              ))}
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // ── Root ─────────────────────────────────────────────────────────────────────
 
 export default function ActivityPage() {
@@ -364,6 +439,13 @@ export default function ActivityPage() {
             <span className="mem-field__value--muted">{sessions.length} entries</span>
           </div>
           <SessionLog sessions={sessions} />
+        </section>
+
+        <section className="mem-section">
+          <div className="mem-section__header">
+            <h2 className="mem-section__title">Conversations</h2>
+          </div>
+          <ConversationsTab />
         </section>
 
         <section className="mem-section">

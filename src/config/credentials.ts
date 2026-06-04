@@ -52,6 +52,7 @@ export function writeCredential(key: string, value: string): void {
     .join('\n') + '\n';
 
   fs.writeFileSync(credentialsFile(), content, { mode: 0o600 });
+  fs.chmodSync(credentialsFile(), 0o600);
 }
 
 export function deleteCredential(key: string): void {
@@ -69,6 +70,7 @@ export function deleteCredential(key: string): void {
     .join('\n') + '\n';
 
   fs.writeFileSync(credentialsFile(), content, { mode: 0o600 });
+  fs.chmodSync(credentialsFile(), 0o600);
 }
 
 export function getCredentialsPath(): string {

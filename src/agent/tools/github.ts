@@ -11,11 +11,13 @@ function getGitHubCredentials() {
   };
 }
 
+const REPO_SEGMENT_RE = /^[a-zA-Z0-9._-]+$/;
+
 function parseRepo(repoStr: string): { owner: string; repo: string } | null {
   const parts = repoStr.split('/');
-  return parts.length === 2 && parts[0] && parts[1]
-    ? { owner: parts[0], repo: parts[1] }
-    : null;
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  if (!REPO_SEGMENT_RE.test(parts[0]) || !REPO_SEGMENT_RE.test(parts[1])) return null;
+  return { owner: parts[0], repo: parts[1] };
 }
 
 const listPRsTool: Tool = {

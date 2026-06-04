@@ -10,7 +10,8 @@ export type IconName =
   | 'anthropic' | 'github' | 'envelope' | 'server'
   | 'shield' | 'link' | 'phone'
   | 'folder' | 'list-checks' | 'search' | 'plus' | 'kanban' | 'dependency' | 'database'
-  | 'calendar';
+  | 'calendar'
+  | 'repeat';
 
 interface IconProps {
   name: IconName;
@@ -175,6 +176,13 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <path d="M2 7h12" />
     <path d="M5.5 1.5v3M10.5 1.5v3" />
     <path d="M5 10.5h.5M8 10.5h.5M11 10.5h.5" />
+  </>,
+
+  repeat: <>
+    <path d="M2 4h9a3 3 0 010 6H1" />
+    <path d="M1 10l2-2-2-2" />
+    <path d="M14 12H5a3 3 0 010-6h1" />
+    <path d="M15 6l-2 2 2 2" />
   </>,
 };
 

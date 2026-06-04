@@ -26,6 +26,8 @@ import type {
   WeeklyReport,
   ForecastSummary,
   ProactiveAlert,
+  Conversation,
+  ConversationTurn,
 } from './types.js';
 
 // ── Token storage ─────────────────────────────────────────────────────────────
@@ -174,6 +176,15 @@ export async function updateBraveApiKey(value: string): Promise<void> {
     body: JSON.stringify({ braveApiKey: value }),
   });
   if (!res.ok) throw new Error(`Failed to update Brave API key: ${res.status}`);
+}
+
+export async function updateElevenLabsApiKey(value: string): Promise<void> {
+  const res = await authFetch('/api/admin/config', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ elevenLabsApiKey: value }),
+  });
+  if (!res.ok) throw new Error(`Failed to update ElevenLabs API key: ${res.status}`);
 }
 
 // ── Integrations ──────────────────────────────────────────────────────────────
@@ -360,6 +371,8 @@ export function streamChat(
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let doneReceived = false;
+    let aborted = false;
 
     try {
       while (true) {
@@ -378,6 +391,7 @@ export function streamChat(
           try {
             const event = JSON.parse(jsonStr) as SseEvent;
             if (event.type === 'done') {
+              doneReceived = true;
               onEvent(event);
               onDone();
             } else {
@@ -389,9 +403,12 @@ export function streamChat(
         }
       }
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
+      if ((err as Error).name === 'AbortError') { aborted = true; return; }
       onError((err as Error).message ?? 'Stream error');
     }
+
+    // Stream closed without a done event (server error, network drop, etc.)
+    if (!doneReceived && !aborted) onDone();
   })();
 
   return () => controller.abort();
@@ -628,4 +645,66 @@ export async function fetchProactiveAlerts(): Promise<{ alerts: ProactiveAlert[]
   const res = await authFetch('/api/analytics/proactive');
   if (!res.ok) throw new Error(`Proactive alerts fetch failed: ${res.status}`);
   return res.json() as Promise<{ alerts: ProactiveAlert[] }>;
+}
+
+// ── Delegations ───────────────────────────────────────────────────────────────
+
+export interface DelegationRecord {
+  id: string;
+  pattern: string;
+  action: string;
+  schedule: string;
+  last_run: string | null;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchDelegations(): Promise<DelegationRecord[]> {
+  const res = await authFetch('/api/admin/delegations');
+  if (!res.ok) throw new Error(`Failed to fetch delegations: ${res.status}`);
+  return res.json() as Promise<DelegationRecord[]>;
+}
+
+export async function createDelegationApi(data: { pattern: string; action: string; schedule: string }): Promise<DelegationRecord> {
+  const res = await authFetch('/api/admin/delegations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to create delegation: ${res.status}`);
+  return res.json() as Promise<DelegationRecord>;
+}
+
+export async function updateDelegationApi(id: string, updates: Partial<{ action: string; schedule: string; pattern: string; enabled: boolean }>): Promise<DelegationRecord> {
+  const res = await authFetch(`/api/admin/delegations/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`Failed to update delegation: ${res.status}`);
+  return res.json() as Promise<DelegationRecord>;
+}
+
+export async function deleteDelegationApi(id: string): Promise<void> {
+  const res = await authFetch(`/api/admin/delegations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete delegation: ${res.status}`);
+}
+
+// ── Conversations ─────────────────────────────────────────────────────────────
+
+export async function fetchConversations(): Promise<Conversation[]> {
+  const res = await authFetch('/api/conversations');
+  if (!res.ok) throw new Error('Failed to fetch conversations');
+  return res.json() as Promise<Conversation[]>;
+}
+
+export async function fetchConversationTurns(id: string): Promise<ConversationTurn[]> {
+  const res = await authFetch(`/api/conversations/${id}/turns`);
+  if (!res.ok) throw new Error('Failed to fetch conversation turns');
+  return res.json() as Promise<ConversationTurn[]>;
+}
+
+export async function exportConversation(id: string, format: 'json' | 'markdown'): Promise<Response> {
+  return authFetch(`/api/conversations/${id}/export?format=${format}`);
 }
