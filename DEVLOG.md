@@ -1,5 +1,47 @@
 # Koa — DevLog
 
+## [2026-06-04] — CP12e: Sandboxed Code Execution
+
+### Completed
+
+- **`src/sandbox/runner.ts`** — `SandboxRunner` interface + `ExecOpts` / `ExecResult` types.
+- **`src/sandbox/local.ts`** — `LocalRunner`: writes temp file, spawns process, AbortController timeout, 50 KB truncation, cleans up temp on all paths. Injectable `SpawnFn` + `FsAdapter` for testability.
+- **`src/sandbox/docker.ts`** — `DockerRunner`: wraps `docker run --rm --network=none --memory --cpus --read-only`. `isAvailable()` pings `docker info` with 3s timeout. Falls back to `LocalRunner` when Docker unreachable.
+- **`src/sandbox/index.ts`** — `createRunner(config)` factory; returns `DockerRunner` (with `LocalRunner` fallback) when `config.sandboxBackend === 'docker'`, else `LocalRunner`.
+- **`src/agent/tools/execute_code.ts`** — `createExecuteCodeTool(runner, config)`: validates language and non-blank code, formats output with exit_code / timed_out / stdout / stderr sections.
+- **`src/config/index.ts`** — Added `sandboxBackend: 'local' | 'docker'` (default `'local'`) and `sandboxTimeoutMs: number` (default `10000`) to `ConfigSchema`, `KoaConfigFile`, and `loadConfig`.
+- **`src/cli/index.ts`** — `buildRegistry` signature changed to accept full `KoaConfig`; `execute_code` registered via `createExecuteCodeTool(createRunner(config), config)`.
+- **`src/server/routes/admin.ts`** — `GET /api/admin/sandbox/status` returns `{ available, backend }`. `GET /config` and `PUT /config` include `sandboxBackend` + `sandboxTimeoutMs`.
+- **`web/src/types.ts`** — Added `sandboxBackend` and `sandboxTimeoutMs` to `AdminConfig`.
+- **`web/src/api.ts`** — Added `getSandboxStatus()`.
+- **`web/src/pages/SettingsPage.tsx`** — "Code Execution" section: backend radio (Local/Docker), timeout slider (5–60 s), availability dot.
+- **`src/__tests__/sandbox.test.ts`** — 19 new tests covering all spec requirements.
+
+### Decisions
+
+- Injectable spawn/fs approach rather than module-level `vi.mock`: ESM live bindings make `vi.spyOn(cp, 'spawn')` unreliable across module boundaries. Injecting via constructor parameters gives proper unit isolation without changing the public `SandboxRunner` interface.
+- `AbortController + clearTimeout` pattern: follows spec; avoids `AbortSignal.timeout()`.
+- Docker `isAvailable` uses same injectable spawn, so Docker tests don't require a live Docker daemon.
+
+### Security
+
+- No HIGH findings.
+- MEDIUM (accepted): LocalRunner inherits `process.env`, so if the user runs code that dumps env vars, secrets would appear in output. Within trust model — user controls the code.
+- LOW: Docker images not pinned to digest (supply chain). Acceptable for personal use.
+- LOW: Temp files in `os.tmpdir()` are world-readable but short-lived (cleaned in `finally`).
+
+### QA
+
+- `tsc --noEmit`: 0 errors
+- `npm test`: 562/562 passed (19 new, 543 pre-existing)
+
+### Next Session
+
+- [ ] CP12f — Browser Automation (Playwright)
+- [ ] CP12g — Homelab Deployment Scaffolding
+
+---
+
 ## [2026-06-04] — CP12d: Conversation Intelligence (Auto-Title & Cross-Session Search)
 
 ### Completed

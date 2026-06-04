@@ -28,6 +28,8 @@ const ConfigSchema = z.object({
   provider: z.enum(['anthropic', 'ollama']).default('anthropic'),
   ollamaModel: z.string().default('llama3.2'),
   ollamaBaseUrl: z.string().default('http://localhost:11434'),
+  sandboxBackend: z.enum(['local', 'docker']).default('local'),
+  sandboxTimeoutMs: z.number().default(10000),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -57,6 +59,8 @@ export interface KoaConfigFile {
   provider?: 'anthropic' | 'ollama';
   ollamaModel?: string;
   ollamaBaseUrl?: string;
+  sandboxBackend?: 'local' | 'docker';
+  sandboxTimeoutMs?: number;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -129,6 +133,10 @@ export function loadConfig(projectPath?: string): KoaConfig {
     provider: (process.env['KOA_PROVIDER'] as 'anthropic' | 'ollama' | undefined) ?? fileConfig.provider ?? 'anthropic',
     ollamaModel: process.env['KOA_OLLAMA_MODEL'] ?? fileConfig.ollamaModel ?? 'llama3.2',
     ollamaBaseUrl: process.env['KOA_OLLAMA_BASE_URL'] ?? fileConfig.ollamaBaseUrl ?? 'http://localhost:11434',
+    sandboxBackend: (process.env['KOA_SANDBOX_BACKEND'] as 'local' | 'docker' | undefined) ?? fileConfig.sandboxBackend ?? 'local',
+    sandboxTimeoutMs: process.env['KOA_SANDBOX_TIMEOUT_MS']
+      ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)
+      : (fileConfig.sandboxTimeoutMs ?? 10000),
   });
 }
 

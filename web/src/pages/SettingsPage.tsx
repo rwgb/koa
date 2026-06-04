@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAdminConfig, updateAdminConfig, getOllamaModels } from '../api.js';
+import { fetchAdminConfig, updateAdminConfig, getOllamaModels, getSandboxStatus } from '../api.js';
 import type { AdminConfig } from '../types.js';
 
 // ── Inline editable string/number row ──────────────────────────────────────────
@@ -420,6 +420,109 @@ function OllamaSection({
   );
 }
 
+// ── Code Execution section ─────────────────────────────────────────────────────
+
+function CodeExecutionSection({
+  config,
+  onSave,
+}: {
+  config: AdminConfig;
+  onSave: (updates: Partial<AdminConfig>) => Promise<void>;
+}) {
+  const [sandboxAvailable, setSandboxAvailable] = useState<boolean | null>(null);
+  const backend = config.sandboxBackend ?? 'local';
+  const timeoutSec = Math.round((config.sandboxTimeoutMs ?? 10000) / 1000);
+
+  useEffect(() => {
+    getSandboxStatus()
+      .then(s => setSandboxAvailable(s.available))
+      .catch(() => setSandboxAvailable(false));
+  }, [backend]);
+
+  function handleBackendChange(value: string) {
+    void onSave({ sandboxBackend: value as 'local' | 'docker' });
+  }
+
+  function handleTimeoutChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const sec = parseInt(e.target.value, 10);
+    if (sec >= 5 && sec <= 60) {
+      void onSave({ sandboxTimeoutMs: sec * 1000 });
+    }
+  }
+
+  return (
+    <div className="section">
+      <div className="section-header">
+        <span className="section-title">Code Execution</span>
+      </div>
+
+      {/* Backend radio */}
+      <div className="setting-row">
+        <span className="setting-row__label">Backend</span>
+        <span className="setting-row__value" style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+          <label style={{ display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="sandboxBackend"
+              value="local"
+              checked={backend === 'local'}
+              onChange={() => handleBackendChange('local')}
+            />
+            Local
+          </label>
+          <label style={{ display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer' }}>
+            <input
+              type="radio"
+              name="sandboxBackend"
+              value="docker"
+              checked={backend === 'docker'}
+              onChange={() => handleBackendChange('docker')}
+            />
+            Docker
+          </label>
+        </span>
+      </div>
+
+      {/* Timeout slider */}
+      <div className="setting-row">
+        <span className="setting-row__label">Timeout</span>
+        <span className="setting-row__value" style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <input
+            type="range"
+            min="5"
+            max="60"
+            step="5"
+            value={timeoutSec}
+            onChange={handleTimeoutChange}
+            style={{ width: '140px' }}
+          />
+          <span style={{ fontSize: '12px', color: 'var(--text-muted)', minWidth: '36px' }}>
+            {timeoutSec}s
+          </span>
+        </span>
+      </div>
+
+      {/* Docker availability dot */}
+      <div className="setting-row">
+        <span className="setting-row__label">
+          {backend === 'docker' ? 'Docker' : 'Runner'} status
+        </span>
+        <span className="setting-row__value">
+          {sandboxAvailable === null && (
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Checking…</span>
+          )}
+          {sandboxAvailable === true && (
+            <span className="badge badge-green">available</span>
+          )}
+          {sandboxAvailable === false && (
+            <span className="badge badge-muted">unavailable</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 const MODEL_OPTIONS = [
@@ -482,6 +585,9 @@ export default function SettingsPage() {
 
         {/* LLM Provider */}
         <OllamaSection config={config} onSave={handleSave} />
+
+        {/* Code Execution */}
+        <CodeExecutionSection config={config} onSave={handleSave} />
 
         {/* Auto-checkpoint + Agent */}
         <CheckpointSection config={config} onSave={handleSave} />

@@ -62,6 +62,8 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     provider: 'anthropic' as const,
     ollamaModel: 'llama3.2',
     ollamaBaseUrl: 'http://localhost:11434',
+    sandboxBackend: 'local' as const,
+    sandboxTimeoutMs: 10000,
     ...overrides,
   };
 }

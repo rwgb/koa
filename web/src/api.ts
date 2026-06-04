@@ -162,6 +162,12 @@ export async function fetchActivitySessions(): Promise<ActivitySessionsResponse>
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
+export async function getSandboxStatus(): Promise<{ available: boolean; backend: string }> {
+  const res = await authFetch('/api/admin/sandbox/status');
+  if (!res.ok) throw new Error(`Failed to fetch sandbox status: ${res.status}`);
+  return res.json() as Promise<{ available: boolean; backend: string }>;
+}
+
 export async function getOllamaModels(): Promise<string[]> {
   const res = await authFetch('/api/admin/ollama/models');
   if (!res.ok) throw new Error(`Failed to fetch Ollama models: ${res.status}`);

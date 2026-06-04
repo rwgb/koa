@@ -39,6 +39,7 @@ import { calendarSync } from '../../calendar/sync.js';
 import { TelegramPoller } from '../../channels/telegram.js';
 import { setTelegramPoller } from '../../channels/router.js';
 import { tokenEqual } from '../utils.js';
+import { DockerRunner } from '../../sandbox/docker.js';
 
 export interface AdminRouterDeps {
   loop: AgentLoop;
@@ -302,6 +303,8 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       provider: config.provider ?? 'anthropic',
       ollamaModel: config.ollamaModel ?? 'llama3.2',
       ollamaBaseUrl: config.ollamaBaseUrl ?? 'http://localhost:11434',
+      sandboxBackend: config.sandboxBackend ?? 'local',
+      sandboxTimeoutMs: config.sandboxTimeoutMs ?? 10000,
     });
   });
 
@@ -329,6 +332,8 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       provider?: unknown;
       ollamaModel?: unknown;
       ollamaBaseUrl?: unknown;
+      sandboxBackend?: unknown;
+      sandboxTimeoutMs?: unknown;
     };
     const updates: Record<string, unknown> = {};
 
@@ -468,8 +473,36 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       config.ollamaBaseUrl = url;
     }
 
+    if (typeof body.sandboxBackend === 'string') {
+      if (body.sandboxBackend !== 'local' && body.sandboxBackend !== 'docker') {
+        return res.status(400).json({ error: 'sandboxBackend must be local or docker' });
+      }
+      updates['sandboxBackend'] = body.sandboxBackend;
+      config.sandboxBackend = body.sandboxBackend as 'local' | 'docker';
+    }
+    if (typeof body.sandboxTimeoutMs === 'number') {
+      if (body.sandboxTimeoutMs < 1000 || body.sandboxTimeoutMs > 300_000) {
+        return res.status(400).json({ error: 'sandboxTimeoutMs must be between 1000 and 300000' });
+      }
+      updates['sandboxTimeoutMs'] = body.sandboxTimeoutMs;
+      config.sandboxTimeoutMs = body.sandboxTimeoutMs;
+    }
+
     writeKoaConfigFile(updates);
     res.json({ status: 'ok' });
+  });
+
+  // ── Sandbox ───────────────────────────────────────────────────────────────────
+
+  router.get('/sandbox/status', (_req, res) => {
+    const backend = config.sandboxBackend ?? 'local';
+    if (backend !== 'docker') {
+      res.json({ available: true, backend: 'local' });
+      return;
+    }
+    DockerRunner.isAvailable()
+      .then((available) => res.json({ available, backend: 'docker' }))
+      .catch(() => res.json({ available: false, backend: 'docker' }));
   });
 
   // ── Ollama model list ─────────────────────────────────────────────────────────

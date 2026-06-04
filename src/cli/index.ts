@@ -17,12 +17,15 @@ import { createCalendarEventTool, updateCalendarEventTool, deleteCalendarEventTo
 import { sendEmailTool } from '../agent/tools/send_email.js';
 import { githubTools } from '../agent/tools/github.js';
 import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
+import { createExecuteCodeTool } from '../agent/tools/execute_code.js';
 import { loadCustomSkills } from '../skills/store.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { createPluginTool } from '../plugins/bridge.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
 import { loadConfig, writeKoaConfigFile, generateWebToken, setWebToken } from '../config/index.js';
+import type { KoaConfig } from '../config/index.js';
+import { createRunner } from '../sandbox/index.js';
 import { UsageTracker } from '../agent/usage.js';
 import { writeCredential, deleteCredential, readCredentials, getCredentialsPath } from '../config/credentials.js';
 
@@ -30,8 +33,9 @@ function buildRegistry(
   engram: EngramClient,
   projectRoot: string,
   sb: SpiderBrainClient,
-  apiKey?: string,
+  config: KoaConfig,
 ): ToolRegistry {
+  const apiKey = config.apiKey;
   const registry = new ToolRegistry();
   registry.register(bashTool);
   registry.register(webFetchTool);
@@ -46,6 +50,7 @@ function buildRegistry(
   registry.register(rememberTool);
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
+  registry.register(createExecuteCodeTool(createRunner(config), config));
   for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
   for (const plugin of loadPlugins()) {
     registry.registerMany(plugin.tools.map(createPluginTool));
@@ -96,7 +101,7 @@ program
 
     const engram = new EngramClient(config.projectPath);
     const sb = new SpiderBrainClient(config.projectPath, config.spiderBrainBrain, process.cwd());
-    const registry = buildRegistry(engram, config.projectPath, sb, config.apiKey);
+    const registry = buildRegistry(engram, config.projectPath, sb, config);
     const loop = new AgentLoop(config, registry, engram, new UsageTracker(), sb);
     await loop.initialize();
 
@@ -143,7 +148,7 @@ program
 
     const engram = new EngramClient(config.projectPath);
     const sb = new SpiderBrainClient(config.projectPath, config.spiderBrainBrain, process.cwd());
-    const registry = buildRegistry(engram, config.projectPath, sb, config.apiKey);
+    const registry = buildRegistry(engram, config.projectPath, sb, config);
     const loop = new AgentLoop(config, registry, engram, new UsageTracker(), sb);
     await loop.initialize();
 
@@ -234,7 +239,7 @@ program
 
     const engram = new EngramClient(config.projectPath);
     const sb = new SpiderBrainClient(config.projectPath, config.spiderBrainBrain);
-    const registry = buildRegistry(engram, config.projectPath, sb, config.apiKey);
+    const registry = buildRegistry(engram, config.projectPath, sb, config);
     const loop = new AgentLoop(config, registry, engram, new UsageTracker(), sb);
     await loop.initialize();
 
@@ -276,7 +281,7 @@ program
     if (!opts.engram) config.engramEnabled = false;
     const engram = new EngramClient(config.projectPath);
     const sb = new SpiderBrainClient(config.projectPath, config.spiderBrainBrain);
-    const registry = buildRegistry(engram, config.projectPath, sb, config.apiKey);
+    const registry = buildRegistry(engram, config.projectPath, sb, config);
     if (config.engramEnabled) {
       await engram.sync().catch(() => {});
     }
