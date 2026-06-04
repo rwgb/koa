@@ -37,6 +37,36 @@ struct KoaAPI {
         let task: KoaTask
     }
 
+    // MARK: - Search
+
+    func search(query: String) async throws -> [KoaTask] {
+        var comps = URLComponents(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/search")
+        comps?.queryItems = [URLQueryItem(name: "q", value: query)]
+        guard let url = comps?.url else { throw KoaError.invalidURL }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let (data, _) = try await URLSession.shared.data(for: req)
+        return try decode([KoaTask].self, from: data)
+    }
+
+    // MARK: - Voice synthesis
+
+    func synthesizeAudio(text: String) async throws -> Data {
+        var comps = URLComponents(string: baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + "/api/voice/synthesize")
+        let capped = String(text.prefix(500))
+        comps?.queryItems = [URLQueryItem(name: "text", value: capped)]
+        guard let url = comps?.url else { throw KoaError.invalidURL }
+        var req = URLRequest(url: url)
+        req.httpMethod = "GET"
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw KoaError.serverError("TTS unavailable")
+        }
+        return data
+    }
+
     // MARK: - APNs token registration
 
     func registerApnsToken(_ token: String) async throws {

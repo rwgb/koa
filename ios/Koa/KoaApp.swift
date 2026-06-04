@@ -114,6 +114,10 @@ struct MainTabView: View {
                 .tabItem { Label("Board", systemImage: "checklist") }
                 .tag(AppState.Tab.board)
 
+            SearchView()
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag(AppState.Tab.search)
+
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppState.Tab.settings)

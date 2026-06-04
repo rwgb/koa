@@ -10,6 +10,7 @@ struct ChatView: View {
     @State private var lastMessageId: UUID?
     @State private var isRecording = false
     @State private var audioRecorder: AVAudioRecorder?
+    @State private var audioPlayer: AVAudioPlayer?
     private let speechSynthesizer = AVSpeechSynthesizer()
 
     private var api: KoaAPI {
@@ -205,6 +206,24 @@ struct ChatView: View {
     }
 
     private func speakResponse(_ text: String) {
+        Task {
+            do {
+                let data = try await api.synthesizeAudio(text: text)
+                await MainActor.run {
+                    do {
+                        audioPlayer = try AVAudioPlayer(data: data)
+                        audioPlayer?.play()
+                    } catch {
+                        fallbackSpeak(text)
+                    }
+                }
+            } catch {
+                await MainActor.run { fallbackSpeak(text) }
+            }
+        }
+    }
+
+    private func fallbackSpeak(_ text: String) {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
         utterance.rate = 0.52
