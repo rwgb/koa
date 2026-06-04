@@ -1,5 +1,39 @@
 # Koa — DevLog
 
+## [2026-06-04] — CP12g: Homelab Deployment Scaffolding
+
+### Completed
+
+- **`Dockerfile`** — Multi-stage build (builder: tsc + web; runtime: prod deps + dist). Non-root `koa` user; `KOA_HOME=/data`; exposes 3000.
+- **`.dockerignore`** — Excludes node_modules, dev dirs, secrets.
+- **`deploy/koa.service`** — systemd unit: runs as `koa` user, `EnvironmentFile=/etc/koa/env`, hardened (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`).
+- **`deploy/Caddyfile`** — `{$KOA_DOMAIN}` reverse proxy with security headers (HSTS, nosniff, X-Frame-Options), gzip, structured JSON logging.
+- **`deploy/bootstrap.sh`** — Idempotent Debian 12 LXC setup: installs Node 20 LTS + Caddy, creates `koa` system user, sets up dirs with `750`/`640` permissions, copies and enables service.
+- **`scripts/deploy.sh`** — rsync `dist/` + `web/dist/` + `node_modules/` to `$KOA_HOST`, then SSH `systemctl restart koa`. Build fails → abort.
+- **`.env.example`** — All 30+ env vars documented with one-line comments; no real values.
+
+### Security
+
+- No HIGH/MEDIUM findings.
+- LOW: `bootstrap.sh` uses `curl | bash` (NodeSource) — standard homelab practice.
+- LOW: `deploy.sh` needs `sudo systemctl restart koa` — recommend scoping sudoers to that command.
+- Dockerfile: non-root user, multi-stage (no build tools in final image), no secrets in image layers.
+- `ProtectSystem=strict` + `ReadWritePaths=/var/lib/koa` limits blast radius if service is compromised.
+
+### QA
+
+- `bash -n bootstrap.sh` and `bash -n deploy.sh`: syntax clean.
+- `docker build` not validated locally (daemon not running); Dockerfile syntax reviewed manually.
+- `tsc --noEmit`: 0 errors (no source changes).
+- `npm test`: 576/576 passed (no new tests — infra-only CP).
+
+### Next Session
+
+- [ ] CP12 End-of-Arc Audit (tsc, npm test, security-review on all CP12 changes, code quality pass)
+- [ ] Generate CP13 TASKS.md from audit findings
+
+---
+
 ## [2026-06-04] — CP12f: Browser Automation (Playwright)
 
 ### Completed
