@@ -59,6 +59,9 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     ttsProvider: 'say',
     elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM',
     elevenLabsModel: 'eleven_turbo_v2_5',
+    provider: 'anthropic' as const,
+    ollamaModel: 'llama3.2',
+    ollamaBaseUrl: 'http://localhost:11434',
     ...overrides,
   };
 }

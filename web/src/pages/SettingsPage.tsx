@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAdminConfig, updateAdminConfig } from '../api.js';
+import { fetchAdminConfig, updateAdminConfig, getOllamaModels } from '../api.js';
 import type { AdminConfig } from '../types.js';
 
 // ── Inline editable string/number row ──────────────────────────────────────────
@@ -334,6 +334,92 @@ function ApiKeyRow({ isSet, onSave }: { isSet: boolean; onSave: (v: string) => P
   );
 }
 
+// ── Ollama provider section ────────────────────────────────────────────────────
+
+function OllamaSection({
+  config,
+  onSave,
+}: {
+  config: AdminConfig;
+  onSave: (updates: Partial<AdminConfig>) => Promise<void>;
+}) {
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'ok' | 'error'>('idle');
+  const [testMessage, setTestMessage] = useState('');
+
+  async function testConnection() {
+    setTestStatus('testing');
+    setTestMessage('');
+    try {
+      const models = await getOllamaModels();
+      setTestStatus('ok');
+      setTestMessage(models.length > 0 ? `Models: ${models.join(', ')}` : 'Connected (no models listed)');
+    } catch (e: unknown) {
+      setTestStatus('error');
+      setTestMessage((e as Error).message);
+    }
+  }
+
+  const isOllama = (config.provider ?? 'anthropic') === 'ollama';
+
+  return (
+    <div className="section">
+      <div className="section-header">
+        <span className="section-title">LLM Provider</span>
+      </div>
+      <EditableRow
+        label="Provider"
+        value={config.provider ?? 'anthropic'}
+        type="select"
+        options={[
+          { value: 'anthropic', label: 'Anthropic (cloud)' },
+          { value: 'ollama', label: 'Ollama (local)' },
+        ]}
+        onSave={v => onSave({ provider: v as 'anthropic' | 'ollama' })}
+      />
+      {isOllama && (
+        <>
+          <EditableRow
+            label="Ollama model"
+            value={config.ollamaModel ?? 'llama3.2'}
+            onSave={v => onSave({ ollamaModel: v })}
+          />
+          <EditableRow
+            label="Ollama base URL"
+            value={config.ollamaBaseUrl ?? 'http://localhost:11434'}
+            onSave={v => onSave({ ollamaBaseUrl: v })}
+          />
+          <div className="setting-row">
+            <span className="setting-row__label">Connection</span>
+            <span className="setting-row__value">
+              {testStatus === 'ok' && (
+                <span style={{ color: 'var(--green)', fontSize: '12px' }}>{testMessage}</span>
+              )}
+              {testStatus === 'error' && (
+                <span style={{ color: 'var(--red)', fontSize: '12px' }}>{testMessage}</span>
+              )}
+              {testStatus === 'idle' && (
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Not tested</span>
+              )}
+              {testStatus === 'testing' && (
+                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Testing…</span>
+              )}
+            </span>
+            <div className="setting-row__actions">
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => void testConnection()}
+                disabled={testStatus === 'testing'}
+              >
+                Test connection
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 const MODEL_OPTIONS = [
@@ -393,6 +479,9 @@ export default function SettingsPage() {
             onSave={v => handleSave({ maxToolOutputChars: parseInt(v, 10) })}
           />
         </div>
+
+        {/* LLM Provider */}
+        <OllamaSection config={config} onSave={handleSave} />
 
         {/* Auto-checkpoint + Agent */}
         <CheckpointSection config={config} onSave={handleSave} />

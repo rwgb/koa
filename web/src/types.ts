@@ -101,6 +101,9 @@ export interface AdminConfig {
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
   elevenLabsApiKey?: boolean;
+  provider?: 'anthropic' | 'ollama';
+  ollamaModel?: string;
+  ollamaBaseUrl?: string;
   // write-only: sent in PUT body, never returned by GET
   apiKey?: string;
 }

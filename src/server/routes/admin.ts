@@ -299,6 +299,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       elevenLabsVoiceId: config.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
       elevenLabsModel: config.elevenLabsModel ?? 'eleven_turbo_v2_5',
       elevenLabsApiKey: !!creds['ELEVENLABS_API_KEY'],
+      provider: config.provider ?? 'anthropic',
+      ollamaModel: config.ollamaModel ?? 'llama3.2',
+      ollamaBaseUrl: config.ollamaBaseUrl ?? 'http://localhost:11434',
     });
   });
 
@@ -323,6 +326,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       elevenLabsVoiceId?: unknown;
       elevenLabsModel?: unknown;
       elevenLabsApiKey?: unknown;
+      provider?: unknown;
+      ollamaModel?: unknown;
+      ollamaBaseUrl?: unknown;
     };
     const updates: Record<string, unknown> = {};
 
@@ -439,8 +445,52 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       }
     }
 
+    if (typeof body.provider === 'string') {
+      if (body.provider !== 'anthropic' && body.provider !== 'ollama') {
+        return res.status(400).json({ error: 'provider must be anthropic or ollama' });
+      }
+      updates['provider'] = body.provider;
+      config.provider = body.provider as 'anthropic' | 'ollama';
+    }
+    if (typeof body.ollamaModel === 'string' && body.ollamaModel.trim()) {
+      if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(body.ollamaModel.trim())) {
+        return res.status(400).json({ error: 'ollamaModel invalid' });
+      }
+      updates['ollamaModel'] = body.ollamaModel.trim();
+      config.ollamaModel = body.ollamaModel.trim();
+    }
+    if (typeof body.ollamaBaseUrl === 'string' && body.ollamaBaseUrl.trim()) {
+      const url = body.ollamaBaseUrl.trim();
+      if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url)) {
+        return res.status(400).json({ error: 'ollamaBaseUrl must be a local URL (localhost or 127.0.0.1)' });
+      }
+      updates['ollamaBaseUrl'] = url;
+      config.ollamaBaseUrl = url;
+    }
+
     writeKoaConfigFile(updates);
     res.json({ status: 'ok' });
+  });
+
+  // ── Ollama model list ─────────────────────────────────────────────────────────
+
+  router.get('/ollama/models', async (_req, res: Response) => {
+    const baseUrl = config.ollamaBaseUrl ?? 'http://localhost:11434';
+    // SSRF guard: only fetch from already-validated localhost URL stored in config
+    if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(baseUrl)) {
+      return res.status(400).json({ error: 'ollamaBaseUrl is not a local URL' });
+    }
+    try {
+      const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      if (!response.ok) {
+        return res.status(502).json({ error: `Ollama returned ${response.status}` });
+      }
+      const data = (await response.json()) as { models?: Array<{ name: string }> };
+      const models = (data.models ?? []).map((m) => m.name);
+      return res.json({ models });
+    } catch (err) {
+      return res.status(502).json({ error: `Cannot reach Ollama: ${err instanceof Error ? err.message : String(err)}` });
+    }
   });
 
   // ── Integrations ─────────────────────────────────────────────────────────────

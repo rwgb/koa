@@ -25,6 +25,9 @@ const ConfigSchema = z.object({
   ttsProvider: z.enum(['say', 'elevenlabs']).default('say'),
   elevenLabsVoiceId: z.string().default('21m00Tcm4TlvDq8ikWAM'),
   elevenLabsModel: z.string().default('eleven_turbo_v2_5'),
+  provider: z.enum(['anthropic', 'ollama']).default('anthropic'),
+  ollamaModel: z.string().default('llama3.2'),
+  ollamaBaseUrl: z.string().default('http://localhost:11434'),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -51,6 +54,9 @@ export interface KoaConfigFile {
   ttsProvider?: 'say' | 'elevenlabs';
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
+  provider?: 'anthropic' | 'ollama';
+  ollamaModel?: string;
+  ollamaBaseUrl?: string;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -120,6 +126,9 @@ export function loadConfig(projectPath?: string): KoaConfig {
     ttsProvider: (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | undefined) ?? fileConfig.ttsProvider ?? 'say',
     elevenLabsVoiceId: fileConfig.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
     elevenLabsModel: fileConfig.elevenLabsModel ?? 'eleven_turbo_v2_5',
+    provider: (process.env['KOA_PROVIDER'] as 'anthropic' | 'ollama' | undefined) ?? fileConfig.provider ?? 'anthropic',
+    ollamaModel: process.env['KOA_OLLAMA_MODEL'] ?? fileConfig.ollamaModel ?? 'llama3.2',
+    ollamaBaseUrl: process.env['KOA_OLLAMA_BASE_URL'] ?? fileConfig.ollamaBaseUrl ?? 'http://localhost:11434',
   });
 }
 

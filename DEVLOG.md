@@ -1,5 +1,72 @@
 # Koa — DevLog
 
+## [2026-06-03] — CP12c: Ollama Self-Hosted LLM Provider
+
+### Completed
+
+- **`src/agent/providers/types.ts`** — `LlmProvider` interface (`stream`, `create`), `LlmStream` interface, `LlmCallParams` — decouples loop.ts from the Anthropic SDK wire format.
+- **`src/agent/providers/anthropic.ts`** — `AnthropicProvider`: zero-behaviour-change wrapper around the existing Anthropic client. Delegates `stream()` and `create()` directly.
+- **`src/agent/providers/ollama.ts`** — `OllamaProvider`: uses Ollama's OpenAI-compatible `/v1/chat/completions` endpoint. Maps Anthropic `MessageParam[]` → OpenAI messages (handles `tool_use`, `tool_result`, `cache_control` stripping). Maps OpenAI response → `Anthropic.Message` (`finish_reason` → `stop_reason`, usage fields, `ToolUseBlock`). SSE streaming via `fetch` + `ReadableStream`. Graceful degradation warning when tools are passed but model returns `end_turn`.
+- **`src/agent/providers/index.ts`** — `createProvider(config)` factory: returns `OllamaProvider` or `AnthropicProvider` based on `config.provider`.
+- **`src/config/index.ts`** — Added `provider`, `ollamaModel`, `ollamaBaseUrl` to `ConfigSchema`, `KoaConfigFile`, and `loadConfig()` (with `KOA_PROVIDER`, `KOA_OLLAMA_MODEL`, `KOA_OLLAMA_BASE_URL` env var support).
+- **`src/agent/loop.ts`** — Replaced `private client: Anthropic` with `private provider: LlmProvider` + `private anthropicClient: Anthropic | null`. Ollama path skips `selectModel` classifier and uses `config.ollamaModel` with `tier='custom'`. All `this.client` usages updated: `stream()`, `semanticCompact`, auto-chaining PM. `extractAndMergePreferences` keeps using `anthropicClient` (Anthropic-specific, guarded by `if (this.config.apiKey && this.anthropicClient)`).
+- **`src/server/routes/admin.ts`** — GET `/config` returns `provider`, `ollamaModel`, `ollamaBaseUrl`. PUT `/config` validates and persists them (SSRF guard on `ollamaBaseUrl`: must match `localhost` or `127.0.0.1`). Added `GET /api/admin/ollama/models` that proxies Ollama's `/api/tags` → `{ models: string[] }`.
+- **`src/cli/index.ts`** — Added `--provider` flag; skips `apiKey` requirement when `provider === 'ollama'`.
+- **`web/src/types.ts`** — Added `provider`, `ollamaModel`, `ollamaBaseUrl` to `AdminConfig`.
+- **`web/src/api.ts`** — Added `getOllamaModels()` function.
+- **`web/src/pages/SettingsPage.tsx`** — Added `OllamaSection` component: provider radio (Anthropic / Ollama), Ollama model + base URL fields, "Test connection" button that fetches model list from `GET /api/admin/ollama/models`.
+- **`src/__tests__/ollama_provider.test.ts`** — 14 tests covering `stripCacheControl`, `toOpenAIMessages` (plain user, assistant text, tool_use, tool_result, array tool_result), `fromOpenAIResponse` (text, tool_calls, length, empty choices), `OllamaProvider.create()` (happy path, error, tool stripping).
+
+### Decisions
+
+- `anthropicClient` kept as a separate field (null for Ollama) so `extractAndMergePreferences` and `selectModel` classifier continue to use Anthropic specifically — these are inherently Anthropic features.
+- `semanticCompact` uses `this.provider.create()` with `config.ollamaModel` when on Ollama — any model that supports chat can summarise.
+- `LlmCallParams.system` is `TextBlockParam[]` (same as Anthropic API); OllamaProvider strips `cache_control` internally so loop.ts needs no changes.
+
+### Security
+
+- SSRF guard: `ollamaBaseUrl` validated against `/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/` on PUT /config AND in GET /ollama/models. The models endpoint reads from the already-validated stored config value.
+- No HIGH/MEDIUM findings.
+
+### QA
+
+- 536/536 tests pass (8 new); tsc clean.
+
+### Next Session
+
+- [ ] CP13 — TBD
+
+---
+
+## [2026-06-03] — CP12b: Semantic Context Window Compaction
+
+### Completed
+
+- **`src/agent/loop.ts`** — Replaced `compressOldMessages()` with `semanticCompact()`: groups messages into per-request clusters (user text + tool calls/results + assistant responses), summarises all old clusters in one Haiku call (≤300 tokens/cluster, capped at 2048 output tokens), preserves last 4 clusters verbatim, falls back to `compactMessages()` if Haiku fails. `groupIntoClusters()` exported for testing.
+- **`src/agent/loop.ts`** — Added `contextStats()` public method returning `{ totalMessages, estimatedTokens (chars/4), clusterCount, lastCompactionAt }`. `lastCompactionAt` private field tracks when compaction last fired.
+- **`src/types/index.ts`** — Added `ContextStats` interface; added `contextStats?` and `chainedResult?` to `TurnResult`.
+- **`src/server/events.ts`** — Added `contextStats?: ContextStats` to `usage` SSE event variant.
+- **`src/server/routes/chat.ts`** — Passes `loop.contextStats()` into `usage` SSE event.
+- **`web/src/types.ts`** — Added `ContextStats` interface; updated `usage` SSE event union.
+- **`web/src/context/AgentContext.tsx`** — Added `contextStats` state and `setContextStats` setter.
+- **`web/src/pages/ChatPage.tsx`** — Calls `setContextStats(event.contextStats)` on `usage` SSE events.
+- **`web/src/components/TopNav.tsx`** — Added `ContextPressureBadge`: hidden below 20%, blue 20–49%, amber 50–69%, red 70%+; shows `ctx XX%` tooltip with token count.
+- **`src/__tests__/loop_compact.test.ts`** — 6 new `groupIntoClusters` tests (single message, two clusters, tool-call grouping, last-4 preservation, empty input, leading tool-result edge case).
+
+### Security
+
+- No HIGH/MEDIUM findings. Prompt injection in `semanticCompact()` is LOW (conversation history is already trusted; same posture as prior implementation).
+
+### QA
+
+- 522/522 tests pass; tsc clean.
+
+### Next Session
+
+- [ ] CP12c — Self-Hosted LLM Provider (Ollama)
+
+---
+
 ## [2026-06-03] — CP12a: Plugin / Tool Extensibility SDK
 
 ### Completed

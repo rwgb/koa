@@ -72,7 +72,8 @@ program
   .option('--no-cache', 'Disable response cache')
   .option('--checkpoint-turns <n>', 'Auto-checkpoint every N turns (0=off)', parseInt)
   .option('--checkpoint-minutes <n>', 'Auto-checkpoint every N minutes (0=off)', parseInt)
-  .action(async (opts: { project?: string; model?: string; engram: boolean; cache: boolean; checkpointTurns?: number; checkpointMinutes?: number }) => {
+  .option('--provider <provider>', 'LLM provider: anthropic or ollama')
+  .action(async (opts: { project?: string; model?: string; engram: boolean; cache: boolean; checkpointTurns?: number; checkpointMinutes?: number; provider?: string }) => {
     const config = loadConfig(opts.project);
     // Persist explicit --project as the default so bare `koa` always loads the same context.
     if (opts.project) {
@@ -84,8 +85,11 @@ program
     if (!opts.cache) config.noCache = true;
     if (opts.checkpointTurns !== undefined) config.autoCheckpointTurns = opts.checkpointTurns;
     if (opts.checkpointMinutes !== undefined) config.autoCheckpointMinutes = opts.checkpointMinutes;
+    if (opts.provider === 'anthropic' || opts.provider === 'ollama') {
+      config.provider = opts.provider;
+    }
 
-    if (!config.apiKey) {
+    if (config.provider !== 'ollama' && !config.apiKey) {
       console.error('Error: ANTHROPIC_API_KEY environment variable is required');
       process.exit(1);
     }

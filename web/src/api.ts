@@ -161,6 +161,13 @@ export async function fetchActivitySessions(): Promise<ActivitySessionsResponse>
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
+export async function getOllamaModels(): Promise<string[]> {
+  const res = await authFetch('/api/admin/ollama/models');
+  if (!res.ok) throw new Error(`Failed to fetch Ollama models: ${res.status}`);
+  const data = (await res.json()) as { models: string[] };
+  return data.models;
+}
+
 export async function updateAdminConfig(updates: Partial<AdminConfig>): Promise<void> {
   const res = await authFetch('/api/admin/config', {
     method: 'PUT',
