@@ -1,5 +1,22 @@
 # Koa — DevLog
 
+## [2026-06-04] — Merge & Branch Cleanup
+
+### Completed
+
+- Committed CP13 doc pass: README, API.md, DEPLOYMENT.md, CONTRIBUTING.md updated; PLUGINS.md and TOOLS.md added
+- Merged `feature/context-compression` → `develop` (18 commits, CP7–CP13 full arc)
+- Pushed `develop` and `main` to origin
+- Opened PR #3: https://github.com/rwgb/koa/pull/3 (`develop` → `main`)
+- Deleted 11 stale `worktree-agent-*` branches
+
+### Next Session
+
+- [ ] Merge PR #3 after review
+- [ ] Plan CP14 (check TASKS.md backlog)
+
+---
+
 ## [2026-06-04] — CP13: Security Hardening & Correctness
 
 ### Completed
