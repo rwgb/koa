@@ -67,7 +67,7 @@ function runChatStream(
     .then((result) => {
       if (!didStreamContent) send({ type: 'content', text: result.content });
       if (result.usage) {
-        send({ type: 'usage', turn: result.usage, session: loop.getState().usage });
+        send({ type: 'usage', turn: result.usage, session: loop.getState().usage, contextStats: loop.contextStats() });
       }
       send({
         type: 'done',

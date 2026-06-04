@@ -5,6 +5,27 @@ import type { HealthStatus } from '../types.js';
 
 const VERSION = '0.2.0';
 
+function ContextPressureBadge({ estimatedTokens }: { estimatedTokens: number }) {
+  const MAX_TOKENS = 200_000;
+  const pct = Math.min(estimatedTokens / MAX_TOKENS, 1);
+  const pctDisplay = Math.round(pct * 100);
+
+  if (pct < 0.2) return null; // don't show below 20%
+
+  const color =
+    pct >= 0.7 ? 'var(--red)' : pct >= 0.5 ? 'var(--yellow, #f59e0b)' : 'var(--blue)';
+
+  return (
+    <span
+      className="top-nav__context-badge"
+      style={{ color }}
+      title={`Context: ~${estimatedTokens.toLocaleString()} tokens (${pctDisplay}% of 200k limit)`}
+    >
+      ctx {pctDisplay}%
+    </span>
+  );
+}
+
 function HealthPill() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
 
@@ -64,7 +85,7 @@ function StatusPill({ isThinking, activeTool }: { isThinking: boolean; activeToo
 }
 
 export default function TopNav() {
-  const { isThinking, activeTool, usage, agentStatus } = useAgent();
+  const { isThinking, activeTool, usage, agentStatus, contextStats } = useAgent();
 
   const tierColor =
     agentStatus?.activeTier === 'haiku'
@@ -88,6 +109,9 @@ export default function TopNav() {
       <div className="top-nav__right">
         {usage && usage.estimatedCostUsd > 0 && (
           <span className="top-nav__cost">${usage.estimatedCostUsd.toFixed(4)}</span>
+        )}
+        {contextStats && contextStats.estimatedTokens > 0 && (
+          <ContextPressureBadge estimatedTokens={contextStats.estimatedTokens} />
         )}
         {agentStatus && (
           <span

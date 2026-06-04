@@ -16,7 +16,7 @@ export default function ChatPage() {
   const lastTierRef = useRef<string>('sonnet');
   const lastAgentRef = useRef<string>('code-assistant');
 
-  const { isThinking, setIsThinking, setActiveTool, setUsage, setAgentStatus, agentStatus } = useAgent();
+  const { isThinking, setIsThinking, setActiveTool, setUsage, setAgentStatus, setContextStats, agentStatus } = useAgent();
 
   // Sync lastTierRef with the server-reported tier (before any turns, reflects config model)
   useEffect(() => {
@@ -67,6 +67,7 @@ export default function ChatPage() {
         }
         if (event.type === 'usage') {
           setUsage(event.session);
+          if (event.contextStats) setContextStats(event.contextStats);
           return;
         }
         if (event.type === 'classifying') {

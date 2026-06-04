@@ -29,6 +29,13 @@ export interface SessionUsageStats {
   agentBreakdown: Record<string, AgentCostEntry>;
 }
 
+export interface ContextStats {
+  totalMessages: number;
+  estimatedTokens: number;
+  clusterCount: number;
+  lastCompactionAt: string | null;
+}
+
 export interface EngramContext {
   goal?: string;
   hotFiles: HotFile[];
@@ -98,6 +105,8 @@ export interface TurnResult {
   agent: string;
   usage?: TurnUsage;
   classifierLatencyMs?: number;
+  contextStats?: ContextStats;
+  chainedResult?: { content: string; agent: string };
 }
 
 export interface ToolUse {
