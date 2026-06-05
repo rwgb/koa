@@ -38,8 +38,12 @@ jobs:
 
       - name: Validate inputs
         run: |
-          echo "${{ github.event.pull_request.number || inputs.pr_number }}" \
-            | grep -Eq '^[0-9]+$' || { echo "Invalid PR_NUMBER"; exit 1; }
+          PR="${{ github.event.pull_request.number }}"
+          # workflow_dispatch fallback — only digits allowed
+          if [ -z "$PR" ]; then PR="${{ inputs.pr_number }}"; fi
+          echo "$PR" | grep -Eq '^[0-9]+$' || { echo "Invalid PR_NUMBER: $PR"; exit 1; }
+          SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "$SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo "Invalid SHA: $SHA"; exit 1; }
 
       - name: Run AI review
         run: node scripts/ai-review.js
