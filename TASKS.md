@@ -908,10 +908,9 @@ No source code changes. Pure infra files.
 
 ### Critical pre-work (do before implementation)
 
-- [ ] **Rotate ANTHROPIC_API_KEY** — a live key is present in `.env` in the working tree.
-  Rotate at `console.anthropic.com`. Then verify `.env` was never committed:
-  `git log --all --full-history -- .env`. If it was, rewrite history with
-  `git filter-repo --path .env --invert-paths` and force-push after coordinating.
+- [x] **Verify `.env` was never committed** — confirmed: `git log --all --full-history -- .env`
+  returns no commits. The working tree `.env` is gitignored and has never entered history.
+  API key rotation is not required; the key has not been exposed via git.
 
 ---
 
@@ -949,6 +948,7 @@ prompt and memory tool; no "Ralph" strings remain in committed TypeScript source
 ### Checkpoint gate (CP13a)
 - [ ] tsc clean
 - [ ] npm test all pass — all tests that import `rememberTool` / `AGENT_SPECS` directly still work
+- [ ] New test: `buildAgentSpecs('Alice')` asserts `'Alice'` appears in the generated spec strings (prevents regression in userName plumbing)
 - [ ] `grep -r "Ralph" src/` returns zero hits
 
 ---
@@ -961,9 +961,12 @@ prompt and memory tool; no "Ralph" strings remain in committed TypeScript source
 
 - [ ] `scripts/checkpoint.sh`
   - Replace hardcoded `NTFY_URL="https://ntfy.sh/undaunting_underpants"` with a credentials-file
-    lookup: read `NTFY_TOPIC` and `NTFY_BASE_URL` from `~/.koa/credentials` (via `grep`),
-    fall back to `KOA_NTFY_TOPIC` / `KOA_NTFY_BASE_URL` env vars, default base URL to
-    `https://ntfy.sh`. If `NTFY_TOPIC` is empty, print a warning to stderr and exit 0.
+    lookup. Use safe extraction: `NTFY_TOPIC=$(grep -Po '(?<=^NTFY_TOPIC=).*' ~/.koa/credentials 2>/dev/null || true)`,
+    fall back to `KOA_NTFY_TOPIC` env var. Default base URL to `https://ntfy.sh` via same pattern
+    for `NTFY_BASE_URL` / `KOA_NTFY_BASE_URL`. If `NTFY_TOPIC` is empty, print a warning to
+    stderr and exit 0.
+  - Validate `NTFY_TOPIC` matches `[a-zA-Z0-9_-]` only (guard against injection); reject and
+    warn if invalid. Always quote `"$NTFY_TOPIC"` in URL construction — never unquoted interpolation.
 
 - [ ] `src/notifications/escalation.ts`
   - Replace any hardcoded ntfy topic with `readCredentials()['NTFY_TOPIC']` and
@@ -998,7 +1001,9 @@ writes to `~/.koa/credentials` and `~/.koa/config.json`, and exits cleanly. Head
   ```
   Uses `readline/promises` (no new dependencies). Five steps in order:
   1. **Anthropic API key** (T1) — validates `sk-ant-` prefix + length ≥ 20 chars; writes via
-     `setApiKey()`. Skips if already set (unless `--reset`).
+     `setApiKey()`. Skips if already set (unless `--reset`). Note: liveness is not validated
+     at setup time (no test API call); a syntactically-valid-but-revoked key will fail at first
+     use. Document this clearly in the wizard output: "Key format OK — will validate on first use."
   2. **Web console token** (T1) — offer auto-generate (64-char hex via `generateWebToken()`) or
      manual entry (min 16 chars); writes via `setWebToken()`. Skips if already set.
   3. **Your name** (T2) — writes to `~/.koa/config.json` as `"userName"`. Default: `User`.
@@ -1025,8 +1030,9 @@ writes to `~/.koa/credentials` and `~/.koa/config.json`, and exits cleanly. Head
 
 - [ ] `.gitignore` — add `.claude/settings.json` (personal harness permissions are machine-specific)
 - [ ] `.claude/settings.example.json` — rename/copy from `.claude/settings.json`; replace
-  absolute paths with `$(git rev-parse --show-toplevel)` placeholders; add comment header
-  explaining cloners must copy to `settings.json` and set their project path
+  absolute paths with `<PROJECT_ROOT>` string placeholders (not shell substitutions — JSON files
+  do not evaluate `$(…)`); add comment header explaining cloners must copy to `settings.json`
+  and replace `<PROJECT_ROOT>` with their actual path (or use `koa setup` to generate it)
 - [ ] `config.example.json` — create at repo root; document every `KoaConfigFile` field with
   one-line comments; no personal values
 - [ ] `.env.example` — add T2 section with `KOA_USER_NAME`, `KOA_NTFY_TOPIC`, `KOA_NTFY_BASE_URL`
@@ -1038,7 +1044,7 @@ writes to `~/.koa/credentials` and `~/.koa/config.json`, and exits cleanly. Head
   replace inline "Ralph" references with `${KOA_USER_NAME}` placeholder markers
 
 ### Checkpoint gate (CP13d)
-- [ ] `grep -rn "rwgb\|undaunting_underpants\|ralph\.brynard\|/Users/ralph" . --include="*.ts" --include="*.sh" --include="*.yml" --include="*.md" --include="*.json" | grep -v node_modules | grep -v ".git"` returns zero hits
+- [ ] `grep -rn "rwgb\|undaunting_underpants\|ralph\.brynard\|/Users/ralph" . --include="*.ts" --include="*.sh" --include="*.yml" --include="*.md" --include="*.json" --exclude-dir=node_modules --exclude-dir=.git` returns zero hits
 - [ ] `.claude/settings.json` is in `.gitignore`; `settings.example.json` committed instead
 - [ ] security review: no personal data or credentials in committed files
 
