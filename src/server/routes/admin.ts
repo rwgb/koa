@@ -774,6 +774,32 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     res.json({ status: 'ok' });
   });
 
+  router.post('/ntfy/test', (_req, res) => {
+    const creds = readCredentials();
+    const topic = creds['NTFY_TOPIC'];
+    const baseUrl = creds['NTFY_BASE_URL'] ?? 'https://ntfy.sh';
+
+    if (!topic) {
+      res.status(400).json({ error: 'NTFY_TOPIC not set in credentials' });
+      return;
+    }
+
+    try {
+      validateSafeUrl(baseUrl);
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+      return;
+    }
+
+    fetch(`${baseUrl}/${encodeURIComponent(topic)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: 'Koa ntfy test ✓',
+    })
+      .then((r) => res.json({ ok: r.ok, message: r.ok ? 'Test notification sent' : `HTTP ${r.status}` }))
+      .catch((err: unknown) => res.json({ ok: false, message: err instanceof Error ? err.message : String(err) }));
+  });
+
   // ── Skills ────────────────────────────────────────────────────────────────────
 
   router.get('/skills', (_req, res) => {
