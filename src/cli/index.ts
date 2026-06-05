@@ -9,7 +9,7 @@ import { bashTool } from '../agent/tools/bash.js';
 import { createFileTools } from '../agent/tools/files.js';
 import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
-import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
+import { createRememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
 import { webFetchTool } from '../agent/tools/web_fetch.js';
 import { webSearchTool } from '../agent/tools/web_search.js';
@@ -48,7 +48,7 @@ function buildRegistry(
   for (const tool of githubTools) registry.register(tool);
   for (const tool of createFileTools(projectRoot)) registry.register(tool);
   registry.register(createEngramTool(engram));
-  registry.register(rememberTool);
+  registry.register(createRememberTool(config.userName ?? 'User'));
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
   registry.register(createExecuteCodeTool(createRunner(config), config));
