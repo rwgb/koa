@@ -44,12 +44,8 @@
 - Auto-merge uses GitHub's native feature (`gh pr merge --auto --squash`); no custom poll logic needed
 - Uses native `fetch` in review script (Node 18+) — no extra install step required
 
-### Next Session
-
-- [ ] Complete GitHub setup: add `ANTHROPIC_API_KEY` secret, enable auto-merge in repo settings, add branch protection rules on `main`
-- [ ] Merge PR #3 after review + CI pass
-
 ---
+
 
 ## [2026-06-04] — Merge & Branch Cleanup
 
@@ -60,7 +56,6 @@
 - Pushed `develop` and `main` to origin
 - Opened PR #3: https://github.com/rwgb/koa/pull/3 (`develop` → `main`)
 - Deleted 11 stale `worktree-agent-*` branches
-- [ ] Plan CP14 (check TASKS.md backlog)
 
 ---
 
