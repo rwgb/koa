@@ -39,19 +39,20 @@ jobs:
       - name: Validate inputs
         run: |
           PR="${{ github.event.pull_request.number }}"
-          # workflow_dispatch fallback — only digits allowed
           if [ -z "$PR" ]; then PR="${{ inputs.pr_number }}"; fi
           echo "$PR" | grep -Eq '^[0-9]+$' || { echo "Invalid PR_NUMBER: $PR"; exit 1; }
           SHA="${{ github.event.pull_request.head.sha || github.sha }}"
           echo "$SHA" | grep -Eq '^[0-9a-f]{40}$' || { echo "Invalid SHA: $SHA"; exit 1; }
+          # Write validated values into env for subsequent steps
+          echo "SAFE_PR_NUMBER=$PR"  >> "$GITHUB_ENV"
+          echo "SAFE_GITHUB_SHA=$SHA" >> "$GITHUB_ENV"
 
       - name: Run AI review
         run: node scripts/ai-review.js
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER:         ${{ github.event.pull_request.number || inputs.pr_number }}
+          PR_NUMBER:         ${{ env.SAFE_PR_NUMBER }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          # Use the PR head SHA, not the merge-ref SHA, so the status shows on the PR
-          GITHUB_SHA:        ${{ github.event.pull_request.head.sha || github.sha }}
+          GITHUB_SHA:        ${{ env.SAFE_GITHUB_SHA }}
 
