@@ -4,6 +4,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
+// Prevent real `say` / sox spawns on non-macOS CI runners
+vi.mock('child_process', () => ({
+  spawn: vi.fn(() => ({ stdout: { on: vi.fn() }, stderr: { on: vi.fn() }, on: vi.fn(), unref: vi.fn() })),
+  spawnSync: vi.fn(() => ({ status: 0 })),
+}));
+
 // Mock readCredentials so tests don't touch ~/.koa
 vi.mock('../config/credentials.js', () => ({
   readCredentials: () => ({}),

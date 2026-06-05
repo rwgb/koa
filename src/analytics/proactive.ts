@@ -38,7 +38,7 @@ export function detectEndOfWeekAlerts(): ProactiveAlert | null {
 /** Tasks that have been in_progress for more than stalledDays without update. */
 export function detectStalledTasks(stalledDays = 5): ProactiveAlert | null {
   const cutoff = new Date(Date.now() - stalledDays * 86_400_000).toISOString();
-  const tasks = listTasks({ status: 'in_progress' }).filter((t) => t.updated_at < cutoff);
+  const tasks = listTasks({ status: 'in_progress' }).filter((t) => t.updated_at <= cutoff);
   if (tasks.length === 0) return null;
 
   const noun = tasks.length === 1 ? 'task is' : 'tasks are';
