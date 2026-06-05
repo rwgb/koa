@@ -1,5 +1,36 @@
 # Koa — DevLog
 
+## [2026-06-04] — Roadmap: CP13 Clone-Ready + Engram Cross-Project Coordination
+
+### Completed
+
+- Spawned architect agent to spec clone-ready security for Koa (public fork UX)
+- Added CP13 to TASKS.md: 4 sub-checkpoints covering userName plumbing, ntfy
+  parameterisation, `koa setup` wizard, and repo sanitisation
+- Discussed Engram cross-project coordination: lightweight requirements file in Koa
+  (ENGRAM_NEEDS.md) + GitHub Actions repository dispatch → Engram CI runs Claude headlessly
+  and opens a PR. Agreed on approach; not yet added to roadmap.
+
+### Decisions
+
+- CP13 split into 4 sub-checkpoints (a–d) so each is independently mergeable
+- Critical pre-work: rotate ANTHROPIC_API_KEY before CP13 implementation starts (live key
+  in .env working tree — git history check required)
+- Engram automation: requirement spec format (CLI contract + test cases) must be agreed
+  before roadmap entries are written — format is load-bearing for autonomous CI quality
+- Engram CI will use headless Claude Code (`claude --print` or API); Engram's small
+  blast radius (pure Python, no external services) makes autonomous operation low-risk
+- Product Radar heading updated from CP13+ to CP14+ now that CP13 is claimed
+
+### Next Session
+
+- [ ] Agree on Engram requirement spec format, then add CP14 to Koa TASKS.md and
+      matching entry to Engram TASKS.md (option 4 deferred — other session was active)
+- [ ] Bump package.json version to 0.3.0
+- [ ] Plan remaining CP14+ items from Product Radar
+
+---
+
 ## [2026-06-05] — PR #3 Merged: CI/CD Hardening + Security Fixes
 
 ### Completed

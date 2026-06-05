@@ -37,8 +37,15 @@ metadata:
 - Branch protection on `develop`: requires `ci / Lint, typecheck & test`
 - CI + AI review + release workflows fully operational
 
+## Current Arc — CP13: Clone-Ready Hardening (2026-06-05)
+
+- PR #4 (docs sync) ✅ merged to main
+- `.env` credential check ✅ confirmed never committed — no key rotation needed
+- `feature/cp13-clone-ready` branch — in progress
+- Sub-CPs: CP13a (userName), CP13b (ntfy), CP13c (setup wizard), CP13d (repo sanitisation)
+
 ## Next
 
-- Sync `develop` with `main` (rebase or merge after squash-merge)
-- Bump version to `0.3.0` in `package.json`
-- Plan CP14 (see Product Radar in TASKS.md)
+- Implement CP13a–CP13d on `feature/cp13-clone-ready`
+- Bump version to `0.3.0` in `package.json` (with CP13 release)
+- Agree on Engram requirement spec format → add CP14 to Koa TASKS.md
