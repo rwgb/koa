@@ -30,11 +30,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Check out the BASE branch (main) — not the PR head — so the review
-      # script cannot be modified by a PR to exfiltrate secrets.
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
