@@ -11,8 +11,8 @@ function sanitizeHeader(value: string): string {
 function makeOAuth2Client() {
   const integrations = loadIntegrations();
   const gmail = integrations.find(i => i.type === 'gmail' || i.type === 'google-gmail');
-  const clientId = gmail?.config['clientId'] ?? process.env['GMAIL_CLIENT_ID'] ?? '';
-  const clientSecret = gmail?.config['clientSecret'] ?? process.env['GMAIL_CLIENT_SECRET'] ?? '';
+  const clientId = gmail?.config['clientId'] ?? process.env['GOOGLE_CLIENT_ID'] ?? '';
+  const clientSecret = gmail?.config['clientSecret'] ?? process.env['GOOGLE_CLIENT_SECRET'] ?? '';
   return new google.auth.OAuth2(clientId, clientSecret);
 }
 

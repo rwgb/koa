@@ -14,8 +14,8 @@ const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 function makeOAuth2Client(redirectUri?: string) {
   const integrations = loadIntegrations();
   const gmail = integrations.find(i => i.type === 'gmail');
-  const clientId = gmail?.config['clientId'] ?? process.env['GMAIL_CLIENT_ID'] ?? '';
-  const clientSecret = gmail?.config['clientSecret'] ?? process.env['GMAIL_CLIENT_SECRET'] ?? '';
+  const clientId = gmail?.config['clientId'] ?? process.env['GOOGLE_CLIENT_ID'] ?? '';
+  const clientSecret = gmail?.config['clientSecret'] ?? process.env['GOOGLE_CLIENT_SECRET'] ?? '';
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 

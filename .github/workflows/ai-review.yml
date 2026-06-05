@@ -3,11 +3,9 @@ name: AI Code Review
 # Runs on every PR targeting main (i.e. develop → main release PRs).
 # - Posts a detailed review comment on the PR.
 # - Sets an "ai-review" commit status (success | failure).
-# - Enables GitHub auto-merge (squash) when the review passes.
-#   GitHub will then merge automatically once the "ci / test" check also passes.
+# - PASS = no CRITICAL/HIGH findings; merge must be done manually.
 #
 # Required repo secret: ANTHROPIC_API_KEY
-# Required repo setting: Settings → General → Allow auto-merge  ✓
 # Required branch protection on main:
 #   Required status checks: "ci / Lint, typecheck & test"  AND  "ai-review"
 
