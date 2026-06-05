@@ -166,6 +166,8 @@ See `docs/PLUGINS.md` for the full manifest format and transport options. The sh
 }
 ```
 
+> **Security**: `{{input.value}}` tokens are substituted into `env` values only — never interpolated directly into the `command` string. Always pass user input via the `env` block. For `http` transport tools that construct URLs from input, ensure the resolved URL passes SSRF validation (private IP ranges are blocked by default).
+
 Drop it at `~/.koa/plugins/my_plugin.json` and restart the server.
 
 ---
@@ -189,6 +191,8 @@ curl -X POST http://localhost:3000/api/admin/skills/custom \
     }
   }'
 ```
+
+> **Security**: pass user input via `env` vars, never inline in the command string. For skills that make outbound HTTP requests, validate that the target host is trusted — the `http` transport runs SSRF validation automatically, but `bash` transport does not restrict outbound requests.
 
 ---
 

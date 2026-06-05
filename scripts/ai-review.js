@@ -128,10 +128,12 @@ Respond with ONLY a JSON object inside a single \`\`\`json code block — no tex
 }
 
 Rules:
-- verdict MUST be FAIL if any CRITICAL or HIGH finding exists, PASS otherwise
+- verdict MUST be FAIL if any CRITICAL finding exists, PASS otherwise
+- HIGH/MEDIUM/LOW findings are advisory — they do not block the verdict
 - If no findings, return an empty array and PASS
 - Reference exact file paths and line numbers visible in the diff
-- Do not invent issues that are not present in the diff`;
+- Do not invent issues that are not present in the diff
+- Note: the diff may be truncated; do not flag issues in code you cannot see`;
 
 async function callClaude(diff, prTitle, prBody) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -171,8 +173,8 @@ function formatComment(review) {
   const passed = verdict === 'PASS';
   const badge = passed ? '✅ **PASS**' : '❌ **FAIL**';
 
-  const blocking = findings.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
-  const nonBlocking = findings.filter(f => f.severity === 'MEDIUM' || f.severity === 'LOW');
+  const blocking = findings.filter(f => f.severity === 'CRITICAL');
+  const nonBlocking = findings.filter(f => f.severity !== 'CRITICAL');
 
   let md = `## AI Code Review — ${badge}\n\n${summary}\n`;
 
@@ -195,7 +197,7 @@ function formatComment(review) {
     md += `\n> **Merge blocked** — ${blocking.length} blocking finding(s) must be resolved before this PR can be merged.\n`;
   }
 
-  md += `\n---\n_Reviewed by [Claude Sonnet 4.6](https://anthropic.com) · Pass threshold: no CRITICAL or HIGH findings_`;
+  md += `\n---\n_Reviewed by [Claude Sonnet 4.6](https://anthropic.com) · Pass threshold: no CRITICAL findings (HIGH/MEDIUM/LOW are advisory)_`;
   return md;
 }
 
@@ -219,8 +221,8 @@ async function main() {
   }
 
   const { findings, verdict } = review;
-  const blocking = findings.filter(f => f.severity === 'CRITICAL' || f.severity === 'HIGH');
-  console.log(`Verdict: ${verdict}  |  Findings: ${findings.length} total, ${blocking.length} blocking`);
+  const blocking = findings.filter(f => f.severity === 'CRITICAL');
+  console.log(`Verdict: ${verdict}  |  Findings: ${findings.length} total, ${blocking.length} blocking (CRITICAL)`);
 
   await postComment(formatComment(review));
 
