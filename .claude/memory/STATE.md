@@ -39,13 +39,16 @@ metadata:
 
 ## Current Arc — CP13: Clone-Ready Hardening (2026-06-05)
 
-- PR #4 (docs sync) ✅ merged to main
-- `.env` credential check ✅ confirmed never committed — no key rotation needed
-- `feature/cp13-clone-ready` branch — in progress
-- Sub-CPs: CP13a (userName), CP13b (ntfy), CP13c (setup wizard), CP13d (repo sanitisation)
+- PR #4 (docs sync) ✅ merged to main 2026-06-05
+- `.env` credential check ✅ never committed — no key rotation needed
+- AI review findings in TASKS.md spec ✅ all resolved before merge
+- `feature/cp13-clone-ready` ✅ branch cut from develop
+- Architecture plan ✅ complete for CP13a + CP13b (reviewed, ready to implement)
 
 ## Next
 
-- Implement CP13a–CP13d on `feature/cp13-clone-ready`
-- Bump version to `0.3.0` in `package.json` (with CP13 release)
-- Agree on Engram requirement spec format → add CP14 to Koa TASKS.md
+- CP13a: userName plumbing (`src/config`, `specialists.ts`, `loop.ts`, `memory_tool.ts`, `cli`)
+- CP13b: ntfy parameterisation (`checkpoint.sh`, `admin.ts`, `.env.example`)
+- CP13c: `koa setup` wizard
+- CP13d: repo sanitisation
+- Bump version to `0.3.0` in `package.json` with CP13 release

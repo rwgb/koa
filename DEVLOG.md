@@ -1,5 +1,39 @@
 # Koa — DevLog
 
+## [2026-06-05] — Pre-CP13: PR #4 merged, CP13 arc opened
+
+### Completed
+
+- Merged PR #4 (docs sync: DEVLOG, STATE, TASKS) to main — AI review found 1 CRITICAL
+  (`.env` never committed, resolved), 3 HIGH, 3 MEDIUM in TASKS.md spec; all fixed in-spec
+- Resolved all AI review blocking findings in TASKS.md before merge:
+  - CRITICAL: marked `.env` credential check verified (never committed)
+  - HIGH: added safe `grep -Po` credential parsing spec to CP13b
+  - HIGH: added ntfy topic `[a-zA-Z0-9_-]` validation requirement to CP13b
+  - HIGH: documented API key liveness not checked at setup time in CP13c
+  - MEDIUM: fixed `$(git rev-parse...)` → `<PROJECT_ROOT>` in CP13d settings example spec
+  - MEDIUM: fixed checkpoint grep to use `--exclude-dir` flags
+  - LOW: added `buildAgentSpecs('Alice')` regression test to CP13a gate
+- Cut `feature/cp13-clone-ready` from develop
+- Architecture/plan pass complete for CP13a + CP13b (Plan agent output reviewed)
+
+### Decisions
+
+- CP13a and CP13b run sequentially with independent checkpoints (not batched)
+- Backward-compat exports (`AGENT_SPECS`, `rememberTool`) kept during CP13a so no test changes needed
+- ntfy credential path uses `grep -Po` whitelist pattern, not shell sourcing (injection safety)
+- `.env.example` documents `KOA_NTFY_TOPIC` (env var); credentials file uses `NTFY_TOPIC` (no prefix)
+
+### Next Session
+
+- [ ] Implement CP13a (userName plumbing) → checkpoint
+- [ ] Implement CP13b (ntfy parameterisation) → checkpoint
+- [ ] Implement CP13c (koa setup wizard) → checkpoint
+- [ ] Implement CP13d (repo sanitisation) → checkpoint
+
+---
+
+
 ## [2026-06-04] — Roadmap: CP13 Clone-Ready + Engram Cross-Project Coordination
 
 ### Completed
