@@ -1,6 +1,26 @@
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import type { Tool } from '../../types/index.js';
 import type { CustomSkillDef } from '../../skills/store.js';
+import { validateSafeUrl } from '../../utils/ssrf.js';
+
+function splitArgs(cmd: string): string[] {
+  const args: string[] = [];
+  let current = '';
+  let inQuote: '"' | "'" | null = null;
+  for (const ch of cmd) {
+    if (ch === '"' || ch === "'") {
+      if (inQuote === ch) inQuote = null;
+      else if (!inQuote) inQuote = ch;
+      else current += ch;
+    } else if (ch === ' ' && !inQuote) {
+      if (current) { args.push(current); current = ''; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) args.push(current);
+  return args;
+}
 
 export function createCustomSkillTool(skill: CustomSkillDef): Tool {
   if (skill.type === 'bash') {
@@ -25,11 +45,19 @@ export function createCustomSkillTool(skill: CustomSkillDef): Tool {
           (_, k: string) => input[k] ?? '',
         );
         if (!command.trim()) return 'Error: command template is empty';
+        const [bin, ...spawnArgs] = splitArgs(command);
+        if (!bin) return 'Error: empty command';
         return new Promise((resolve) => {
-          exec(command, { timeout: 30_000 }, (err, stdout, stderr) => {
-            if (err) resolve(`Error: ${err.message}\n${stderr}`.trim());
+          const child = spawn(bin, spawnArgs, { timeout: 30_000 });
+          let stdout = '';
+          let stderr = '';
+          child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+          child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
+          child.on('close', (code) => {
+            if (code !== 0) resolve(`Error: exit ${code}\n${stderr}`.trim());
             else resolve(stdout || stderr || '(no output)');
           });
+          child.on('error', (err) => resolve(`Error: ${err.message}`));
         });
       },
     };
@@ -50,6 +78,7 @@ export function createCustomSkillTool(skill: CustomSkillDef): Tool {
         const url = skill.config['url'];
         const method = (skill.config['method'] ?? 'GET').toUpperCase();
         if (!url) return 'Error: URL not configured for this skill';
+        try { validateSafeUrl(url); } catch (err) { return `Error: ${(err as Error).message}`; }
         const opts: RequestInit = { method };
         if (args['body'] && method !== 'GET') {
           opts.body = args['body'] as string;

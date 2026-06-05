@@ -8,7 +8,10 @@ export type IconName =
   | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-up'
   | 'x' | 'check' | 'alert'
   | 'anthropic' | 'github' | 'envelope' | 'server'
-  | 'shield' | 'link' | 'phone';
+  | 'shield' | 'link' | 'phone'
+  | 'folder' | 'list-checks' | 'search' | 'plus' | 'kanban' | 'dependency' | 'database'
+  | 'calendar'
+  | 'repeat';
 
 interface IconProps {
   name: IconName;
@@ -127,6 +130,59 @@ const PATHS: Record<IconName, React.ReactNode> = {
   phone: <>
     <rect x="4.5" y="1" width="7" height="14" rx="1.5" />
     <path d="M7.5 12.5h1" />
+  </>,
+
+  folder: <>
+    <path d="M1 3.5a1 1 0 011-1h4l2 2h6a1 1 0 011 1v7a1 1 0 01-1 1H2a1 1 0 01-1-1v-9z" />
+  </>,
+
+  'list-checks': <>
+    <path d="M1.5 4h1l1-1 1 1h1" />
+    <path d="M7 4h7.5" />
+    <path d="M1.5 8h1l1-1 1 1h1" />
+    <path d="M7 8h7.5" />
+    <path d="M1.5 12h1l1-1 1 1h1" />
+    <path d="M7 12h7.5" />
+  </>,
+
+  search: <>
+    <circle cx="7" cy="7" r="5" />
+    <path d="M10.5 10.5L14 14" />
+  </>,
+
+  plus: <path d="M8 2v12M2 8h12" />,
+
+  kanban: <>
+    <rect x="1" y="2" width="4" height="12" rx="1" />
+    <rect x="6" y="2" width="4" height="8" rx="1" />
+    <rect x="11" y="2" width="4" height="10" rx="1" />
+  </>,
+
+  dependency: <>
+    <circle cx="3" cy="8" r="2" />
+    <circle cx="13" cy="8" r="2" />
+    <path d="M5 8h6" />
+    <path d="M9 6l2 2-2 2" />
+  </>,
+
+  database: <>
+    <ellipse cx="8" cy="4" rx="6" ry="2" />
+    <path d="M2 4v4c0 1.1 2.7 2 6 2s6-.9 6-2V4" />
+    <path d="M2 8v4c0 1.1 2.7 2 6 2s6-.9 6-2V8" />
+  </>,
+
+  calendar: <>
+    <rect x="2" y="3" width="12" height="11" rx="1" />
+    <path d="M2 7h12" />
+    <path d="M5.5 1.5v3M10.5 1.5v3" />
+    <path d="M5 10.5h.5M8 10.5h.5M11 10.5h.5" />
+  </>,
+
+  repeat: <>
+    <path d="M2 4h9a3 3 0 010 6H1" />
+    <path d="M1 10l2-2-2-2" />
+    <path d="M14 12H5a3 3 0 010-6h1" />
+    <path d="M15 6l-2 2 2 2" />
   </>,
 };
 

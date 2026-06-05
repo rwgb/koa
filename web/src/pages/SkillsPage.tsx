@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import type { InstalledSkill, MarketplaceSkill, CustomSkillDef } from '../types.js';
+import type { InstalledSkill, MarketplaceSkill, CustomSkillDef, LoadedPlugin } from '../types.js';
+import type { IconName } from '../components/Icon.js';
+import { Icon } from '../components/Icon.js';
 import {
   fetchSkills,
   saveCustomSkill,
   deleteCustomSkill,
+  fetchPlugins,
 } from '../api.js';
 
 type SkillType = 'bash' | 'http' | 'mcp';
@@ -30,11 +33,65 @@ const EMPTY_FORM: FormState = {
   toolName: '',
 };
 
+// ── Template presets ──────────────────────────────────────────────────────────
+
+const TEMPLATES: { label: string; form: Partial<FormState> }[] = [
+  {
+    label: 'HTTP Webhook',
+    form: {
+      type: 'http',
+      url: 'https://hooks.example.com/trigger',
+      method: 'POST',
+      description: 'Trigger an HTTP webhook with a POST request.',
+    },
+  },
+  {
+    label: 'Bash Script',
+    form: {
+      type: 'bash',
+      command: 'bash /path/to/script.sh {{input.message}}',
+      description: 'Run a local bash script with optional parameters.',
+    },
+  },
+  {
+    label: 'JSON Parser',
+    form: {
+      type: 'bash',
+      command: "echo '{{input.json}}' | jq '.'",
+      description: 'Parse and pretty-print a JSON string using jq.',
+    },
+  },
+];
+
+// ── Icon mapping for marketplace skills ───────────────────────────────────────
+
+const SKILL_ICONS: Record<string, IconName> = {
+  search:      'search',
+  chat:        'chat',
+  notify:      'bell',
+  mail:        'envelope',
+  webhook:     'link',
+  server:      'server',
+  shield:      'shield',
+  home:        'folder',
+  default:     'wrench',
+};
+
+function skillIcon(name: string): IconName {
+  const lower = name.toLowerCase();
+  for (const [key, icon] of Object.entries(SKILL_ICONS)) {
+    if (lower.includes(key)) return icon;
+  }
+  return SKILL_ICONS.default!;
+}
+
 function buildConfig(form: FormState): Record<string, string> {
   if (form.type === 'bash') return { command: form.command };
   if (form.type === 'http') return { url: form.url, method: form.method };
   return { serverName: form.serverName, toolName: form.toolName };
 }
+
+// ── Installed skills table ────────────────────────────────────────────────────
 
 function InstalledTable({
   skills,
@@ -65,18 +122,12 @@ function InstalledTable({
               )}
             </td>
             <td>
-              <span
-                className={
-                  s.source === 'custom'
-                    ? 'skill-badge skill-badge--custom'
-                    : 'skill-badge skill-badge--builtin'
-                }
-              >
+              <span className={s.source === 'custom' ? 'badge badge-blue' : 'badge badge-muted'}>
                 {s.source}
               </span>
             </td>
             <td>
-              <span className="skill-badge skill-badge--active">Active</span>
+              <span className="badge badge-green">Active</span>
             </td>
             <td>
               {s.source === 'custom' && (
@@ -84,13 +135,13 @@ function InstalledTable({
                   <span className="skill-confirm-row">
                     <span className="skill-confirm-label">Delete?</span>
                     <button
-                      className="skill-action-btn skill-action-btn--danger"
+                      className="btn btn-danger btn-sm"
                       onClick={() => { onDelete(s.name); setConfirmName(null); }}
                     >
                       Yes
                     </button>
                     <button
-                      className="skill-action-btn"
+                      className="btn btn-secondary btn-sm"
                       onClick={() => setConfirmName(null)}
                     >
                       No
@@ -98,7 +149,7 @@ function InstalledTable({
                   </span>
                 ) : (
                   <button
-                    className="skill-action-btn skill-action-btn--danger"
+                    className="btn btn-danger btn-sm"
                     onClick={() => setConfirmName(s.name)}
                   >
                     Delete
@@ -113,6 +164,8 @@ function InstalledTable({
   );
 }
 
+// ── Marketplace grid ──────────────────────────────────────────────────────────
+
 function MarketplaceGrid({
   skills,
   onInstall,
@@ -123,10 +176,14 @@ function MarketplaceGrid({
   return (
     <div className="skill-marketplace">
       {skills.map((s) => (
-        <div key={s.name} className="skill-card">
-          <div className="skill-card__icon">{s.icon}</div>
-          <div className="skill-card__name">{s.name}</div>
-          <div className="skill-card__desc">{s.description}</div>
+        <div key={s.name} className="card skill-card">
+          <div className="card-header" style={{ marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Icon name={skillIcon(s.name)} size={16} aria-hidden />
+              <span className="card-title">{s.name}</span>
+            </div>
+          </div>
+          <p className="skill-card__desc">{s.description}</p>
           <div className="skill-card__requires">
             {s.requires.length === 0 ? (
               <span className="skill-chip">No requirements</span>
@@ -136,7 +193,7 @@ function MarketplaceGrid({
               ))
             )}
           </div>
-          <button className="skill-install-btn" onClick={() => onInstall(s)}>
+          <button className="btn btn-primary btn-sm" style={{ marginTop: '8px', alignSelf: 'flex-start' }} onClick={() => onInstall(s)}>
             Install
           </button>
         </div>
@@ -144,6 +201,8 @@ function MarketplaceGrid({
     </div>
   );
 }
+
+// ── Skill builder ─────────────────────────────────────────────────────────────
 
 function SkillBuilder({
   initialForm,
@@ -154,10 +213,10 @@ function SkillBuilder({
   onSave: (skill: CustomSkillDef) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [form, setForm] = useState<FormState>(initialForm);
+  const [form, setForm]     = useState<FormState>(initialForm);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]   = useState<string | null>(null);
 
   useEffect(() => {
     setForm(initialForm);
@@ -167,6 +226,12 @@ function SkillBuilder({
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function applyTemplate(tmpl: Partial<FormState>) {
+    setForm(prev => ({ ...prev, ...tmpl }));
+    setNotice(null);
+    setError(null);
   }
 
   async function handleSave() {
@@ -182,11 +247,11 @@ function SkillBuilder({
     setError(null);
     try {
       const skill: CustomSkillDef = {
-        name: form.name,
+        name:        form.name,
         description: form.description,
-        type: form.type,
-        config: buildConfig(form),
-        createdAt: new Date().toISOString(),
+        type:        form.type,
+        config:      buildConfig(form),
+        createdAt:   new Date().toISOString(),
       };
       await onSave(skill);
       setNotice('Skill saved. Restart Koa server to activate.');
@@ -199,13 +264,26 @@ function SkillBuilder({
 
   return (
     <div className="skill-builder__form">
-      {notice && <div className="skill-notice">{notice}</div>}
-      {error && <div className="skill-notice skill-notice--error">{error}</div>}
+      {/* Templates */}
+      <div style={{ marginBottom: '16px' }}>
+        <label className="form-label">Start from template</label>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {TEMPLATES.map(t => (
+            <button key={t.label} className="btn btn-secondary btn-sm" onClick={() => applyTemplate(t.form)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-      <div className="skill-form-row">
-        <label className="skill-form-label">Name</label>
+      {notice && <div className="skill-notice">{notice}</div>}
+      {error  && <div className="skill-notice skill-notice--error">{error}</div>}
+
+      <div className="form-group">
+        <label className="form-label" htmlFor="skill-name">Name</label>
         <input
-          className="skill-form-input"
+          id="skill-name"
+          className="form-input"
           type="text"
           value={form.name}
           placeholder="e.g. my_skill"
@@ -219,21 +297,23 @@ function SkillBuilder({
         )}
       </div>
 
-      <div className="skill-form-row">
-        <label className="skill-form-label">Description</label>
+      <div className="form-group">
+        <label className="form-label" htmlFor="skill-desc">Description</label>
         <textarea
-          className="skill-form-input skill-form-textarea"
-          rows={1}
+          id="skill-desc"
+          className="form-textarea"
+          rows={2}
           value={form.description}
           placeholder="What does this skill do?"
           onChange={(e) => set('description', e.target.value)}
         />
       </div>
 
-      <div className="skill-form-row">
-        <label className="skill-form-label">Type</label>
+      <div className="form-group">
+        <label className="form-label" htmlFor="skill-type">Type</label>
         <select
-          className="skill-form-input skill-form-select"
+          id="skill-type"
+          className="form-select"
           value={form.type}
           onChange={(e) => set('type', e.target.value as SkillType)}
         >
@@ -244,37 +324,38 @@ function SkillBuilder({
       </div>
 
       {form.type === 'bash' && (
-        <div className="skill-form-row">
-          <label className="skill-form-label">Command template</label>
+        <div className="form-group">
+          <label className="form-label" htmlFor="skill-cmd">Command template</label>
           <textarea
-            className="skill-form-input skill-form-textarea"
+            id="skill-cmd"
+            className="form-textarea"
             rows={3}
             value={form.command}
             placeholder="e.g. echo {{input.message}}"
             onChange={(e) => set('command', e.target.value)}
           />
-          <span className="skill-form-hint">
-            Use {'{{input.fieldName}}'} for parameters
-          </span>
+          <span className="skill-form-hint">Use {'{{input.fieldName}}'} for parameters</span>
         </div>
       )}
 
       {form.type === 'http' && (
-        <>
-          <div className="skill-form-row">
-            <label className="skill-form-label">URL</label>
+        <div className="form-row">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" htmlFor="skill-url">URL</label>
             <input
-              className="skill-form-input"
+              id="skill-url"
+              className="form-input"
               type="text"
               value={form.url}
               placeholder="https://api.example.com/endpoint"
               onChange={(e) => set('url', e.target.value)}
             />
           </div>
-          <div className="skill-form-row">
-            <label className="skill-form-label">Method</label>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" htmlFor="skill-method">Method</label>
             <select
-              className="skill-form-input skill-form-select"
+              id="skill-method"
+              className="form-select"
               value={form.method}
               onChange={(e) => set('method', e.target.value as 'GET' | 'POST' | 'PUT')}
             >
@@ -283,43 +364,45 @@ function SkillBuilder({
               <option value="PUT">PUT</option>
             </select>
           </div>
-        </>
+        </div>
       )}
 
       {form.type === 'mcp' && (
-        <>
-          <div className="skill-form-row">
-            <label className="skill-form-label">Server name</label>
+        <div className="form-row">
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" htmlFor="skill-server">Server name</label>
             <input
-              className="skill-form-input"
+              id="skill-server"
+              className="form-input"
               type="text"
               value={form.serverName}
               placeholder="e.g. my_mcp_server"
               onChange={(e) => set('serverName', e.target.value)}
             />
           </div>
-          <div className="skill-form-row">
-            <label className="skill-form-label">Tool name</label>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label" htmlFor="skill-tool">Tool name</label>
             <input
-              className="skill-form-input"
+              id="skill-tool"
+              className="form-input"
               type="text"
               value={form.toolName}
               placeholder="e.g. run_query"
               onChange={(e) => set('toolName', e.target.value)}
             />
           </div>
-        </>
+        </div>
       )}
 
-      <div className="skill-form-actions">
+      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button
-          className="skill-form-btn skill-form-btn--primary"
+          className="btn btn-primary"
           onClick={() => void handleSave()}
           disabled={saving}
         >
           {saving ? 'Saving…' : 'Save Skill'}
         </button>
-        <button className="skill-form-btn" onClick={onCancel}>
+        <button className="btn btn-secondary" onClick={onCancel}>
           Cancel
         </button>
       </div>
@@ -327,11 +410,65 @@ function SkillBuilder({
   );
 }
 
+// ── Plugins table ─────────────────────────────────────────────────────────────
+
+function PluginsTable({ plugins }: { plugins: LoadedPlugin[] }) {
+  if (plugins.length === 0) {
+    return (
+      <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+        No plugins loaded. Drop a <code>.json</code> manifest into <code>~/.koa/plugins/</code> and restart Koa.
+      </p>
+    );
+  }
+  return (
+    <table className="skill-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Version</th>
+          <th>Tools</th>
+          <th>Source Path</th>
+        </tr>
+      </thead>
+      <tbody>
+        {plugins.map((p) => (
+          <tr key={p.name}>
+            <td>
+              <span className="skill-name">{p.name}</span>
+              {p.description && (
+                <span className="skill-desc">{p.description}</span>
+              )}
+            </td>
+            <td>
+              <span className="badge badge-muted">{p.version}</span>
+            </td>
+            <td>
+              <span className="badge badge-blue" title={p.toolNames.join(', ')}>{p.toolCount}</span>
+              {p.toolNames.length > 0 && (
+                <span className="skill-desc" style={{ marginTop: '2px' }}>{p.toolNames.join(', ')}</span>
+              )}
+            </td>
+            <td>
+              <code style={{ fontSize: '11px', wordBreak: 'break-all' }}>{p.sourcePath}</code>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+type TabId = 'installed' | 'marketplace' | 'create' | 'plugins';
+
 export default function SkillsPage() {
-  const [installed, setInstalled] = useState<InstalledSkill[]>([]);
+  const [tab, setTab]                 = useState<TabId>('installed');
+  const [installed, setInstalled]     = useState<InstalledSkill[]>([]);
   const [marketplace, setMarketplace] = useState<MarketplaceSkill[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [plugins, setPlugins]         = useState<LoadedPlugin[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState<string | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderForm, setBuilderForm] = useState<FormState>(EMPTY_FORM);
 
@@ -339,9 +476,10 @@ export default function SkillsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await fetchSkills();
+      const [data, pluginData] = await Promise.all([fetchSkills(), fetchPlugins()]);
       setInstalled(data.installed);
       setMarketplace(data.marketplace);
+      setPlugins(pluginData);
     } catch (err) {
       setLoadError((err as Error).message);
     } finally {
@@ -361,6 +499,7 @@ export default function SkillsPage() {
     await load();
     setBuilderOpen(false);
     setBuilderForm(EMPTY_FORM);
+    setTab('installed');
   }
 
   function handleInstall(s: MarketplaceSkill) {
@@ -371,10 +510,11 @@ export default function SkillsPage() {
       type: 'bash',
     });
     setBuilderOpen(true);
+    setTab('create');
   }
 
   if (loading) {
-    return <div className="skill-page skill-loading">Loading skills...</div>;
+    return <div className="page-loading">Loading skills…</div>;
   }
 
   if (loadError) {
@@ -386,51 +526,77 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="skill-page">
-      <section className="skill-section">
-        <div className="skill-section__header">
-          <h2 className="skill-section__title">Installed Skills</h2>
-          <span className="skill-section__count">{installed.length}</span>
-        </div>
-        {installed.length === 0 ? (
-          <p className="skill-empty">No skills installed.</p>
-        ) : (
-          <InstalledTable skills={installed} onDelete={(name) => void handleDelete(name)} />
-        )}
-      </section>
+    <div className="page-body" style={{ height: '100%' }}>
+      {/* Tab nav */}
+      <div style={{ display: 'flex', gap: '4px', marginBottom: '16px', borderBottom: '1px solid var(--border)', paddingBottom: '8px' }}>
+        {([
+          { id: 'installed' as TabId, label: `Installed (${installed.length})` },
+          { id: 'marketplace' as TabId, label: 'Marketplace' },
+          { id: 'create' as TabId, label: 'Create' },
+          { id: 'plugins' as TabId, label: `Plugins (${plugins.length})` },
+        ] as { id: TabId; label: string }[]).map(({ id, label }) => (
+          <button
+            key={id}
+            className={`btn btn-sm ${tab === id ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-      <section className="skill-section">
-        <div className="skill-section__header">
-          <h2 className="skill-section__title">Skill Marketplace</h2>
-        </div>
-        {marketplace.length === 0 ? (
-          <p className="skill-empty">All marketplace skills are already installed.</p>
-        ) : (
-          <MarketplaceGrid skills={marketplace} onInstall={handleInstall} />
-        )}
-      </section>
-
-      <section className="skill-section skill-builder">
-        <div className="skill-section__header">
-          {!builderOpen ? (
-            <button
-              className="skill-builder__trigger"
-              onClick={() => { setBuilderForm(EMPTY_FORM); setBuilderOpen(true); }}
-            >
-              New Custom Skill +
-            </button>
+      {/* Installed tab */}
+      {tab === 'installed' && (
+        <div className="section">
+          {installed.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>No skills installed.</p>
           ) : (
-            <h2 className="skill-section__title">Custom Skill Builder</h2>
+            <InstalledTable skills={installed} onDelete={(name) => void handleDelete(name)} />
           )}
         </div>
-        {builderOpen && (
-          <SkillBuilder
-            initialForm={builderForm}
-            onSave={handleSave}
-            onCancel={() => { setBuilderOpen(false); setBuilderForm(EMPTY_FORM); }}
-          />
-        )}
-      </section>
+      )}
+
+      {/* Marketplace tab */}
+      {tab === 'marketplace' && (
+        <div className="section">
+          {marketplace.length === 0 ? (
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>All marketplace skills are already installed.</p>
+          ) : (
+            <MarketplaceGrid skills={marketplace} onInstall={handleInstall} />
+          )}
+        </div>
+      )}
+
+      {/* Create tab */}
+      {tab === 'create' && (
+        <div className="section">
+          <div className="section-header">
+            <span className="section-title">Custom Skill Builder</span>
+          </div>
+          {!builderOpen ? (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ borderStyle: 'dashed', color: 'var(--purple)', borderColor: 'color-mix(in srgb, var(--purple) 50%, var(--border))' }}
+              onClick={() => { setBuilderForm(EMPTY_FORM); setBuilderOpen(true); }}
+            >
+              + New Custom Skill
+            </button>
+          ) : (
+            <SkillBuilder
+              initialForm={builderForm}
+              onSave={handleSave}
+              onCancel={() => { setBuilderOpen(false); setBuilderForm(EMPTY_FORM); }}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Plugins tab */}
+      {tab === 'plugins' && (
+        <div className="section">
+          <PluginsTable plugins={plugins} />
+        </div>
+      )}
     </div>
   );
 }

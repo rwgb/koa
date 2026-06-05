@@ -1,22 +1,30 @@
 # Koa API Reference
 
-This document covers the HTTP REST endpoints exposed by `koa web` and the MCP tools registered by `koa mcp`.
+All endpoints are served by the Express server started by `koa web`. Default base URL: `http://localhost:3000`.
+
+## Authentication
+
+If `KOA_WEB_TOKEN` is set, every `/api/` request (except the OAuth callback endpoints and webhook endpoints that have their own channel-specific auth) must include:
+
+```
+Authorization: Bearer <token>
+```
+
+Requests without a valid token receive `401 Unauthorized`. Authentication is skipped entirely if `KOA_WEB_TOKEN` is not configured, which is fine for local personal use.
+
+The auth rate-limiter allows 10 requests per 15-minute window per IP. Exceeded requests receive `429 Too Many Requests`.
 
 ---
 
-## REST Endpoints
-
-The Express server is created in `src/server/index.ts`. It listens on port 3000 by default (configurable with `--port`).
-
-CORS is restricted to `http://localhost:5173` (the Vite dev server). The built web UI is served from the same origin as the Express server, so no CORS header is needed in production.
-
----
+## Chat Endpoints
 
 ### `GET /api/context`
 
-Returns the current agent state for initial hydration when the web console connects.
+Returns the current agent state. Call this on initial connect to hydrate the web console before the first turn.
 
-**Response** (`Content-Type: application/json`):
+**Auth required:** Yes
+
+**Response:**
 
 ```json
 {
@@ -32,7 +40,8 @@ Returns the current agent state for initial hydration when the web console conne
   "turnCount": "number",
   "engramEnabled": "boolean",
   "activeModel": "string",
-  "activeTier": "string",
+  "activeTier": "haiku | sonnet | opus",
+  "activeAgent": "string",
   "usage": {
     "inputTokens": "number",
     "outputTokens": "number",
@@ -41,289 +50,850 @@ Returns the current agent state for initial hydration when the web console conne
     "estimatedCostUsd": "number",
     "cacheHitRate": "number",
     "turnsCount": "number"
-  }
+  },
+  "spiderBrain": "object | null"
 }
 ```
 
-Field notes:
-
-- `context` — the `EngramContext` loaded from the Engram brain at startup. All fields are empty/undefined if Engram is disabled or no brain exists.
-- `model` — the configured default model (`KOA_MODEL` or CLI `--model` flag).
-- `activeModel` — the model actually used on the last turn (may differ from `model` when smart routing or a `@tier:` override is active). Defaults to `model` if no turn has been completed yet.
-- `activeTier` — `"haiku"`, `"sonnet"`, or `"opus"`. Defaults to `"sonnet"`.
-- `usage` — cumulative session token usage. All counts are zero on the first connect.
+```bash
+curl http://localhost:3000/api/context \
+  -H "Authorization: Bearer $KOA_WEB_TOKEN"
+```
 
 ---
 
 ### `POST /api/chat`
 
-Sends a user message to the agent and streams the response as Server-Sent Events.
+Send a message to the agent. Returns a Server-Sent Events stream.
 
-**Request body** (`Content-Type: application/json`):
+**Auth required:** Yes
 
-```json
-{
-  "message": "string"
-}
-```
-
-The `message` field is required and must be non-empty after trimming. A missing or blank `message` returns HTTP 400.
-
-**Concurrent requests**: only one turn can be active at a time. A second `POST /api/chat` while a turn is in progress returns HTTP 429:
+**Request body:**
 
 ```json
-{
-  "error": "Agent is busy — wait for the current response to finish"
-}
+{ "message": "string" }
 ```
 
-**Successful response**: HTTP 200 with `Content-Type: text/event-stream`. Events are emitted as:
+**Response:** `Content-Type: text/event-stream`
 
-```
-data: <JSON>\n\n
-```
+Each event is a line beginning with `data: ` followed by a JSON object. Events are separated by `\n\n`.
 
-The stream ends when the response is closed (after the `done` event, or immediately after an `error` event).
+| Event type | Fields | When emitted |
+|------------|--------|--------------|
+| `classifying` | — | Smart routing is classifying the message |
+| `classified` | `tier: string` | Classification result |
+| `tool_call` | `name: string`, `input: object` | Before each tool executes |
+| `tool_result` | `name: string`, `result: string` | After each tool returns |
+| `content` | `text: string` | Text delta from the assistant |
+| `chain_start` | `agent: string` | Auto-chaining dispatched to a sub-agent |
+| `usage` | `turn: TurnUsage`, `session: SessionUsageStats`, `contextStats: object` | After content, before done |
+| `done` | `turnCount: number`, `model: string`, `tier: string`, `agent: string` | All events for this turn are complete |
+| `error` | `message: string` | Agent error (sanitised — no paths or stack traces) |
 
-#### SSE Event Types
+**Error responses:**
+- `400 Bad Request` — message is missing or empty
+- `429 Too Many Requests` — agent is busy with another turn
 
-All events share a `type` discriminant. The browser can parse them by splitting on `\n\n` and stripping the `data: ` prefix from each chunk.
-
----
-
-##### `tool_call`
-
-Emitted before each tool executes.
-
-```json
-{
-  "type": "tool_call",
-  "name": "string",
-  "input": { "...": "..." }
-}
-```
-
-- `name` — the registered tool name (`bash`, `read_file`, `write_file`, `edit_file`, `grep`, `engram_query`).
-- `input` — the raw arguments object the model supplied.
-
----
-
-##### `tool_result`
-
-Emitted after each tool returns.
-
-```json
-{
-  "type": "tool_result",
-  "name": "string",
-  "result": "string"
-}
-```
-
-- `result` — the string returned by `tool.execute()`. May be truncated to `KOA_MAX_TOOL_OUTPUT` characters with a `[truncated — N total chars]` sentinel appended.
-
----
-
-##### `content`
-
-Emitted once per turn with the full assistant text response (after all tool calls are complete).
-
-```json
-{
-  "type": "content",
-  "text": "string"
-}
+```bash
+curl -N -X POST http://localhost:3000/api/chat \
+  -H "Authorization: Bearer $KOA_WEB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What files are in the project root?"}' \
+  | while read -r line; do echo "$line"; done
 ```
 
 ---
 
-##### `usage`
+### `GET /api/sse/chat`
 
-Emitted after `content`, before `done`. Contains per-turn and cumulative session token statistics.
+SSE-over-GET variant for iOS/native clients. Identical event stream to `POST /api/chat` but the message is passed as a query parameter. Use `?format=brief` to strip ANSI codes and cap tool results at 500 characters (suitable for mobile data).
+
+**Auth required:** Yes
+
+**Query params:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `message` | Yes | The message to send |
+| `format` | No | Set to `brief` for compact output |
+
+```bash
+curl -N "http://localhost:3000/api/sse/chat?message=hello&format=brief" \
+  -H "Authorization: Bearer $KOA_WEB_TOKEN"
+```
+
+---
+
+### `POST /api/checkpoint`
+
+Trigger an immediate STATE.md and journal update without ending the session. Returns `409` if an agent turn is in progress.
+
+**Auth required:** Yes
+
+**Response:**
+
+```json
+{ "status": "ok", "message": "Checkpoint saved." }
+```
+
+**Error responses:**
+- `409 Conflict` — agent turn in progress
+
+```bash
+curl -X POST http://localhost:3000/api/checkpoint \
+  -H "Authorization: Bearer $KOA_WEB_TOKEN"
+```
+
+---
+
+### `GET /api/voice/synthesize`
+
+Synthesize text to speech. Returns an audio stream.
+
+**Auth required:** Yes
+
+**Query params:**
+
+| Param | Required | Description |
+|-------|----------|-------------|
+| `text` | Yes | Text to synthesize (max 500 characters) |
+
+**Response:** Audio stream (`audio/mpeg` or `audio/aiff` depending on provider)
+
+**Error responses:**
+- `400 Bad Request` — text missing or too long
+- `503 Service Unavailable` — TTS not available
+
+---
+
+## Health and Status
+
+### `GET /api/health`
+
+Liveness check. Returns database status, channel connection status, server uptime, and version.
+
+**Auth required:** No
+
+**Response:**
 
 ```json
 {
-  "type": "usage",
-  "turn": {
-    "inputTokens": "number",
-    "outputTokens": "number",
-    "cacheWriteTokens": "number",
-    "cacheReadTokens": "number",
-    "model": "string"
+  "status": "ok",
+  "db": "ok | error",
+  "channels": {
+    "gmail": "connected | not_configured",
+    "sms": "connected | not_configured",
+    "slack": "connected | not_configured"
   },
-  "session": {
-    "inputTokens": "number",
-    "outputTokens": "number",
-    "cacheWriteTokens": "number",
-    "cacheReadTokens": "number",
-    "estimatedCostUsd": "number",
-    "cacheHitRate": "number",
-    "turnsCount": "number"
+  "uptime": "number",
+  "version": "string"
+}
+```
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+---
+
+### `GET /api/channels/status`
+
+Returns which channels are configured.
+
+**Auth required:** Yes
+
+**Response:**
+
+```json
+{
+  "gmail": "connected | not_configured",
+  "sms": "connected | not_configured",
+  "slack": "connected | not_configured"
+}
+```
+
+---
+
+## Projects and Tasks
+
+### `GET /api/projects`
+
+List all projects.
+
+**Auth required:** Yes
+
+**Response:** Array of project objects.
+
+---
+
+### `POST /api/projects`
+
+Create a project.
+
+**Auth required:** Yes
+
+**Request body:**
+
+```json
+{
+  "name": "string",
+  "description": "string (optional)",
+  "slug": "string (optional)"
+}
+```
+
+**Response:** `201 Created` with `{ "project": {...} }`
+
+**Error responses:**
+- `400 Bad Request` — name missing
+
+---
+
+### `GET /api/projects/:id`
+
+Get a single project.
+
+**Error responses:**
+- `404 Not Found`
+
+---
+
+### `PUT /api/projects/:id`
+
+Update a project. Supported fields: `name`, `description`, `status` (`active | archived | done`).
+
+---
+
+### `DELETE /api/projects/:id`
+
+Delete a project.
+
+---
+
+### `GET /api/tasks`
+
+List tasks. Optional query params:
+
+| Param | Description |
+|-------|-------------|
+| `projectId` | Filter by project |
+| `status` | Filter by status (`todo | in_progress | blocked | done | cancelled`) |
+
+---
+
+### `GET /api/tasks/next`
+
+Get the next actionable tasks (not blocked, ordered by priority).
+
+**Query params:**
+
+| Param | Description |
+|-------|-------------|
+| `projectId` | Optional project filter |
+| `limit` | Number of tasks (1–100, default 5) |
+
+---
+
+### `POST /api/tasks`
+
+Create a task.
+
+**Request body:**
+
+```json
+{
+  "projectId": "string",
+  "title": "string",
+  "description": "string (optional)",
+  "priority": "number 1–5 (optional)",
+  "deadline": "YYYY-MM-DD (optional)",
+  "effortHours": "number (optional)",
+  "tags": ["string"] 
+}
+```
+
+**Response:** `201 Created` with `{ "task": {...} }`
+
+---
+
+### `GET /api/tasks/:id`
+
+Get a single task.
+
+---
+
+### `PUT /api/tasks/:id`
+
+Update a task. All fields from `POST /api/tasks` are accepted, plus `actual_hours`.
+
+---
+
+### `DELETE /api/tasks/:id`
+
+Delete a task.
+
+---
+
+### `GET /api/tasks/:id/dependencies`
+
+Get dependency relationships for a task.
+
+---
+
+### `POST /api/tasks/:id/dependencies`
+
+Add a dependency.
+
+**Request body:** `{ "dependsOnId": "string" }`
+
+---
+
+### `DELETE /api/tasks/:id/dependencies/:depId`
+
+Remove a dependency.
+
+---
+
+### `GET /api/decisions`
+
+List decisions. Optional `?projectId=` filter.
+
+---
+
+### `POST /api/decisions`
+
+Record an architectural decision.
+
+**Request body:**
+
+```json
+{
+  "projectId": "string",
+  "title": "string",
+  "context": "string (optional)",
+  "chosen": "string",
+  "rationale": "string (optional)",
+  "options": ["string"] 
+}
+```
+
+---
+
+### `GET /api/search`
+
+Full-text search across tasks.
+
+**Query params:** `q` (required, max 200 chars), `projectId` (optional)
+
+---
+
+### `GET /api/checkpoints`
+
+List checkpoints. Optional `?projectId=` filter.
+
+---
+
+## Analytics
+
+### `GET /api/analytics/streak`
+
+Returns the current completion streak (consecutive days with at least one task completed) and total completion-day count.
+
+---
+
+### `GET /api/analytics/weekly-report`
+
+Returns a weekly summary of task completions, time logged, and per-project breakdown.
+
+---
+
+### `GET /api/analytics/forecast`
+
+Velocity-based completion forecast. Optional `?projectId=` filter.
+
+---
+
+### `GET /api/analytics/proactive`
+
+Returns proactive alerts: overdue tasks, blocked tasks, upcoming deadlines.
+
+---
+
+## Conversations
+
+### `GET /api/conversations`
+
+List the 50 most recent conversations.
+
+---
+
+### `GET /api/conversations/search`
+
+Full-text search across conversation turns.
+
+**Query params:** `q` (required)
+
+---
+
+### `GET /api/conversations/:id`
+
+Get a conversation record.
+
+---
+
+### `GET /api/conversations/:id/turns`
+
+Get all turns for a conversation.
+
+---
+
+### `GET /api/conversations/:id/export`
+
+Export a conversation. Supported formats: `json` (default), `markdown`.
+
+**Query params:** `format=markdown`
+
+---
+
+### `DELETE /api/conversations`
+
+Delete conversations older than a date.
+
+**Query params:** `before=YYYY-MM-DD` (required)
+
+---
+
+## Calendar
+
+All calendar endpoints require Google Calendar to be configured via OAuth (`GET /api/admin/oauth/calendar`).
+
+### `GET /api/calendar/events`
+
+List calendar events.
+
+**Query params:**
+
+| Param | Default | Description |
+|-------|---------|-------------|
+| `start` | now | ISO 8601 start of range |
+| `end` | +30 days | ISO 8601 end of range |
+
+---
+
+### `GET /api/calendar/conflicts`
+
+Check if a task's deadline conflicts with calendar events.
+
+**Query params:** `taskId` (required)
+
+---
+
+### `GET /api/calendar/availability`
+
+Get available time blocks (no calendar events).
+
+**Query params:** `start`, `end` (ISO 8601, default: now to +7 days)
+
+---
+
+### `POST /api/calendar/sync`
+
+Trigger an immediate Google Calendar sync.
+
+---
+
+## Push Notifications
+
+### `GET /api/push/vapid-key`
+
+Get the VAPID public key for Web Push subscription setup.
+
+**Response:** `{ "publicKey": "string" }`
+
+---
+
+### `POST /api/push/subscribe`
+
+Register a Web Push subscription.
+
+**Request body:**
+
+```json
+{
+  "endpoint": "string",
+  "keys": {
+    "p256dh": "string",
+    "auth": "string"
   }
 }
 ```
 
-- `turn` — token counts for this turn only. Multiple API calls within one turn (due to tool-use loops) are summed into a single `turn` object.
-- `session` — cumulative totals across all turns since the server started.
-- `cacheHitRate` — `cacheReadTokens / (inputTokens + cacheReadTokens + cacheWriteTokens)` as a value between 0 and 1.
-- `estimatedCostUsd` — computed from per-category pricing keyed by model prefix.
+**Error responses:**
+- `400 Bad Request` — missing fields or invalid endpoint
 
 ---
 
-##### `done`
+### `DELETE /api/push/subscribe`
 
-Emitted as the final event of every successful turn.
+Remove the current Web Push subscription.
+
+---
+
+### `GET /api/push/apns-status`
+
+Check APNs configuration status.
+
+**Response:**
 
 ```json
 {
-  "type": "done",
-  "turnCount": "number",
-  "model": "string",
-  "tier": "string"
+  "configured": "boolean",
+  "hasToken": "boolean",
+  "sandbox": "boolean"
 }
 ```
 
-- `turnCount` — total number of completed turns in this session.
-- `model` — the model ID that was used for this turn.
-- `tier` — `"haiku"`, `"sonnet"`, or `"opus"`.
+---
+
+### `POST /api/push/apns-token`
+
+Register an APNs device token (iOS).
+
+**Request body:** `{ "token": "64-char hex string" }`
 
 ---
 
-##### `error`
+### `DELETE /api/push/apns-token`
 
-Emitted if the agent throws an unhandled error. The stream closes after this event.
+Remove the registered APNs device token.
+
+---
+
+### `POST /api/push/reply`
+
+Process a message from an iOS notification action and push the agent's response back via APNs. Returns `202 Accepted` immediately; agent response is delivered asynchronously.
+
+**Request body:** `{ "message": "string" }`
+
+---
+
+## Webhooks
+
+These endpoints have their own authentication and do not use the `KOA_WEB_TOKEN` bearer scheme.
+
+### `POST /api/webhooks/slack`
+
+Slack Events API and slash commands. Validates the `X-Slack-Signature` HMAC using the configured `signingSecret`. Responds to Slack's `url_verification` challenge without auth (required during app setup).
+
+---
+
+### `POST /api/webhooks/sms`
+
+Twilio inbound SMS. Validates `X-Twilio-Signature` when an auth token is configured. Responds with empty TwiML `<Response/>`.
+
+---
+
+### `POST /api/voice/transcribe`
+
+Transcribe audio using OpenAI Whisper. Requires `OPENAI_API_KEY`.
+
+**Request:** Raw audio body (max 25 MB). Accepted `Content-Type`: `audio/wav`, `audio/m4a`, `audio/mpeg`, `audio/ogg`, `audio/webm`, `audio/mp4`.
+
+**Response:** `{ "text": "string" }`
+
+**Error responses:**
+- `503 Service Unavailable` — `OPENAI_API_KEY` not configured
+- `400 Bad Request` — no audio data
+- `413 Payload Too Large` — audio exceeds 25 MB
+- `502 Bad Gateway` — Whisper API error
+
+---
+
+## Admin
+
+All admin endpoints require auth.
+
+### `GET /api/admin/config`
+
+Get the current runtime configuration.
+
+**Response:** Object with all configurable settings (model, maxTokens, engramEnabled, smartRouting, etc.). Sensitive values like API keys are returned as booleans (`apiKeySet: true/false`).
+
+---
+
+### `PUT /api/admin/config`
+
+Update runtime configuration. Changes take effect immediately and are persisted to `~/.koa/config.json`.
+
+**Request body:** Partial config object. Accepted fields:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `model` | string | Claude model ID |
+| `maxTokens` | number | |
+| `maxToolOutputChars` | number | |
+| `engramEnabled` | boolean | |
+| `smartRouting` | boolean | |
+| `autoChaining` | boolean | |
+| `compactAfterTurns` | number | |
+| `autoCheckpointTurns` | number | |
+| `autoCheckpointMinutes` | number | |
+| `spiderBrainBrain` | string | Path to synganglion.json |
+| `defaultProjectPath` | string | |
+| `apiKey` | string | Written to credentials file |
+| `braveApiKey` | string | Written to credentials file; empty string deletes |
+| `briefingEnabled` | boolean | |
+| `briefingTime` | string | `HH:MM` format |
+| `ttsProvider` | string | `say` or `elevenlabs` |
+| `elevenLabsVoiceId` | string | |
+| `elevenLabsModel` | string | |
+| `elevenLabsApiKey` | string | Written to credentials file |
+| `provider` | string | `anthropic` or `ollama` |
+| `ollamaModel` | string | |
+| `ollamaBaseUrl` | string | Must be localhost or 127.0.0.1 |
+| `sandboxBackend` | string | `local` or `docker` |
+| `sandboxTimeoutMs` | number | 1000–300000 |
+
+---
+
+### `GET /api/admin/memory/engram`
+
+Get the current Engram context and SpiderBrain context loaded by the agent loop.
+
+---
+
+### `GET /api/admin/memory/files`
+
+Get the content of all project memory markdown files (PROJECT, STATE, BACKLOG, HANDOFF).
+
+---
+
+### `PUT /api/admin/memory/files/:file`
+
+Update a project memory file. `:file` must be `PROJECT`, `STATE`, `BACKLOG`, or `HANDOFF`.
+
+**Request body:** `{ "content": "string" }`
+
+---
+
+### `GET /api/admin/memory/facts`
+
+Get all global user memories.
+
+---
+
+### `POST /api/admin/memory/facts`
+
+Add a global memory.
+
+**Request body:** `{ "fact": "string" }`
+
+---
+
+### `DELETE /api/admin/memory/facts`
+
+Remove a memory. Matches by substring.
+
+**Request body:** `{ "fact": "string" }`
+
+---
+
+### `POST /api/admin/brain/rebuild`
+
+Trigger a SpiderBrain graph rebuild (runs molt.mjs).
+
+---
+
+### `GET /api/admin/activity/sessions`
+
+Get journal entries from `~/.koa/projects/<slug>/journal/`, newest first.
+
+---
+
+### `GET /api/admin/integrations`
+
+List all integrations with secrets masked (`***`).
+
+---
+
+### `PUT /api/admin/integrations/:id`
+
+Create or update an integration.
+
+**Request body:**
 
 ```json
 {
-  "type": "error",
-  "message": "Agent error — see server logs"
+  "type": "github | slack | ntfy | pushover | twilio | gmail | google-calendar | ...",
+  "name": "string",
+  "config": {
+    "key": "value"
+  }
 }
 ```
 
-The error message is intentionally sanitised. Full error details are logged to the server console only.
+---
+
+### `DELETE /api/admin/integrations/:id`
+
+Delete an integration.
+
+**Error responses:**
+- `404 Not Found`
 
 ---
 
-## MCP Tools
+### `POST /api/admin/integrations/:id/test`
 
-`koa mcp` registers the following tools with the MCP server. They are available to any MCP client (e.g., Claude Desktop) that connects over stdio.
+Test an integration's connectivity. Implemented for: `ntfy`, `github`, `slack`, `pushover`.
 
-All file tools are sandboxed to the `--project` path supplied on the command line. Any attempt to access a path outside the project root throws an `"Access denied"` error.
-
----
-
-### `bash`
-
-Execute a shell command in a `bash -c` subprocess.
-
-**Input schema:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `command` | `string` | yes | The shell command to run |
-| `timeout` | `number` | no | Timeout in milliseconds (default: 30000) |
-
-**Behaviour:**
-
-- The `timeout` value is clamped to `[1000, 300000]` (1 second minimum, 5 minute maximum). The model cannot specify a longer timeout.
-- Both stdout and stderr are captured. If the exit code is non-zero and stderr is non-empty, the output is formatted as `Exit <code>\n<stdout>\nSTDERR: <stderr>`.
-- If the command produces no output, the result is `(exit <code>)`.
+**Response:** `{ "ok": "boolean", "message": "string" }`
 
 ---
 
-### `read_file`
+### `GET /api/admin/notifications`
 
-Read the contents of a file within the project, with optional line range.
-
-**Input schema:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `path` | `string` | yes | Absolute or relative path to the file |
-| `offset` | `number` | no | Line number to start reading from (1-indexed, default: 1) |
-| `limit` | `number` | no | Maximum number of lines to read |
-
-**Behaviour:**
-
-- Returns the file content with line numbers prefixed (`<n>\t<line>`), matching the format used by Claude Code's Read tool.
-- `offset` and `limit` work together: `offset=10, limit=20` returns lines 10–29.
-- Without `limit`, reads to the end of the file.
+Get notification rules, quiet-hours settings, and escalation config.
 
 ---
 
-### `write_file`
+### `PUT /api/admin/notifications/rules`
 
-Write content to a file within the project, creating the file and any intermediate directories if needed.
+Replace notification rules.
 
-**Input schema:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `path` | `string` | yes | Path to the file |
-| `content` | `string` | yes | Content to write |
-
-**Behaviour:**
-
-- Overwrites the file if it already exists.
-- Creates parent directories with `mkdir -p` semantics.
-- The directory target is also sandbox-checked before `mkdir` runs.
-- Returns `Wrote N bytes to <path>` on success.
+**Request body:** `{ "rules": [...] }`
 
 ---
 
-### `edit_file`
+### `PUT /api/admin/notifications/quiet-hours`
 
-Replace an exact string in a file.
-
-**Input schema:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `path` | `string` | yes | Path to the file |
-| `old_string` | `string` | yes | Exact string to find and replace |
-| `new_string` | `string` | yes | Replacement string |
-
-**Behaviour:**
-
-- Reads the entire file, performs a single `String.replace(oldStr, newStr)` (replaces only the first occurrence).
-- Throws `"old_string not found in file"` if `old_string` does not appear in the file.
-- Returns `Edited <relative-path>` on success.
+**Request body:** `{ "enabled": boolean, "from": "HH:MM", "to": "HH:MM" }`
 
 ---
 
-### `grep`
+### `POST /api/admin/notifications/test`
 
-Search for a pattern in files within the project using the system `grep` binary.
+Send a test notification to a configured channel.
 
-**Input schema:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `pattern` | `string` | yes | Search pattern (regex supported) |
-| `path` | `string` | no | File or directory to search in (defaults to project root) |
-| `include` | `string` | no | File glob pattern to restrict results (e.g., `"*.ts"`) |
-
-**Behaviour:**
-
-- Runs `grep -r --line-number <pattern> <path> [--include <include>]`.
-- The search path is sandbox-checked before the subprocess runs.
-- Returns matching lines in `grep` format (`file:line:match`), or `(no matches)` if the pattern is not found.
+**Request body:** `{ "channel": "string" }` — integration id or type
 
 ---
 
-### `engram_query`
+### `PUT /api/admin/notifications/escalation`
 
-Search project memory (Engram) for context about files, decisions, or history.
+**Request body:** `{ "enabled": boolean }`
 
-**Input schema:**
+---
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `query` | `string` | yes | Search terms to query Engram memory |
+### `GET /api/admin/skills`
 
-**Behaviour:**
+List installed skills (built-in + custom + plugin) and the marketplace catalogue of not-yet-installed skills.
 
-- Calls `python3 ~/.claude/skills/engram/cli/engram.py query -- <query> --project <projectPath>`.
-- The `--` sentinel before the query prevents flag injection if the query starts with `-`.
-- Returns the Engram CLI output as a string.
-- Returns `(no results found in Engram memory)` if the query matches nothing, or if no Engram brain exists for the project.
+---
+
+### `POST /api/admin/skills/custom`
+
+Create a custom skill.
+
+**Request body:**
+
+```json
+{
+  "name": "string (^[a-z][a-z0-9_]{1,49}$)",
+  "description": "string",
+  "type": "bash | http | mcp",
+  "config": { "key": "value" }
+}
+```
+
+---
+
+### `DELETE /api/admin/skills/custom/:name`
+
+Delete a custom skill.
+
+---
+
+### `GET /api/admin/plugins`
+
+List loaded plugins with name, version, description, and tool names.
+
+---
+
+### `GET /api/admin/sandbox/status`
+
+Check code execution sandbox availability.
+
+**Response:** `{ "available": boolean, "backend": "local | docker" }`
+
+---
+
+### `GET /api/admin/browser/status`
+
+Check Playwright / browser automation availability.
+
+**Response:** `{ "available": boolean, "playwrightInstalled": boolean }`
+
+---
+
+### `POST /api/admin/browser/install`
+
+Install Playwright Chromium. Streams install output as `text/plain`. No-ops if already installed.
+
+---
+
+### `GET /api/admin/ollama/models`
+
+List models available from the configured Ollama server.
+
+**Response:** `{ "models": ["string"] }`
+
+**Error responses:**
+- `400 Bad Request` — ollamaBaseUrl is not a local URL
+- `502 Bad Gateway` — cannot reach Ollama
+
+---
+
+### `GET /api/admin/telegram`
+
+Get Telegram integration status.
+
+**Response:** `{ "configured": boolean, "hasDefaultChatId": boolean, "polling": boolean }`
+
+---
+
+### `POST /api/admin/telegram`
+
+Configure the Telegram bot token and default chat ID. Send an empty string to unconfigure.
+
+**Request body:** `{ "botToken": "string", "defaultChatId": "string" }`
+
+---
+
+## OAuth Flows
+
+### `GET /api/admin/oauth/gmail`
+
+Start Gmail OAuth. Returns `{ "url": "string" }` — redirect the user to this URL.
+
+### `GET /api/admin/oauth/gmail/callback`
+
+Gmail OAuth callback (called by Google). Redirects to `/integrations` on completion.
+
+### `GET /api/admin/oauth/calendar`
+
+Start Google Calendar OAuth. Returns `{ "url": "string" }`.
+
+### `GET /api/admin/oauth/calendar/callback`
+
+Calendar OAuth callback. Redirects to `/integrations` on completion.
+
+---
+
+## MCP Tools (koa mcp)
+
+When running `koa mcp`, Koa starts a JSON-RPC 2.0 server over stdio. Claude Desktop calls these tools directly — there is no agent loop involved.
+
+The tools exposed match those registered in the tool registry. By default: `bash`, `read_file`, `write_file`, `edit_file`, `grep`, `analyze_image`, `engram_query`, `remember`, `forget`, `spiderbrain_query`, `spiderbrain_cascade`, `spiderbrain_molt`. See `docs/TOOLS.md` for tool parameter documentation.
+
+All file tools are sandboxed to the `--project` path specified on the command line.

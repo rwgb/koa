@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { MODELS, extractTierOverride, classifyMessage, classifyWithHaiku, selectModel } from '../agent/router.js';
 
 // Stub Anthropic client — only messages.create is relevant to these tests

@@ -106,14 +106,3 @@ describe('ResponseCache', () => {
     expect(k1).toHaveLength(64); // SHA-256 hex
   });
 });
-
-// ── CONFIG_MODEL_MAP tier translation ────────────────────────────────────────
-
-describe('CONFIG_MODEL_MAP', () => {
-  it('maps tier aliases to model strings', async () => {
-    const { CONFIG_MODEL_MAP } = await import('../types/index.js');
-    expect(CONFIG_MODEL_MAP.fast).toBe('claude-haiku-4-5-20251001');
-    expect(CONFIG_MODEL_MAP.standard).toBe('claude-sonnet-4-6');
-    expect(CONFIG_MODEL_MAP.powerful).toBe('claude-opus-4-7');
-  });
-});

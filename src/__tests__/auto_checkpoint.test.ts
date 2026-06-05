@@ -53,6 +53,18 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     autoCheckpointTurns: 5,
     autoCheckpointMinutes: 15,
     noCache: false,
+    autoChaining: false,
+    briefingEnabled: false,
+    briefingTime: '08:00',
+    ttsProvider: 'say',
+    elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM',
+    elevenLabsModel: 'eleven_turbo_v2_5',
+    provider: 'anthropic' as const,
+    ollamaModel: 'llama3.2',
+    ollamaBaseUrl: 'http://localhost:11434',
+    sandboxBackend: 'local' as const,
+    sandboxTimeoutMs: 10000,
+    browserEnabled: false,
     ...overrides,
   };
 }

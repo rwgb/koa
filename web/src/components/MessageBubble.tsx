@@ -18,10 +18,20 @@ export default function MessageBubble({ item }: Props) {
   };
 
   if (item.kind === 'user') {
+    const channelIcon = item.channel === 'sms' ? 'phone'
+      : item.channel === 'gmail' ? 'envelope'
+      : item.channel === 'slack' ? 'chat'
+      : null;
     return (
       <div className="bubble bubble--user">
         <div className="bubble__meta">
           <span className="bubble__role bubble__role--user">You</span>
+          {channelIcon && (
+            <span className="bubble__channel-badge" title={`via ${item.channel}`}>
+              <Icon name={channelIcon} size={11} />
+              {item.channel}
+            </span>
+          )}
         </div>
         <div className="bubble__content">{item.content}</div>
       </div>
@@ -30,10 +40,21 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'assistant') {
     const tier = item.tier ?? 'sonnet';
+    const KNOWN_AGENTS = new Set(['code-assistant', 'project-manager', 'life-manager']);
+    const agentLabel: Record<string, string> = {
+      'code-assistant': 'Code',
+      'project-manager': 'PM',
+      'life-manager': 'Life',
+    };
+    const rawAgent = item.agent ?? 'code-assistant';
+    const agent = KNOWN_AGENTS.has(rawAgent) ? rawAgent : 'code-assistant';
     return (
       <div className="bubble bubble--assistant bubble--hoverable">
         <div className="bubble__meta">
           <span className="bubble__role bubble__role--assistant">Koa</span>
+          <span className={`bubble__agent-badge bubble__agent-badge--${agent}`}>
+            {agentLabel[agent] ?? agent}
+          </span>
           <span className={`bubble__tier-badge bubble__tier-badge--${tier}`}>{tier}</span>
           <button
             className="message__copy-btn"
