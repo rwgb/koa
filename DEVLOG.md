@@ -1,5 +1,36 @@
 # Koa — DevLog
 
+## [2026-06-04] — CP13a + CP13b: userName plumbing + ntfy parameterisation
+
+### Completed
+
+- CP13a: Added `userName` field to `KoaConfig` (env `KOA_USER_NAME`, default `'User'`).
+  Converted `AGENT_SPECS` → `buildAgentSpecs(userName)` factory so life-manager system
+  prompt addresses user by name; `createRememberTool(userName)` personalises tool description.
+  Backward-compat exports maintained. 3 regression tests in `specialists.test.ts`.
+- CP13b: `scripts/checkpoint.sh` reads `NTFY_TOPIC`/`NTFY_BASE_URL` from `~/.koa/credentials`
+  (or env vars) instead of hardcoded topic. Skips silently if unconfigured.
+  New `POST /api/admin/ntfy/test` endpoint: validates base URL via `validateSafeUrl`,
+  returns 400 if NTFY_TOPIC not set.
+  `.env.example` T2 section added: `KOA_USER_NAME`, `KOA_NTFY_TOPIC`, `KOA_NTFY_BASE_URL`.
+- Security review: clean. All findings filtered as false positives (operator-controlled
+  credentials file is same trust tier as env vars; no cross-trust-boundary SSRF path).
+- QA: tsc clean, 602 tests passing.
+
+### Decisions
+
+- `buildAgentSpecs` called at `AgentLoop` construction time, not per-turn, so userName is
+  set once from config — no per-request injection risk.
+- `/ntfy/test` reads from credentials file, not request body, so topic/URL are always
+  operator-controlled.
+
+### Next Session
+
+- [ ] Implement CP13c (`koa setup` wizard) → checkpoint
+- [ ] Implement CP13d (repo sanitisation) → checkpoint
+
+---
+
 ## [2026-06-05] — Pre-CP13: PR #4 merged, CP13 arc opened
 
 ### Completed
