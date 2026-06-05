@@ -48,11 +48,3 @@ jobs:
           # Use the PR head SHA, not the merge-ref SHA, so the status shows on the PR
           GITHUB_SHA:        ${{ github.event.pull_request.head.sha || github.sha }}
 
-      # Enable auto-merge only when the review passes (step above exits 0).
-      # GitHub will wait for all other required status checks before merging.
-      - name: Enable auto-merge (squash)
-        if: success() && github.event_name == 'pull_request'
-        run: gh pr merge --auto --squash "$PR_NUMBER" || true
-        env:
-          GH_TOKEN:  ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}

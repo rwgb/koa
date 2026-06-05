@@ -137,13 +137,24 @@ Type=simple
 ExecStart=/usr/local/bin/koa web --no-open --port 3000
 Restart=on-failure
 RestartSec=5
-Environment=ANTHROPIC_API_KEY=sk-ant-...
-Environment=KOA_HOME=%h
+EnvironmentFile=%h/.config/koa/env
+Environment=KOA_HOME=%h/.local/share/koa
 StandardOutput=journal
 StandardError=journal
 
 [Install]
 WantedBy=default.target
+```
+
+Create the env file with your secrets before starting the service. Keep it out of version control:
+
+```bash
+mkdir -p ~/.config/koa
+chmod 700 ~/.config/koa
+cat > ~/.config/koa/env <<'EOF'
+ANTHROPIC_API_KEY=your-key-here
+EOF
+chmod 600 ~/.config/koa/env
 ```
 
 Enable and start:

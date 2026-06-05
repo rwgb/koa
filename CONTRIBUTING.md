@@ -158,7 +158,8 @@ See `docs/PLUGINS.md` for the full manifest format and transport options. The sh
       "description": "Does something",
       "transport": "bash",
       "config": {
-        "command": "echo {{input.value}}"
+        "command": "echo \"$INPUT_VALUE\"",
+        "env": { "INPUT_VALUE": "{{input.value}}" }
       }
     }
   ]
@@ -182,7 +183,10 @@ curl -X POST http://localhost:3000/api/admin/skills/custom \
     "name": "ping_service",
     "description": "Ping a homelab service",
     "type": "bash",
-    "config": { "command": "curl -sf http://{{input.host}}/health" }
+    "config": {
+      "command": "curl -sf \"http://$TARGET_HOST/health\"",
+      "env": { "TARGET_HOST": "{{input.host}}" }
+    }
   }'
 ```
 
