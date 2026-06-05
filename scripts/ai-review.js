@@ -45,7 +45,7 @@ async function getPR() {
 async function getDiff() {
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/pulls/${PR_NUMBER}`,
-    { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: 'application/vnd.github.v3.diff' } },
+    { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: 'application/vnd.github.diff' } },
   );
   if (!res.ok) throw new Error(`Failed to fetch diff: ${res.status}`);
   const diff = await res.text();
