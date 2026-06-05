@@ -896,9 +896,165 @@ No source code changes. Pure infra files.
 
 ---
 
-## Product Radar (CP13+)
+## CP13 — Clone-Ready Hardening & First-Run Setup
 
-Items worth watching — not yet specced, revisit after CP12.
+> **Position**: After CP12 complete.
+> **Theme**: Genericise all personal identifiers; add a `koa setup` wizard so anyone can clone
+> the repo and configure their own instance without touching source code.
+> **Done-when**: `git clone` + `koa setup` produces a fully working personal assistant with
+> no owner-specific values in the codebase; all T1 secrets validated at startup.
+
+---
+
+### Critical pre-work (do before implementation)
+
+- [ ] **Rotate ANTHROPIC_API_KEY** — a live key is present in `.env` in the working tree.
+  Rotate at `console.anthropic.com`. Then verify `.env` was never committed:
+  `git log --all --full-history -- .env`. If it was, rewrite history with
+  `git filter-repo --path .env --invert-paths` and force-push after coordinating.
+
+---
+
+### CP13a — Configuration taxonomy & `userName` plumbing
+
+**Done when**: `KOA_USER_NAME` flows from env → config.json → `'User'` default into the system
+prompt and memory tool; no "Ralph" strings remain in committed TypeScript source.
+
+- [ ] `src/config/index.ts`
+  - Add `userName: z.string().default('User')` to `ConfigSchema` (after `browserEnabled` line)
+  - Add `userName?: string` to `KoaConfigFile` interface
+  - Add `userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User'` to
+    `loadConfig()` return object
+
+- [ ] `src/agent/specialists.ts`
+  - Convert `LM_SYSTEM` string constant to `buildLmSystem(userName: string): string` function
+    that replaces the two "Ralph" occurrences with `${userName}`
+  - Convert `AGENT_SPECS` constant to `buildAgentSpecs(userName: string)` factory function
+  - Keep `export const AGENT_SPECS = buildAgentSpecs('User')` for backward-compat with tests
+
+- [ ] `src/agent/loop.ts`
+  - Store `private agentSpecs = buildAgentSpecs(config.userName ?? 'User')` in constructor
+  - Replace all `AGENT_SPECS[...]` references with `this.agentSpecs[...]`
+
+- [ ] `src/agent/tools/memory_tool.ts`
+  - Convert `rememberTool` to `createRememberTool(userName: string = 'User'): Tool` factory
+  - Keep `export const rememberTool = createRememberTool('User')` for backward-compat
+  - Update example sentence in description from "Ralph's wife Jeni..." to `"${userName}'s..."`
+
+- [ ] `src/cli/index.ts`
+  - Import `createRememberTool` instead of `rememberTool`
+  - In `buildRegistry()`, replace `registry.register(rememberTool)` with
+    `registry.register(createRememberTool(config.userName ?? 'User'))`
+
+### Checkpoint gate (CP13a)
+- [ ] tsc clean
+- [ ] npm test all pass — all tests that import `rememberTool` / `AGENT_SPECS` directly still work
+- [ ] `grep -r "Ralph" src/` returns zero hits
+
+---
+
+### CP13b — ntfy parameterisation
+
+**Done when**: `scripts/checkpoint.sh` reads `NTFY_TOPIC` from `~/.koa/credentials` (or
+`KOA_NTFY_TOPIC` env var) and skips with a warning when unset. Hardcoded topic string gone.
+`src/notifications/escalation.ts` and `src/server/routes/admin.ts` use the same pattern.
+
+- [ ] `scripts/checkpoint.sh`
+  - Replace hardcoded `NTFY_URL="https://ntfy.sh/undaunting_underpants"` with a credentials-file
+    lookup: read `NTFY_TOPIC` and `NTFY_BASE_URL` from `~/.koa/credentials` (via `grep`),
+    fall back to `KOA_NTFY_TOPIC` / `KOA_NTFY_BASE_URL` env vars, default base URL to
+    `https://ntfy.sh`. If `NTFY_TOPIC` is empty, print a warning to stderr and exit 0.
+
+- [ ] `src/notifications/escalation.ts`
+  - Replace any hardcoded ntfy topic with `readCredentials()['NTFY_TOPIC']` and
+    `readCredentials()['NTFY_BASE_URL'] ?? 'https://ntfy.sh'`
+  - Skip send (log warning) when `NTFY_TOPIC` is unset
+
+- [ ] `src/server/routes/admin.ts`
+  - Same pattern as escalation.ts — topic read from credentials, skip if unset
+  - The test-send endpoint at `/api/admin/ntfy/test` should return a 400 with a clear message
+    when `NTFY_TOPIC` is not configured, rather than sending to an undefined URL
+
+- [ ] `.env.example`
+  - Add `KOA_NTFY_TOPIC=` and `KOA_NTFY_BASE_URL=https://ntfy.sh` entries under a T2 Personal block
+
+### Checkpoint gate (CP13b)
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] `grep -r "undaunting_underpants" .` returns zero hits
+- [ ] security review: no credential leakage in ntfy send paths
+
+---
+
+### CP13c — `koa setup` wizard
+
+**Done when**: Running `koa setup` on a fresh clone walks the user through all T1 and T2 values,
+writes to `~/.koa/credentials` and `~/.koa/config.json`, and exits cleanly. Headless mode
+(`--headless`) validates T1 values or exits 1 with a descriptive error (for Docker/CI).
+
+- [ ] `src/cli/index.ts` — Add `setup` subcommand:
+  ```
+  koa setup [--reset] [--headless]
+  ```
+  Uses `readline/promises` (no new dependencies). Five steps in order:
+  1. **Anthropic API key** (T1) — validates `sk-ant-` prefix + length ≥ 20 chars; writes via
+     `setApiKey()`. Skips if already set (unless `--reset`).
+  2. **Web console token** (T1) — offer auto-generate (64-char hex via `generateWebToken()`) or
+     manual entry (min 16 chars); writes via `setWebToken()`. Skips if already set.
+  3. **Your name** (T2) — writes to `~/.koa/config.json` as `"userName"`. Default: `User`.
+  4. **ntfy notifications** (T2, optional) — topic name (validates `[a-zA-Z0-9_-]` only),
+     server URL (validates with `validateSafeUrl()`), optional test send.
+  5. **Default project path** (T2, optional) — validates path exists; writes to `config.json`.
+  - Headless mode: validate T1 values from env/credentials; exit 1 listing missing keys if any.
+  - Idempotent: re-run without `--reset` only prompts for unset values.
+
+### Checkpoint gate (CP13c)
+- [ ] tsc clean
+- [ ] npm test all pass
+- [ ] Manual: `koa setup` on a fresh `KOA_HOME` completes end-to-end
+- [ ] Manual: `KOA_NTFY_TOPIC=test koa setup --headless` exits 0 when ANTHROPIC_API_KEY is set
+- [ ] Manual: `koa setup --headless` with no API key exits 1 with a clear error message
+- [ ] security review: ntfy topic validation (no path traversal), URL validation on server field
+
+---
+
+### CP13d — Repo sanitisation & template files
+
+**Done when**: The repo ships no personal identifiers in committed files; cloners get
+`.env.example`, `config.example.json`, and `.claude/settings.example.json` as starting points.
+
+- [ ] `.gitignore` — add `.claude/settings.json` (personal harness permissions are machine-specific)
+- [ ] `.claude/settings.example.json` — rename/copy from `.claude/settings.json`; replace
+  absolute paths with `$(git rev-parse --show-toplevel)` placeholders; add comment header
+  explaining cloners must copy to `settings.json` and set their project path
+- [ ] `config.example.json` — create at repo root; document every `KoaConfigFile` field with
+  one-line comments; no personal values
+- [ ] `.env.example` — add T2 section with `KOA_USER_NAME`, `KOA_NTFY_TOPIC`, `KOA_NTFY_BASE_URL`
+- [ ] `README.md` — replace `git clone git@github.com:rwgb/koa.git` with a generic placeholder;
+  replace personal bio line
+- [ ] `CONTRIBUTING.md` — replace `git clone git@github.com:rwgb/koa.git` with placeholder;
+  add note that `ai-review.yml` requires an `ANTHROPIC_API_KEY` secret in fork's GitHub settings
+- [ ] `docs/PERSONA.md` — add top-of-file note directing cloners to set `KOA_USER_NAME`;
+  replace inline "Ralph" references with `${KOA_USER_NAME}` placeholder markers
+
+### Checkpoint gate (CP13d)
+- [ ] `grep -rn "rwgb\|undaunting_underpants\|ralph\.brynard\|/Users/ralph" . --include="*.ts" --include="*.sh" --include="*.yml" --include="*.md" --include="*.json" | grep -v node_modules | grep -v ".git"` returns zero hits
+- [ ] `.claude/settings.json` is in `.gitignore`; `settings.example.json` committed instead
+- [ ] security review: no personal data or credentials in committed files
+
+---
+
+### CP13 End-of-Arc
+- [ ] Full tsc clean; npm test all pass
+- [ ] `koa setup` tested end-to-end on a clean temp `KOA_HOME`
+- [ ] Security review on all CP13 changes
+- [ ] ntfy: CP13 sealed
+
+---
+
+## Product Radar (CP14+)
+
+Items worth watching — not yet specced, revisit after CP13.
 
 - **Ambient Dashboard (tvOS / macOS screensaver)** — full-screen read-only display of today's
   task board, calendar, and cost metrics. Applicable to tvOS Phase C or as a macOS screensaver.
