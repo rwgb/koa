@@ -1,5 +1,56 @@
 # Koa — DevLog
 
+## [2026-06-05] — PR #3 Merged: CI/CD Hardening + Security Fixes
+
+### Completed
+
+- PR #3 (`develop` → `main`) merged — CP7–CP13 full arc now on main
+- GitHub Release `v0.2.0` created
+- CI/CD pipeline fully operational: CI (lint+typecheck+test) + AI code review + release workflow
+- Fixed 11 security findings raised by AI review across 5 rounds:
+  - RUNBOOK.md: replaced `sk-ant-...` placeholder with `EnvironmentFile=`
+  - Dockerfile: node:22-slim, VOLUME /data, healthcheck via Node.js http, npm ci --omit=dev
+  - CONTRIBUTING.md: env-var pattern for bash plugins, SSRF warning for HTTP skills
+  - ai-review.yml: removed auto-merge, CRITICAL-only blocking threshold, PR_NUMBER/SHA validation, pinned actions
+  - release.yml: jq version parsing, semver validation, pinned softprops SHA, exact tag grep
+  - .env.example: consolidated Google OAuth to single client_id/secret pair
+  - gmail.ts + gmail-send.ts: unified to GOOGLE_CLIENT_ID fallback
+
+### Decisions
+
+- AI review threshold: CRITICAL-only blocking (HIGH/MEDIUM/LOW advisory). Prevents infinite loop on truncated 60KB diffs of large mega-PRs
+- Auto-merge removed: AI-gated merge into main is a prompt-injection risk; manual merge is correct for personal project
+- Branch protection: main requires `ci / Lint, typecheck & test` + `ai-review`; develop requires CI only
+
+### Next Session
+
+- [ ] Plan CP14 (see Product Radar in TASKS.md)
+- [ ] Bump version to 0.3.0 in package.json for next release cycle
+
+---
+
+## [2026-06-04] — CI / AI Code Review + Auto-Merge
+
+### Completed
+
+- `scripts/ai-review.js` — calls Claude Sonnet 4.6 with PR diff, posts review comment, sets `ai-review` commit status; FAIL if any CRITICAL or HIGH finding
+- `.github/workflows/ci.yml` — lint + typecheck + test on every PR to `main` and push to `develop`/`main`
+- `.github/workflows/ai-review.yml` — runs review on `develop → main` PRs; enables GitHub native auto-merge (squash) when review passes
+- Pushed to `develop`; PR #3 updated automatically
+
+### Decisions
+
+- Pass threshold: no CRITICAL or HIGH findings — MEDIUM/LOW are noted but don't block merge
+- Auto-merge uses GitHub's native feature (`gh pr merge --auto --squash`); no custom poll logic needed
+- Uses native `fetch` in review script (Node 18+) — no extra install step required
+
+### Next Session
+
+- [ ] Complete GitHub setup: add `ANTHROPIC_API_KEY` secret, enable auto-merge in repo settings, add branch protection rules on `main`
+- [ ] Merge PR #3 after review + CI pass
+
+---
+
 ## [2026-06-04] — Merge & Branch Cleanup
 
 ### Completed
@@ -9,10 +60,6 @@
 - Pushed `develop` and `main` to origin
 - Opened PR #3: https://github.com/rwgb/koa/pull/3 (`develop` → `main`)
 - Deleted 11 stale `worktree-agent-*` branches
-
-### Next Session
-
-- [ ] Merge PR #3 after review
 - [ ] Plan CP14 (check TASKS.md backlog)
 
 ---
