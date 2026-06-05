@@ -43,12 +43,29 @@ async function getPR() {
 }
 
 async function getDiff() {
-  const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/pulls/${PR_NUMBER}`,
-    { headers: { Authorization: `Bearer ${GH_TOKEN}`, Accept: 'application/vnd.github.diff' } },
-  );
-  if (!res.ok) throw new Error(`Failed to fetch diff: ${res.status}`);
-  const diff = await res.text();
+  // Use /files endpoint — the raw diff endpoint returns 406 for PRs over 20k lines
+  const files = [];
+  let page = 1;
+  while (true) {
+    const batch = await ghFetch(`/repos/${owner}/${repo}/pulls/${PR_NUMBER}/files?per_page=100&page=${page}`);
+    if (!batch || batch.length === 0) break;
+    files.push(...batch);
+    if (batch.length < 100) break;
+    page++;
+    if (files.length >= 3000) break;
+  }
+
+  const parts = [];
+  for (const file of files) {
+    parts.push(`diff --git a/${file.filename} b/${file.filename}`);
+    if (file.status === 'added') parts.push('new file mode 100644');
+    if (file.status === 'deleted') parts.push('deleted file mode 100644');
+    parts.push(`--- a/${file.filename}\n+++ b/${file.filename}`);
+    parts.push(file.patch ?? `[no patch — binary or too large (${file.changes} changes)]`);
+    parts.push('');
+  }
+
+  const diff = parts.join('\n');
   const truncated = diff.length > MAX_DIFF_CHARS;
   return truncated
     ? diff.slice(0, MAX_DIFF_CHARS) + '\n\n[...diff truncated — exceeds 60 KB limit]'
