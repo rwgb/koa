@@ -42,9 +42,14 @@ function runChatStream(
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  // Tell Caddy/nginx not to buffer this response — required for SSE through a reverse proxy.
+  // Without this, Caddy's gzip encoder buffers the stream and the browser never receives events.
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  req.on('close', () => {
+  // Use res 'close' (not req 'close') — on Node.js 20, req 'close' fires as soon as the
+  // POST body is consumed, before the async turn completes, making every res.write a no-op.
+  res.on('close', () => {
     disconnected = true;
     setIsBusy(false);
   });

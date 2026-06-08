@@ -5,6 +5,18 @@ bin/
 *.env.local
 .DS_Store
 *.log
+.claude/settings.json
 .claude/settings.local.json
 .claude/worktrees/
 koa_render.py
+
+# Terraform — secrets and generated state must never be committed
+infra/terraform/*.tfvars
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfstate.backup
+infra/terraform/.terraform.lock.hcl
+
+# Packer — variable files contain secrets
+infra/packer/*.pkrvars.hcl

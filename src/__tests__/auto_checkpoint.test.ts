@@ -57,6 +57,7 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     briefingEnabled: false,
     briefingTime: '08:00',
     ttsProvider: 'say',
+    userName: 'User',
     elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM',
     elevenLabsModel: 'eleven_turbo_v2_5',
     provider: 'anthropic' as const,

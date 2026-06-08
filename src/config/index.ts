@@ -31,6 +31,7 @@ const ConfigSchema = z.object({
   sandboxBackend: z.enum(['local', 'docker']).default('local'),
   sandboxTimeoutMs: z.number().default(10000),
   browserEnabled: z.boolean().default(false),
+  userName: z.string().default('User'),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -63,6 +64,7 @@ export interface KoaConfigFile {
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
+  userName?: string;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -140,6 +142,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)
       : (fileConfig.sandboxTimeoutMs ?? 10000),
     browserEnabled: fileConfig.browserEnabled ?? false,
+    userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User',
   });
 }
 

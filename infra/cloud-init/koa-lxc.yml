@@ -1,0 +1,52 @@
+#cloud-config
+# Koa LXC reference configuration.
+#
+# Standard Proxmox LXC templates do not execute cloud-init natively.
+# These steps are carried out by the Terraform null_resource in lxc-koa.tf
+# via SSH remote-exec, using deploy/bootstrap.sh as the primary script.
+#
+# This file serves two purposes:
+#   1. Human-readable documentation of what runs on first boot.
+#   2. Drop-in cloud-init config if you ever switch to a cloud-init enabled
+#      LXC base image.
+
+packages:
+  - curl
+  - apt-transport-https
+
+runcmd:
+  # Node.js 20 LTS
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+
+  # Caddy
+  - apt-get install -y debian-keyring debian-archive-keyring apt-transport-https
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update
+  - apt-get install -y caddy
+
+  # koa system user and directories
+  - useradd --system --no-create-home --shell /usr/sbin/nologin koa || true
+  - mkdir -p /opt/koa /var/lib/koa /etc/koa /var/log/caddy
+  - chown koa:koa /opt/koa /var/lib/koa
+  - chmod 750 /opt/koa /var/lib/koa /etc/koa
+
+  # env skeleton
+  - |
+    if [ ! -f /etc/koa/env ]; then
+      cat > /etc/koa/env <<'ENVEOF'
+    ANTHROPIC_API_KEY=
+    KOA_WEB_TOKEN=
+    KOA_HOME=/var/lib/koa
+    KOA_OLLAMA_BASE_URL=http://192.168.1.201:11434
+    KOA_PROVIDER=ollama
+    ENVEOF
+      chmod 640 /etc/koa/env
+      chown root:koa /etc/koa/env
+    fi
+
+  # Tailscale (authkey injected by Terraform remote-exec, not here)
+  - curl -fsSL https://tailscale.com/install.sh | sh
+
+final_message: "Koa LXC bootstrap complete. Deploy the app with scripts/deploy.sh."

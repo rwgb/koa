@@ -11,7 +11,17 @@ set -euo pipefail
 
 LABEL="${1:-checkpoint}"
 SUMMARY="${2:-}"
-NTFY_URL="https://ntfy.sh/undaunting_underpants"
+
+KOA_CREDENTIALS="${KOA_HOME:-${HOME}}/.koa/credentials"
+NTFY_TOPIC="${KOA_NTFY_TOPIC:-$(grep -Po '(?<=^NTFY_TOPIC=)[a-zA-Z0-9_-]+' "${KOA_CREDENTIALS}" 2>/dev/null || true)}"
+NTFY_BASE_URL="${KOA_NTFY_BASE_URL:-$(grep -Po '(?<=^NTFY_BASE_URL=)[a-zA-Z0-9_./:+\-]+' "${KOA_CREDENTIALS}" 2>/dev/null || echo 'https://ntfy.sh')}"
+
+if [[ -z "${NTFY_TOPIC}" ]]; then
+  echo "WARNING: NTFY_TOPIC not configured — checkpoint notification skipped" >&2
+  exit 0
+fi
+
+NTFY_URL="${NTFY_BASE_URL}/${NTFY_TOPIC}"
 
 # ── Sanity checks ────────────────────────────────────────────────────────────
 

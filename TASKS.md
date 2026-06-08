@@ -960,7 +960,7 @@ prompt and memory tool; no "Ralph" strings remain in committed TypeScript source
 `src/notifications/escalation.ts` and `src/server/routes/admin.ts` use the same pattern.
 
 - [ ] `scripts/checkpoint.sh`
-  - Replace hardcoded `NTFY_URL="https://ntfy.sh/undaunting_underpants"` with a credentials-file
+  - Replace hardcoded `NTFY_URL="https://ntfy.sh/<ntfy-topic>"` with a credentials-file
     lookup. Use safe extraction: `NTFY_TOPIC=$(grep -Po '(?<=^NTFY_TOPIC=).*' ~/.koa/credentials 2>/dev/null || true)`,
     fall back to `KOA_NTFY_TOPIC` env var. Default base URL to `https://ntfy.sh` via same pattern
     for `NTFY_BASE_URL` / `KOA_NTFY_BASE_URL`. If `NTFY_TOPIC` is empty, print a warning to
@@ -984,7 +984,7 @@ prompt and memory tool; no "Ralph" strings remain in committed TypeScript source
 ### Checkpoint gate (CP13b)
 - [ ] tsc clean
 - [ ] npm test all pass
-- [ ] `grep -r "undaunting_underpants" .` returns zero hits
+- [ ] `grep -r "$KOA_NTFY_TOPIC" .` returns zero hits in committed source files
 - [ ] security review: no credential leakage in ntfy send paths
 
 ---
@@ -1036,15 +1036,15 @@ writes to `~/.koa/credentials` and `~/.koa/config.json`, and exits cleanly. Head
 - [ ] `config.example.json` — create at repo root; document every `KoaConfigFile` field with
   one-line comments; no personal values
 - [ ] `.env.example` — add T2 section with `KOA_USER_NAME`, `KOA_NTFY_TOPIC`, `KOA_NTFY_BASE_URL`
-- [ ] `README.md` — replace `git clone git@github.com:rwgb/koa.git` with a generic placeholder;
+- [ ] `README.md` — replace `git clone git@github.com:<your-username>/koa.git` placeholder set;
   replace personal bio line
-- [ ] `CONTRIBUTING.md` — replace `git clone git@github.com:rwgb/koa.git` with placeholder;
+- [ ] `CONTRIBUTING.md` — replace `git clone git@github.com:<your-username>/koa.git` placeholder set;
   add note that `ai-review.yml` requires an `ANTHROPIC_API_KEY` secret in fork's GitHub settings
 - [ ] `docs/PERSONA.md` — add top-of-file note directing cloners to set `KOA_USER_NAME`;
   replace inline "Ralph" references with `${KOA_USER_NAME}` placeholder markers
 
 ### Checkpoint gate (CP13d)
-- [ ] `grep -rn "rwgb\|undaunting_underpants\|ralph\.brynard\|/Users/ralph" . --include="*.ts" --include="*.sh" --include="*.yml" --include="*.md" --include="*.json" --exclude-dir=node_modules --exclude-dir=.git` returns zero hits
+- [ ] `grep -rn "rwgb\|undaunting_underpants\|ralph\.brynard\|/Users/ralph" . --include="*.ts" --include="*.sh" --include="*.yml" --include="*.md" --include="*.json" --exclude-dir=node_modules --exclude-dir=.git --exclude=TASKS.md` returns zero hits
 - [ ] `.claude/settings.json` is in `.gitignore`; `settings.example.json` committed instead
 - [ ] security review: no personal data or credentials in committed files
 
@@ -1058,7 +1058,173 @@ writes to `~/.koa/credentials` and `~/.koa/config.json`, and exits cleanly. Head
 
 ---
 
-## Product Radar (CP14+)
+## Memory System Re-Architecture
+
+**Done when**: Session-to-session continuity is smooth — one 60-second read at session start, no stale architecture docs, no stale CLI refs.
+
+### Changes
+- [ ] Delete `~/.claude/projects/.../memory/project_koa.md` — architecture is in the code/ARCHITECTURE.md; this file only rots
+- [ ] Delete `~/.claude/projects/.../memory/reference_engram.md` — CLI commands are in the actual scripts; this file only rots
+- [ ] Rename `STATE.md` → `HANDOFF.md` and restructure it as a session-to-session handoff doc:
+  - Frontmatter: `written`, `branch`, `tests | tsc | lint` status
+  - Sections: **Where We Are** (plain-English paragraph), **Active Branch** (what's on it + what it needs), **What's Next** (ordered list), **Open Questions** (unresolved tradeoffs), **Don't Restart** (things tried + abandoned + why)
+- [ ] Slim `MEMORY.md` — remove stale project status line; keep only feedback files + HANDOFF.md pointer
+- [ ] Add a project-level `CLAUDE.md` to the koa repo: "At session start, read `memory/HANDOFF.md` first. It's authoritative. Skip DEVLOG.md unless you need history."
+- [ ] Update the checkpoint routine (§16 of global CLAUDE.md) to rewrite `HANDOFF.md` after each checkpoint instead of updating `STATE.md`
+
+### Acceptance criteria
+- [ ] Session start requires reading exactly 1 file to be fully oriented
+- [ ] No memory file describes architecture or CLI commands (those live in the repo)
+- [ ] HANDOFF.md is rewritten by the checkpoint routine — always fresh, never stale
+
+---
+
+## Koa ↔ Engram Feedback Loops
+
+Two sequential workstreams. Must do **Prerequisite** first — nothing else works without it.
+
+---
+
+### Prerequisite — CI + Tests for Engram
+
+**Context**: Engram is already a git repo at `~/active projects/engram` with remote
+`https://github.com/rwgb/engram.git`. `~/.claude/skills/engram` is now a symlink to it —
+global hooks and koa's `ENGRAM_CLI` constant both resolve correctly with no code changes needed.
+
+**Done when**: Engram has a passing CI on GitHub and a pytest smoke suite locally.
+
+- [ ] Add `~/active projects/engram/tests/` with 3 smoke tests:
+  - `test_db.py` — `open_brain()` creates schema without error on a temp path
+  - `test_search.py` — `search()` on an empty brain returns `[]`, not an exception
+  - `test_session.py` — `start_session()` / `close_session()` round-trip writes and reads back
+- [ ] Add `~/active projects/engram/pyproject.toml`:
+  ```toml
+  [project.optional-dependencies]
+  dev = ["pytest", "pytest-cov"]
+  [tool.pytest.ini_options]
+  testpaths = ["tests"]
+  ```
+- [ ] Add `~/active projects/engram/.github/workflows/ci.yml`:
+  ```yaml
+  name: CI
+  on: [push, pull_request]
+  jobs:
+    test:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: actions/setup-python@v5
+          with: { python-version: "3.12" }
+        - run: pip install -e ".[dev]" -r requirements.txt
+        - run: python -m pytest tests/ -q
+  ```
+- [ ] Commit and push — confirm CI green on `github.com/rwgb/engram`
+
+### Acceptance criteria (Prerequisite)
+- [ ] `python -m pytest tests/` passes locally — 3 tests, 0 failures
+- [ ] GitHub Actions CI green on first push to engram
+- [ ] `ls -la ~/.claude/skills/engram` shows symlink → `~/active projects/engram` ✅ (done)
+
+---
+
+### Loop 1 — Reactive (Push-Triggered Cross-Repo Patch)
+
+**Done when**: Pushing a koa commit that touches `src/engram/client.ts` automatically opens a PR on the Engram repo if an interface change is detected.
+
+**Depends on**: Prerequisite complete.
+
+- [ ] `scripts/engram-impact.js` — new script, same structure as `scripts/ai-review.js`:
+  - Reads the diff of `src/engram/client.ts` from the GitHub API (using `GH_TOKEN`)
+  - Fetches current Engram Python files from `github.com/<your-username>/engram` via GitHub API
+  - Calls Claude API (Sonnet): "does this koa diff require a change to Engram's Python? If yes, produce the patch."
+  - If patch needed: opens a PR on the Engram repo with the generated change
+  - Posts a comment on the koa PR: "⚠️ Engram interface change detected — Engram PR #N opened"
+  - If no patch needed: posts "✅ No Engram changes required"
+  - AC: script exits 0 in both cases (never blocks the koa PR)
+
+- [ ] `.github/workflows/engram-impact.yml` — new workflow in koa:
+  ```yaml
+  name: Engram Impact Check
+  on:
+    pull_request:
+      paths: [src/engram/client.ts]  # only fires when the interface file changes
+  permissions:
+    contents: read
+    pull-requests: write
+  jobs:
+    impact:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: 22 }
+        - run: node scripts/engram-impact.js
+          env:
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            ENGRAM_REPO: rwgb/engram
+            PR_NUMBER: ${{ github.event.pull_request.number }}
+            GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+  ```
+
+- [ ] Add `ENGRAM_REPO` to the koa repo's GitHub Actions secrets (or env — it's not sensitive)
+- [ ] End-to-end test: make a trivial change to `client.ts` (e.g. add a comment), open a PR, confirm the workflow fires and posts a "no changes required" comment
+
+### Acceptance criteria (Loop 1)
+- [ ] `engram-impact.yml` fires only on PRs that touch `src/engram/client.ts`
+- [ ] A real interface change (e.g. calling a new CLI flag) produces a patch PR on the Engram repo
+- [ ] A non-breaking change produces a "no changes required" comment
+- [ ] koa CI never fails because of this check (script always exits 0)
+
+---
+
+### Loop 2 — Proactive (Local Quality Signal Collector)
+
+**Done when**: Koa silently tracks Engram quality during sessions and surfaces improvement opportunities in HANDOFF.md; the main agent loop can apply patches to Engram on demand.
+
+**Does not depend on Loop 1** — runs entirely locally, no GitHub required.
+
+- [ ] `src/engram/signals.ts` — signal collector:
+  ```typescript
+  type SignalType = 'thin-context' | 'empty-query' | 'failed-call' | 'slow-sync' | 'poor-recall';
+  interface EngramSignal { ts: string; type: SignalType; detail: string; }
+  // append-only write to ~/.koa/signals/engram.jsonl
+  // exported: emitSignal(type, detail), readRecentSignals(n): EngramSignal[]
+  ```
+  - Wrap `EngramClient.getContext()`: if result has no goal and no sessionSummary → emit `thin-context`
+  - Wrap `EngramClient.query()`: if result is empty string → emit `empty-query`
+  - Wrap `EngramClient.sync()`: if wall-clock >15 000ms → emit `slow-sync`
+  - Wrap `EngramClient.rememberSession()`: on exception → emit `failed-call`
+
+- [ ] `AgentLoop.finalize()` — after `rememberSession`, call `readRecentSignals(20)`:
+  - Count signals by type in the last 20 entries
+  - If any type has ≥3 occurrences: append a `## Pending Engram Work` section to HANDOFF.md
+    listing the signal type, count, and a one-line description of what it means
+
+- [ ] `src/agent/tools/cross_repo.ts` — three tools behind an allowlist:
+  ```typescript
+  const ALLOWLIST = { engram: path.join(os.homedir(), 'active projects/engram') };
+  // cross_repo_read(repo, relPath) → file contents
+  // cross_repo_write(repo, relPath, content) → writes file
+  // cross_repo_run_tests(repo) → runs pytest, returns stdout + pass/fail
+  ```
+  - `repo` arg must be a key in `ALLOWLIST` — reject anything else
+  - `cross_repo_write` refuses to write outside the allowlisted root (path traversal guard)
+  - Registered in `registry.ts` alongside the existing tools
+
+- [ ] Wire `cross_repo` tools into `AgentLoop` so the main agent can call them during a turn
+  - No new permission needed — the main loop already executes bash; these are more restricted
+
+### Acceptance criteria (Loop 2)
+- [ ] After a session where `getContext()` returns empty: a signal is written to `~/.koa/signals/engram.jsonl`
+- [ ] After 3+ thin-context signals: HANDOFF.md contains a `## Pending Engram Work` section next session
+- [ ] `cross_repo_read` can read a file from `~/.claude/skills/engram/` and `cross_repo_write` can write one back
+- [ ] `cross_repo_write` with a path like `../../.ssh/id_rsa` is rejected
+- [ ] `cross_repo_run_tests` runs pytest and returns the output
+
+---
+
+## Memory System Re-Architecture
 
 Items worth watching — not yet specced, revisit after CP13.
 
