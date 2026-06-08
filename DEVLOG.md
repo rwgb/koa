@@ -1,5 +1,29 @@
 # Koa — DevLog
 
+## [2026-06-08] — CP14 Smart Provider Routing + ClaudeCodeProvider
+
+### Completed
+
+- **PR #5 merged** (`feature/cp13-clone-ready` → `develop`)
+- **PR #6 opened** (`develop` → `main`, v0.3.0 release)
+- **`ClaudeCodeProvider`** (`src/agent/providers/claude_code.ts`): spawns `claude -p --output-format json` subprocess; fits `LlmProvider` interface; uses EventEmitter stream pattern matching OllamaProvider
+- **Config additions**: `provider` enum extended to `'anthropic' | 'ollama' | 'claude-code' | 'auto'`; `claudeCodePath` field added (env: `KOA_CLAUDE_CODE_PATH`, default: `'claude'`)
+- **Auto routing** (`loop.ts`): when `provider === 'auto'`, routes code queries to claude-code, simple queries to ollama (if configured), complex to Anthropic; `activeProvider` local var per-turn so tool-use continuation stays on the same provider
+- **ntfy topic validation** (`PUT /integrations/:id`): rejects topics not matching `/^[a-zA-Z0-9_-]{1,64}$/` with HTTP 400; `NTFY_TOPIC_RE` exported for testing
+- **Tests**: 643 passing (added `claude_code_provider.test.ts` + `ntfy_topic_validation.test.ts`); tsc clean
+
+### Decisions
+
+- `'auto'` routing in loop.ts (not in a `RoutingProvider` wrapper) — keeps routing colocated with turn logic where agent context is available
+- `ClaudeCodeProvider` does not pass `--system-prompt` to claude CLI — let it use its own context rather than injecting koa's full system blocks
+- `NTFY_TOPIC_RE` exported constant to keep validation testable without a server
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] Confirm Packer + terraform for Ollama VM 201
+- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 from TASKS.md)
+
 ## [2026-06-08] — CP13 End-of-Arc + version bump to 0.3.0
 
 ### Completed
