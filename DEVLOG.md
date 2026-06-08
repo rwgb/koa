@@ -21,8 +21,29 @@
 ### Next
 
 - [ ] PR #6 merge + GitHub Release v0.3.0
-- [ ] Confirm Packer + terraform for Ollama VM 201
+- [x] Confirm Packer + terraform for Ollama VM 201 → CP14c sealed
 - [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 from TASKS.md)
+
+## [2026-06-08] — CP14c: terraform apply + Ollama VM deploy
+
+### Completed
+
+- Terraform applied: VM 201 cloned from Packer template 9001 (`ollama-debian13`) in 54s
+- VM came up at 192.168.1.36 (DHCP, not static .201 — tfvars updated)
+- `ollama.service` patched: `OLLAMA_HOST=0.0.0.0` so LXC at .200 can reach it
+- `qwen2.5:7b` (4.7GB) pre-baked in template — no pull needed
+- Koa env on LXC: `KOA_OLLAMA_BASE_URL=http://192.168.1.36:11434`, `KOA_OLLAMA_MODEL=qwen2.5:7b`
+- `KOA_PROVIDER` left unset — koa auto-routes to Claude by default; Ollama available on demand
+
+### Decisions
+
+- CPU-only Ollama inference on `qwen2.5:7b` is too slow for interactive use (~30–90s/response); Ollama wiring kept intact for future GPU addition or batch tasks
+- Did not set `KOA_PROVIDER=ollama` in production env; smart-routing default (Claude) is better UX
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] CP15: Engram quality signal collector + cross-repo tools
 
 ## [2026-06-08] — CP13 End-of-Arc + version bump to 0.3.0
 
