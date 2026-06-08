@@ -29,6 +29,8 @@ import {
   extractAndMergePreferences,
 } from '../engram/preferences.js';
 import type { Preference } from '../engram/preferences.js';
+import { readRecentSignals } from '../engram/signals.js';
+import type { SignalType } from '../engram/signals.js';
 
 const CONTEXT_COMPRESS_THRESHOLD = 150_000; // ~75% of 200k context
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
@@ -939,6 +941,42 @@ export class AgentLoop {
         ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)
         : Promise.resolve(),
     ]);
+
+    this._appendEngramSignalsToHandoff(paths.handoffMd);
+  }
+
+  private _appendEngramSignalsToHandoff(handoffMd: string): void {
+    const SIGNAL_DESCRIPTIONS: Record<SignalType, string> = {
+      'thin-context': 'getContext returned no goal or session summary — Engram brain may be empty',
+      'empty-query': 'query() returned empty string — index may be stale or missing',
+      'failed-call': 'rememberSession() threw an exception — session not persisted to Engram',
+      'slow-sync': 'sync() took >15s — filesystem scan may be too large',
+      'poor-recall': 'recall quality flagged as poor by the agent',
+    };
+
+    try {
+      const signals = readRecentSignals(20);
+      if (signals.length === 0) return;
+
+      const counts = new Map<SignalType, number>();
+      for (const s of signals) {
+        counts.set(s.type, (counts.get(s.type) ?? 0) + 1);
+      }
+
+      const flagged = Array.from(counts.entries()).filter(([, count]) => count >= 3);
+      if (flagged.length === 0) return;
+
+      const lines = ['', '## Pending Engram Work', ''];
+      for (const [type, count] of flagged) {
+        lines.push(`- **${type}** (${count}x): ${SIGNAL_DESCRIPTIONS[type]}`);
+      }
+      lines.push('');
+
+      const existing = readMarkdownFile(handoffMd) ?? '';
+      writeMarkdownFile(handoffMd, existing + lines.join('\n'));
+    } catch {
+      // non-fatal — HANDOFF.md append is best-effort
+    }
   }
 
   private async _generateConversationTitle(conversationId: string): Promise<void> {

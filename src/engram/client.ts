@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs';
 import type { EngramContext } from '../types/index.js';
 import { ENGRAM_CLI } from '../config/index.js';
+import { emitSignal } from './signals.js';
 
 export class EngramClient {
   private projectPath: string;
@@ -39,7 +40,12 @@ export class EngramClient {
 
   async sync(): Promise<void> {
     if (!(await this.checkAvailable())) return;
+    const start = Date.now();
     await this.run(['sync', this.projectPath]);
+    const elapsed = Date.now() - start;
+    if (elapsed > 15_000) {
+      emitSignal('slow-sync', `sync took ${elapsed}ms`);
+    }
   }
 
   async getContext(): Promise<EngramContext> {
@@ -62,12 +68,16 @@ export class EngramClient {
       }
       const sessionSummary = decisions.length > 0 ? decisions.join(' | ') : undefined;
 
-      return {
+      const result: EngramContext = {
         ...(goal !== undefined ? { goal } : {}),
         hotFiles: [],      // SpiderBrain handles structural hot-file context
         masterFiles: [],
         ...(sessionSummary !== undefined ? { sessionSummary } : {}),
       };
+      if (!result.goal && !result.sessionSummary) {
+        emitSignal('thin-context', 'getContext returned no goal and no sessionSummary');
+      }
+      return result;
     } catch {
       return empty;
     }
@@ -76,7 +86,11 @@ export class EngramClient {
   async query(terms: string): Promise<string> {
     if (!(await this.checkAvailable())) return '';
     // '--' prevents flag-injection when terms starts with '-'
-    return this.run(['query', '--project', this.projectPath, '--', terms]);
+    const result = await this.run(['query', '--project', this.projectPath, '--', terms]);
+    if (!result) {
+      emitSignal('empty-query', `query returned empty result for terms: ${terms.slice(0, 100)}`);
+    }
+    return result;
   }
 
   async startSession(goal?: string): Promise<void> {
@@ -108,10 +122,15 @@ export class EngramClient {
     // `session remember` is interactive (calls input() for decision/rationale/files).
     // Pipe the answers via stdin: decision=summary, rationale=auto, files=blank.
     const truncated = summary.slice(0, 500).replace(/\n/g, ' ');
-    await this.runWithInput(
-      ['session', 'remember', '--project', this.projectPath],
-      `${truncated}\n(auto-generated)\n\n`,
-    );
+    try {
+      await this.runWithInput(
+        ['session', 'remember', '--project', this.projectPath],
+        `${truncated}\n(auto-generated)\n\n`,
+      );
+    } catch (err) {
+      emitSignal('failed-call', `rememberSession threw: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
   }
 
   buildSystemPromptInjection(ctx: EngramContext): string {
