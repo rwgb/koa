@@ -48,7 +48,7 @@ Koa is a self-hosted personal AI assistant built on Claude. It provides a termin
 
 ```bash
 # 1. Clone and install
-git clone git@github.com:rwgb/koa.git
+git clone git@github.com:<your-username>/koa.git
 cd koa
 ./install.sh
 
@@ -240,4 +240,4 @@ The Vite dev server (port 5173) proxies `/api` to Express (port 3000). Open `htt
 
 ## License / Author
 
-Personal project by Ralph Brynard. Not published to npm. Private repository.
+Personal project. Not published to npm. Set `KOA_USER_NAME` in your environment to personalise the assistant.

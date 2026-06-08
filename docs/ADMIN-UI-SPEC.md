@@ -138,7 +138,7 @@ Two-column grid of integration cards. Each card:
 ```
 ┌─────────────────────────────┐
 │  [Icon]  GitHub             │
-│  Connected · rwgb           │
+│  Connected · you            │
 │                      [Edit] │
 └─────────────────────────────┘
 ```

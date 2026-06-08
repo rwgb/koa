@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstrap Koa on a fresh Debian 12 LXC (idempotent — safe to re-run)
+# Bootstrap Koa on a fresh Debian 12 LXC/VM (idempotent — safe to re-run)
 set -euo pipefail
 
 KOA_USER=koa
@@ -53,6 +53,7 @@ if [[ ! -f "$KOA_CONF/env" ]]; then
 ANTHROPIC_API_KEY=
 KOA_WEB_TOKEN=
 KOA_HOME=/var/lib/koa
+KOA_OLLAMA_BASE_URL=http://localhost:11434
 ENV
   chmod 640 "$KOA_CONF/env"
   chown root:"$KOA_USER" "$KOA_CONF/env"

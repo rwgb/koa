@@ -261,7 +261,7 @@ Save a fact to persistent global memory (`~/.koa/memory.json`). Available in all
 **Returns:** `"Remembered: \"<fact>\""`
 
 ```
-remember({"fact": "Koa's project root is /Users/ralph/active projects/koa"})
+remember({"fact": "Koa's project root is /home/user/projects/koa"})
 ```
 
 ---

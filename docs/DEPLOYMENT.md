@@ -8,7 +8,7 @@ This guide covers local development setup, deploying to a homelab server (Debian
 
 ```bash
 # 1. Clone and install dependencies
-git clone git@github.com:rwgb/koa.git
+git clone git@github.com:<your-username>/koa.git
 cd koa
 ./install.sh
 
@@ -483,4 +483,110 @@ The deploy script builds and restarts the service automatically. Run `koa migrat
 
 ```bash
 ssh koa@<server> koa migrate
+```
+
+---
+
+## Proxmox Homelab: LXC + Ollama VM (Terraform)
+
+This section covers the production homelab topology: Koa runs in a lightweight **LXC container** (VMID 200) and Ollama in a dedicated **VM** (VMID 201) on the same Proxmox host.
+
+```
+Proxmox skull (192.168.1.161)
+├── LXC 200: koa   [Debian 12]  192.168.1.200
+│   ├── Koa app (Node.js, systemd, Caddy)
+│   └── KOA_OLLAMA_BASE_URL=http://192.168.1.201:11434
+└── VM  201: ollama [Debian 12]  192.168.1.201
+    ├── Ollama (port 11434, CPU-only)
+    └── ufw: 11434 restricted to 192.168.1.0/24
+```
+
+### Prerequisites
+
+- [Terraform](https://developer.hashicorp.com/terraform/install) ≥ 1.7
+- SSH agent running with your private key loaded (`ssh-add ~/.ssh/id_ed25519`)
+- Tailscale auth key from [tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys)
+- Proxmox `local` storage must have **Snippets** enabled:
+  `Datacenter → Storage → local → Edit → Content → check Snippets`
+
+### First-time setup
+
+```bash
+cd infra/terraform
+
+# 1. Copy and fill in secrets
+cp terraform.tfvars.example terraform.tfvars
+$EDITOR terraform.tfvars   # set proxmox_password, tailscale_authkey, ssh_public_key
+
+# 2. Download provider and modules
+terraform init
+
+# 3. Preview what will be created
+terraform plan
+
+# 4. Provision LXC + VM (downloads Debian template + cloud image on first run)
+terraform apply
+```
+
+Terraform will:
+1. Download the Debian 12 LXC template and cloud image to Proxmox `local` storage
+2. Create LXC 200 (`koa`) with static IP `192.168.1.200`
+3. Create VM 201 (`ollama`) with static IP `192.168.1.201`
+4. SSH into the LXC and run `deploy/bootstrap.sh` (Node.js, Caddy, systemd service)
+5. Set `KOA_OLLAMA_BASE_URL=http://192.168.1.201:11434` in `/etc/koa/env`
+6. Connect both to Tailscale
+
+### Deploy the app after provisioning
+
+```bash
+# Wait for Ollama VM cloud-init to complete (~2 min)
+ssh root@192.168.1.201 "cloud-init status --wait"
+
+# Build and push the app to the LXC
+npm run build
+KOA_HOST=root@192.168.1.200 ./scripts/deploy.sh
+
+# Pull a model on the Ollama VM
+ssh root@192.168.1.201 "ollama pull llama3.2:3b"
+
+# Set secrets on the LXC and start Koa
+ssh root@192.168.1.200 "nano /etc/koa/env"   # fill KOA_WEB_TOKEN, set KOA_PROVIDER=ollama
+ssh root@192.168.1.200 "systemctl start koa"
+```
+
+### Using the TUI remotely
+
+The Koa TUI runs in-process and requires direct access to the agent loop. The simplest remote experience is SSH:
+
+```bash
+# One-off
+ssh -t root@192.168.1.200 koa
+
+# Add to ~/.zshrc for seamless local-feel access
+alias koa='ssh -t root@192.168.1.200 koa'
+```
+
+Via Tailscale (from anywhere):
+
+```bash
+alias koa='ssh -t root@koa.your-tailnet.ts.net koa'
+```
+
+The web console at `http://192.168.1.200` (or `https://koa.your-tailnet.ts.net` via Tailscale) provides browser-based access with no SSH required.
+
+### Updating the deployment
+
+```bash
+# After code changes:
+npm run build && KOA_HOST=root@192.168.1.200 ./scripts/deploy.sh
+
+# After infra changes:
+cd infra/terraform && terraform apply
+```
+
+### Tearing down
+
+```bash
+cd infra/terraform
+terraform destroy   # removes LXC 200 and VM 201; downloaded templates are preserved
 ```

@@ -152,7 +152,7 @@ describe('auto-checkpoint config', () => {
 
 describe('getEngramBrainPath', () => {
   it('uses only the project basename as the slug (matches Engram Python logic)', () => {
-    const result = getEngramBrainPath('/Users/ralph/projects/koa');
+    const result = getEngramBrainPath('/home/user/projects/koa');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 
@@ -162,7 +162,7 @@ describe('getEngramBrainPath', () => {
   });
 
   it('replaces spaces in basename with hyphens', () => {
-    const result = getEngramBrainPath('/Users/ralph/active projects/koa');
+    const result = getEngramBrainPath('/home/user/active projects/koa');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 

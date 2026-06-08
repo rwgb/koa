@@ -109,12 +109,19 @@ program
 
     const engramContext = loop.getState().engramContext;
 
+    // Suppress stderr writes while Ink is running. Every process.stderr.write call
+    // in loop.ts / engram / spiderbrain moves the terminal cursor, causing Ink to
+    // lose its render position and re-print the entire layout below itself on each turn.
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: () => boolean }).write = () => true;
+
     const { waitUntilExit } = render(
       React.createElement(App, { loop, config, engramContext }),
       { exitOnCtrlC: false },
     );
 
     await waitUntilExit();
+    process.stderr.write = origStderrWrite;
     // finalize() already ran inside App.tsx quit() before exit() was called.
     // process.exit() is required here because the Anthropic SDK's HTTP keep-alive
     // connections hold the Node event loop open indefinitely after Ink exits.
@@ -343,6 +350,16 @@ configCmd
 
     console.log(`ANTHROPIC_API_KEY  ${masked}  [${source}]`);
     console.log(`Credentials file   ${getCredentialsPath()}`);
+  });
+
+program
+  .command('setup')
+  .description('Interactive first-run setup wizard')
+  .option('--reset', 'Re-prompt for all values even if already set')
+  .option('--headless', 'Validate T1 credentials only; exit 1 if missing (for Docker/CI)')
+  .action(async (opts: { reset?: boolean; headless?: boolean }) => {
+    const { runSetupWizard } = await import('./setup.js');
+    await runSetupWizard(opts);
   });
 
 program.parse(process.argv);

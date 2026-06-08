@@ -10,6 +10,7 @@ import { projectMemoryPaths } from '../../project-memory/paths.js';
 import { readMarkdownFile, writeMarkdownFile } from '../../project-memory/store.js';
 import { loadMemories, addMemory, removeMemory } from '../../memory/store.js';
 import { validateSafeUrl } from '../../utils/ssrf.js';
+import { isOllamaUrl } from '../../utils/ollama_url.js';
 import {
   loadIntegrations,
   saveIntegration,
@@ -476,8 +477,8 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     }
     if (typeof body.ollamaBaseUrl === 'string' && body.ollamaBaseUrl.trim()) {
       const url = body.ollamaBaseUrl.trim();
-      if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url)) {
-        return res.status(400).json({ error: 'ollamaBaseUrl must be a local URL (localhost or 127.0.0.1)' });
+      if (!isOllamaUrl(url)) {
+        return res.status(400).json({ error: 'ollamaBaseUrl must be a private/local address' });
       }
       updates['ollamaBaseUrl'] = url;
       config.ollamaBaseUrl = url;
@@ -566,8 +567,8 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
   router.get('/ollama/models', async (_req, res: Response) => {
     const baseUrl = config.ollamaBaseUrl ?? 'http://localhost:11434';
     // SSRF guard: only fetch from already-validated localhost URL stored in config
-    if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(baseUrl)) {
-      return res.status(400).json({ error: 'ollamaBaseUrl is not a local URL' });
+    if (!isOllamaUrl(baseUrl)) {
+      return res.status(400).json({ error: 'ollamaBaseUrl is not a private/local address' });
     }
     try {
       const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
@@ -751,7 +752,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       try { validateSafeUrl(baseUrl); } catch (e) {
         res.json({ ok: false, message: (e as Error).message }); return;
       }
-      fetch(`${baseUrl}/${topic}`, {
+      fetch(`${baseUrl}/${encodeURIComponent(topic)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: 'Koa notification test ✓',
