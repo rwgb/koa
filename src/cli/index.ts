@@ -9,7 +9,7 @@ import { bashTool } from '../agent/tools/bash.js';
 import { createFileTools } from '../agent/tools/files.js';
 import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
-import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
+import { createRememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
 import { webFetchTool } from '../agent/tools/web_fetch.js';
 import { webSearchTool } from '../agent/tools/web_search.js';
@@ -48,7 +48,7 @@ function buildRegistry(
   for (const tool of githubTools) registry.register(tool);
   for (const tool of createFileTools(projectRoot)) registry.register(tool);
   registry.register(createEngramTool(engram));
-  registry.register(rememberTool);
+  registry.register(createRememberTool(config.userName ?? 'User'));
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
   registry.register(createExecuteCodeTool(createRunner(config), config));
@@ -109,12 +109,19 @@ program
 
     const engramContext = loop.getState().engramContext;
 
+    // Suppress stderr writes while Ink is running. Every process.stderr.write call
+    // in loop.ts / engram / spiderbrain moves the terminal cursor, causing Ink to
+    // lose its render position and re-print the entire layout below itself on each turn.
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: () => boolean }).write = () => true;
+
     const { waitUntilExit } = render(
       React.createElement(App, { loop, config, engramContext }),
       { exitOnCtrlC: false },
     );
 
     await waitUntilExit();
+    process.stderr.write = origStderrWrite;
     // finalize() already ran inside App.tsx quit() before exit() was called.
     // process.exit() is required here because the Anthropic SDK's HTTP keep-alive
     // connections hold the Node event loop open indefinitely after Ink exits.
@@ -343,6 +350,16 @@ configCmd
 
     console.log(`ANTHROPIC_API_KEY  ${masked}  [${source}]`);
     console.log(`Credentials file   ${getCredentialsPath()}`);
+  });
+
+program
+  .command('setup')
+  .description('Interactive first-run setup wizard')
+  .option('--reset', 'Re-prompt for all values even if already set')
+  .option('--headless', 'Validate T1 credentials only; exit 1 if missing (for Docker/CI)')
+  .action(async (opts: { reset?: boolean; headless?: boolean }) => {
+    const { runSetupWizard } = await import('./setup.js');
+    await runSetupWizard(opts);
   });
 
 program.parse(process.argv);

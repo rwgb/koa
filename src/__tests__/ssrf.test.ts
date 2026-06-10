@@ -103,4 +103,34 @@ describe('validateSafeUrl', () => {
       validateSafeUrl('https://example.com/foo', (h) => h === 'hooks.slack.com'),
     ).toThrow(/not permitted/i);
   });
+
+  // ── IPv6 private / loopback ───────────────────────────────────────────────────
+
+  it('rejects IPv6 loopback [::1]', () => {
+    expect(() => validateSafeUrl('https://[::1]/')).toThrow(/private|loopback/i);
+  });
+
+  it('rejects IPv6 loopback full form [0:0:0:0:0:0:0:1]', () => {
+    expect(() => validateSafeUrl('https://[0:0:0:0:0:0:0:1]/')).toThrow(/private|loopback/i);
+  });
+
+  it('rejects IPv6 ULA [fc00::1]', () => {
+    expect(() => validateSafeUrl('https://[fc00::1]/')).toThrow(/private|loopback/i);
+  });
+
+  it('rejects IPv6 ULA [fd12::1]', () => {
+    expect(() => validateSafeUrl('https://[fd12::1]/')).toThrow(/private|loopback/i);
+  });
+
+  it('rejects IPv6 link-local [fe80::1]', () => {
+    expect(() => validateSafeUrl('https://[fe80::1]/')).toThrow(/private|loopback/i);
+  });
+
+  it('rejects IPv4-mapped IPv6 loopback [::ffff:127.0.0.1]', () => {
+    expect(() => validateSafeUrl('https://[::ffff:127.0.0.1]/')).toThrow(/private|loopback/i);
+  });
+
+  it('allows public IPv6 address [2606:4700:4700::1111]', () => {
+    expect(() => validateSafeUrl('https://[2606:4700:4700::1111]/')).not.toThrow();
+  });
 });

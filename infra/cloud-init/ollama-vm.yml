@@ -1,0 +1,39 @@
+#cloud-config
+# Ollama VM first-boot configuration.
+# Terraform renders this via templatefile(); do not use $${} escaping for
+# variables — they are substituted by Terraform before cloud-init sees the file.
+
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - ufw
+  - qemu-guest-agent
+
+runcmd:
+  # Ensure guest agent is running so Proxmox can read the IP cleanly
+  - systemctl enable --now qemu-guest-agent
+
+  # Install Ollama
+  - curl -fsSL https://ollama.com/install.sh | sh
+
+  # Bind Ollama on all interfaces so the Koa LXC (192.168.1.200) can reach it
+  - mkdir -p /etc/systemd/system/ollama.service.d
+  - printf '[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\n' > /etc/systemd/system/ollama.service.d/override.conf
+  - systemctl daemon-reload
+  - systemctl enable ollama
+  - systemctl start ollama
+
+  # Firewall: SSH open globally; Ollama restricted to LAN only
+  - ufw --force reset
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow from 192.168.1.0/24 to any port 11434 proto tcp
+  - ufw --force enable
+
+  # Install Tailscale and connect
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --authkey=${tailscale_authkey} --hostname=ollama --accept-routes
+
+final_message: "Ollama VM ready. Run: ollama pull llama3.2:3b"

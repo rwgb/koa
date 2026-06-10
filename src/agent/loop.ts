@@ -12,7 +12,7 @@ import type { UsageTracker } from './usage.js';
 import { loadMemories, buildMemoryPromptInjection } from '../memory/store.js';
 import type { MemoryEntry } from '../memory/store.js';
 import { selectAgent, isCodeQuery, hasBacklogSignals } from './select-agent.js';
-import { AGENT_SPECS } from './specialists.js';
+import { buildAgentSpecs } from './specialists.js';
 import { buildCalendarSummary } from '../calendar/conflicts.js';
 import { isCalendarConfigured } from '../calendar/oauth.js';
 import { buildWeeklyReport, buildWeeklyReportSummary } from '../analytics/streaks.js';
@@ -175,6 +175,7 @@ export class AgentLoop {
   private _conversationId?: string;
   private lastCompactionAt: string | null = null;
   private _busy = false;
+  private agentSpecs: ReturnType<typeof buildAgentSpecs>;
 
   constructor(
     config: KoaConfig,
@@ -188,6 +189,7 @@ export class AgentLoop {
     this.engram = engram;
     this.sb = sb;
     this.usage = usage;
+    this.agentSpecs = buildAgentSpecs(config.userName ?? 'User');
     this.provider = createProvider(config);
     this.anthropicClient = config.apiKey ? new Anthropic({ apiKey: config.apiKey }) : null;
     this.state = {
@@ -544,7 +546,7 @@ export class AgentLoop {
     // Agent routing: determine specialist first; its model overrides complexity routing.
     // @tier: prefix still punches through (selectModel checks override before config.model).
     const agentName = selectAgent(userMessage);
-    const agentSpec = AGENT_SPECS[agentName];
+    const agentSpec = this.agentSpecs[agentName];
 
     // When smartRouting is off, honour config.model directly.
     // When smartRouting is on, use the specialist's model as the tier-routing base.
@@ -757,7 +759,7 @@ export class AgentLoop {
       try {
         callbacks?.onChainStart?.('project-manager');
         const pmPrompt = buildPmFollowUpPrompt(finalContent);
-        const pmSpec = AGENT_SPECS['project-manager'];
+        const pmSpec = this.agentSpecs['project-manager'];
         const pmModel = this.config.provider === 'ollama' ? this.config.ollamaModel : pmSpec.model;
         const pmResponse = await this.provider.create({
           model: pmModel,
