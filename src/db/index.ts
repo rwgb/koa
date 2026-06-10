@@ -471,13 +471,21 @@ export function listCheckpoints(projectId?: string): Checkpoint[] {
 
 // ── Search ─────────────────────────────────────────────────────────────────
 
+/**
+ * Escapes a raw user string into a safe FTS5 literal.
+ * Double-quotes inside the value are doubled (""), then the whole string is
+ * wrapped in double-quotes so FTS5 treats it as a phrase rather than parsing
+ * any embedded operators (AND/OR/NOT/NEAR/column filters).
+ */
+function escapeFts(query: string): string {
+  return `"${query.replace(/"/g, '""')}"`;
+}
+
 export function searchTasks(query: string, projectId?: string): Task[] {
   const db = getDb();
 
-  // Cap length and build a safe FTS5 phrase query (double-quote wrapping prevents
-  // injection of FTS5 operators like AND/OR/NOT/NEAR that could cause parse errors).
   const trimmed = query.slice(0, 200);
-  const ftsQuery = `"${trimmed.replace(/"/g, '""')}"`;
+  const ftsQuery = escapeFts(trimmed);
 
   try {
     // FTS5 search via standalone tasks_fts table
@@ -922,7 +930,7 @@ export function searchConversations(
 ): Array<{ conversationId: string; turnId: string; excerpt: string }> {
   if (!query.trim()) return [];
   const trimmed = query.slice(0, 200);
-  const ftsQuery = `"${trimmed.replace(/"/g, '""')}"`;
+  const ftsQuery = escapeFts(trimmed);
   const db = getDb();
   try {
     return db.prepare(

@@ -1,0 +1,495 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		007496E79771D436E15527F8 /* WatchSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2847D4B116470E078695474 /* WatchSession.swift */; };
+		3A2E2558660171FFDF0A14F9 /* SseStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883652CA77F8FADB59687575 /* SseStream.swift */; };
+		50286D0A8903A208A0D3E1EE /* WatchBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC22D32D61C2EF5F61453296 /* WatchBridge.swift */; };
+		52835685C0A13CA814C7BB33 /* TaskBoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D84158AE77D01D85770C2F9A /* TaskBoardView.swift */; };
+		553C90EE4D03676A05272B5B /* KoaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27AD9B98C267357B0D70A91A /* KoaApp.swift */; };
+		597EF8354F1D4514CE5E5700 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C8282D63171AC51DA517359 /* Models.swift */; };
+		6DC2C8F865458E52FA10B782 /* WatchContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0900692825C0C95979B83FA /* WatchContentView.swift */; };
+		833B6D43D47851F6900C6BC9 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F744D43BF4CE882283ACA301 /* ChatView.swift */; };
+		883E2C60551F9B5850F1B554 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46E0A7B0B59D152E1E137F00 /* SearchView.swift */; };
+		91D6B8EA3F898DAFFE7A42CA /* GlanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F25510C99E4CC7334E8BD55 /* GlanceView.swift */; };
+		9A0876231CAA41EA005BE837 /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D75ABEDD7B77483C80EDB87 /* WatchApp.swift */; };
+		9B5BA0F31A7604D10EC3DF33 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24817414495AAB6E2A8DCEDF /* SettingsView.swift */; };
+		A1B23E427BE5460739D86207 /* WatchDictationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86010049A801BB7DFB442F56 /* WatchDictationView.swift */; };
+		A3E7BEC78EDDAB0EECB9CA72 /* KoaWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = B553B0EBB7C50F8BAD771572 /* KoaWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A771FCF0C7DC9C51945D8152 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 362F9645AA62D85D79D99BEE /* TaskDetailView.swift */; };
+		B5385D6D22B26295F19CF1EA /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F9DE3B673E36F6BCBCE7A9D /* KeychainHelper.swift */; };
+		B7871D87AABDB9F6C729C782 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F68ADDA4B0FD1AC0EBA2BF0 /* AppState.swift */; };
+		D09AB098BEA572AB6FFDCEED /* KoaIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35D5E8107E6605183BA506E0 /* KoaIntents.swift */; };
+		D146A5ADFD12BF596CAC1EE9 /* KoaAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2392612F5A794491BB6F19A0 /* KoaAPI.swift */; };
+		EB2473339DC9811293CDFD65 /* QuickPromptsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECF8FC94D143E016B64A1E6 /* QuickPromptsView.swift */; };
+		FC5CF4BD7AE57F383A605F15 /* AuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 50E780CDFC1BD92E261B2113 /* AuthView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		BC283D3C32438214DE1C17B8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3F9421D8BD4614230E489D3A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1D3C1F5FE875459D8D305F06;
+			remoteInfo = KoaWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		FF17463696F69220B3615F15 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				A3E7BEC78EDDAB0EECB9CA72 /* KoaWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0D75ABEDD7B77483C80EDB87 /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
+		2392612F5A794491BB6F19A0 /* KoaAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoaAPI.swift; sourceTree = "<group>"; };
+		24817414495AAB6E2A8DCEDF /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		27AD9B98C267357B0D70A91A /* KoaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoaApp.swift; sourceTree = "<group>"; };
+		2CCC30BBB04F0482F01718DC /* Koa.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Koa.entitlements; sourceTree = "<group>"; };
+		35D5E8107E6605183BA506E0 /* KoaIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KoaIntents.swift; sourceTree = "<group>"; };
+		362F9645AA62D85D79D99BEE /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
+		3F9DE3B673E36F6BCBCE7A9D /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		46E0A7B0B59D152E1E137F00 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		4ECF8FC94D143E016B64A1E6 /* QuickPromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickPromptsView.swift; sourceTree = "<group>"; };
+		500819EACB74226F231BF832 /* KoaWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KoaWatch.entitlements; sourceTree = "<group>"; };
+		50E780CDFC1BD92E261B2113 /* AuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthView.swift; sourceTree = "<group>"; };
+		5CD2CDF5086BA5D989319869 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		7F25510C99E4CC7334E8BD55 /* GlanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlanceView.swift; sourceTree = "<group>"; };
+		86010049A801BB7DFB442F56 /* WatchDictationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchDictationView.swift; sourceTree = "<group>"; };
+		883652CA77F8FADB59687575 /* SseStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SseStream.swift; sourceTree = "<group>"; };
+		8F68ADDA4B0FD1AC0EBA2BF0 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		9C8282D63171AC51DA517359 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		AC5C2E8B22E520C896F5F2F7 /* Koa.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Koa.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B2847D4B116470E078695474 /* WatchSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSession.swift; sourceTree = "<group>"; };
+		B553B0EBB7C50F8BAD771572 /* KoaWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KoaWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BC22D32D61C2EF5F61453296 /* WatchBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBridge.swift; sourceTree = "<group>"; };
+		D84158AE77D01D85770C2F9A /* TaskBoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskBoardView.swift; sourceTree = "<group>"; };
+		E0900692825C0C95979B83FA /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchContentView.swift; sourceTree = "<group>"; };
+		F744D43BF4CE882283ACA301 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		FF706505DBDD841EA97C4D5F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		7F992906EA3FA238237D9A3F /* KoaWatch */ = {
+			isa = PBXGroup;
+			children = (
+				7F25510C99E4CC7334E8BD55 /* GlanceView.swift */,
+				5CD2CDF5086BA5D989319869 /* Info.plist */,
+				500819EACB74226F231BF832 /* KoaWatch.entitlements */,
+				4ECF8FC94D143E016B64A1E6 /* QuickPromptsView.swift */,
+				0D75ABEDD7B77483C80EDB87 /* WatchApp.swift */,
+				E0900692825C0C95979B83FA /* WatchContentView.swift */,
+				86010049A801BB7DFB442F56 /* WatchDictationView.swift */,
+				B2847D4B116470E078695474 /* WatchSession.swift */,
+			);
+			path = KoaWatch;
+			sourceTree = "<group>";
+		};
+		CA90723105AD811FE2DC6236 /* Koa */ = {
+			isa = PBXGroup;
+			children = (
+				8F68ADDA4B0FD1AC0EBA2BF0 /* AppState.swift */,
+				50E780CDFC1BD92E261B2113 /* AuthView.swift */,
+				F744D43BF4CE882283ACA301 /* ChatView.swift */,
+				FF706505DBDD841EA97C4D5F /* Info.plist */,
+				3F9DE3B673E36F6BCBCE7A9D /* KeychainHelper.swift */,
+				2CCC30BBB04F0482F01718DC /* Koa.entitlements */,
+				2392612F5A794491BB6F19A0 /* KoaAPI.swift */,
+				27AD9B98C267357B0D70A91A /* KoaApp.swift */,
+				35D5E8107E6605183BA506E0 /* KoaIntents.swift */,
+				9C8282D63171AC51DA517359 /* Models.swift */,
+				46E0A7B0B59D152E1E137F00 /* SearchView.swift */,
+				24817414495AAB6E2A8DCEDF /* SettingsView.swift */,
+				883652CA77F8FADB59687575 /* SseStream.swift */,
+				D84158AE77D01D85770C2F9A /* TaskBoardView.swift */,
+				362F9645AA62D85D79D99BEE /* TaskDetailView.swift */,
+				BC22D32D61C2EF5F61453296 /* WatchBridge.swift */,
+			);
+			path = Koa;
+			sourceTree = "<group>";
+		};
+		D46367104AD9B22C9AF5B0BB /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AC5C2E8B22E520C896F5F2F7 /* Koa.app */,
+				B553B0EBB7C50F8BAD771572 /* KoaWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		E455D1F9B4CF88601547662D = {
+			isa = PBXGroup;
+			children = (
+				CA90723105AD811FE2DC6236 /* Koa */,
+				7F992906EA3FA238237D9A3F /* KoaWatch */,
+				D46367104AD9B22C9AF5B0BB /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		182F885C56BD055CE021FA23 /* Koa */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 85E517315F7E0C265C1B1816 /* Build configuration list for PBXNativeTarget "Koa" */;
+			buildPhases = (
+				71F9F936ED8548B26C8CC673 /* Sources */,
+				FF17463696F69220B3615F15 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7596D29F070508670EB40E39 /* PBXTargetDependency */,
+			);
+			name = Koa;
+			packageProductDependencies = (
+			);
+			productName = Koa;
+			productReference = AC5C2E8B22E520C896F5F2F7 /* Koa.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1D3C1F5FE875459D8D305F06 /* KoaWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CB3675BBF8A63DABF8CEAA40 /* Build configuration list for PBXNativeTarget "KoaWatch" */;
+			buildPhases = (
+				188C3EE7C01504FCD4B5EF1A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KoaWatch;
+			packageProductDependencies = (
+			);
+			productName = KoaWatch;
+			productReference = B553B0EBB7C50F8BAD771572 /* KoaWatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3F9421D8BD4614230E489D3A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1540;
+				TargetAttributes = {
+					182F885C56BD055CE021FA23 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					1D3C1F5FE875459D8D305F06 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 76127CB4AFDF3F549F168C20 /* Build configuration list for PBXProject "Koa" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = E455D1F9B4CF88601547662D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D46367104AD9B22C9AF5B0BB /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				182F885C56BD055CE021FA23 /* Koa */,
+				1D3C1F5FE875459D8D305F06 /* KoaWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		188C3EE7C01504FCD4B5EF1A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				91D6B8EA3F898DAFFE7A42CA /* GlanceView.swift in Sources */,
+				EB2473339DC9811293CDFD65 /* QuickPromptsView.swift in Sources */,
+				9A0876231CAA41EA005BE837 /* WatchApp.swift in Sources */,
+				6DC2C8F865458E52FA10B782 /* WatchContentView.swift in Sources */,
+				A1B23E427BE5460739D86207 /* WatchDictationView.swift in Sources */,
+				007496E79771D436E15527F8 /* WatchSession.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		71F9F936ED8548B26C8CC673 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B7871D87AABDB9F6C729C782 /* AppState.swift in Sources */,
+				FC5CF4BD7AE57F383A605F15 /* AuthView.swift in Sources */,
+				833B6D43D47851F6900C6BC9 /* ChatView.swift in Sources */,
+				B5385D6D22B26295F19CF1EA /* KeychainHelper.swift in Sources */,
+				D146A5ADFD12BF596CAC1EE9 /* KoaAPI.swift in Sources */,
+				553C90EE4D03676A05272B5B /* KoaApp.swift in Sources */,
+				D09AB098BEA572AB6FFDCEED /* KoaIntents.swift in Sources */,
+				597EF8354F1D4514CE5E5700 /* Models.swift in Sources */,
+				883E2C60551F9B5850F1B554 /* SearchView.swift in Sources */,
+				9B5BA0F31A7604D10EC3DF33 /* SettingsView.swift in Sources */,
+				3A2E2558660171FFDF0A14F9 /* SseStream.swift in Sources */,
+				52835685C0A13CA814C7BB33 /* TaskBoardView.swift in Sources */,
+				A771FCF0C7DC9C51945D8152 /* TaskDetailView.swift in Sources */,
+				50286D0A8903A208A0D3E1EE /* WatchBridge.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7596D29F070508670EB40E39 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1D3C1F5FE875459D8D305F06 /* KoaWatch */;
+			targetProxy = BC283D3C32438214DE1C17B8 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0529F8413271289B43944219 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = KoaWatch/KoaWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = KoaWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brynard.koa.watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		0D6D9F7368EB2BD2E8846DA7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = KoaWatch/KoaWatch.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = KoaWatch/Info.plist;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brynard.koa.watch;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		2F8F7D38273C2E540B17032B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		388724D84B2FEBDA53AE0A1F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Koa/Koa.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = Koa/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.brynard.koa;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		454D6327A32061CF17D9D5E7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		ED6959F57C126F2D018BBCE0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Koa/Koa.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = Koa/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.brynard.koa;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		76127CB4AFDF3F549F168C20 /* Build configuration list for PBXProject "Koa" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2F8F7D38273C2E540B17032B /* Debug */,
+				454D6327A32061CF17D9D5E7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		85E517315F7E0C265C1B1816 /* Build configuration list for PBXNativeTarget "Koa" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				388724D84B2FEBDA53AE0A1F /* Debug */,
+				ED6959F57C126F2D018BBCE0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CB3675BBF8A63DABF8CEAA40 /* Build configuration list for PBXNativeTarget "KoaWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0529F8413271289B43944219 /* Debug */,
+				0D6D9F7368EB2BD2E8846DA7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3F9421D8BD4614230E489D3A /* Project object */;
+}

@@ -794,7 +794,13 @@ export class AgentLoop {
           } else {
             callbacks?.onToolCall?.(block.name, toolInput);
             try {
-              result = await tool.execute(toolInput);
+              const timeoutMs = this.config.toolTimeoutMs ?? 30_000;
+              result = await Promise.race([
+                tool.execute(toolInput),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`tool timed out after ${timeoutMs}ms`)), timeoutMs),
+                ),
+              ]);
             } catch (err) {
               result = `Error: ${err instanceof Error ? err.message : String(err)}`;
             }

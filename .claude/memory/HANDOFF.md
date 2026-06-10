@@ -1,22 +1,21 @@
 ---
 written: 2026-06-10
-branch: feature/cp16-claude-fallback
+branch: feature/cp15-engram-loops
 tests: 651 passing
 tsc: clean
 ---
 
 ## Where We Are
 
-CP16 is complete — ClaudeCode fallback on Anthropic 429/quota exhaustion delivered. PR created against `feature/web-console-and-hardening`. CP15 and CP14 PRs are open against `develop`.
+CP15 + CP16 + Fable audit fixes merged into `feature/web-console-and-hardening` via PR #17 (merged 2026-06-10). iOS real-device test deferred indefinitely.
 
 ## Active Branch
 
-feature/cp16-claude-fallback — ClaudeCode fallback on quota exhaustion. PR created → feature/web-console-and-hardening.
+feature/cp15-engram-loops — all CP15/CP16/audit work landed. Ready for CP17.
 
 ## What's Next
 
-1. Merge CP16 PR → develop
-2. iOS real-device test via Tailscale (100.101.19.77:3000)
+1. CP17 (TBD)
 
 ## Open Questions
 
@@ -26,6 +25,7 @@ feature/cp16-claude-fallback — ClaudeCode fallback on quota exhaustion. PR cre
 
 - Tried Tailscale TLS certs: requires paid plan. HTTP over WireGuard is sufficient.
 - Tried setInterval for briefing at 08:00: deferred to CP10e (not yet started).
+- iOS real-device test via Tailscale: deferred indefinitely (skipped by user).
 
 ## Completed Checkpoints (reference)
 
