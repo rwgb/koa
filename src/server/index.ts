@@ -18,7 +18,8 @@ import { buildDailyBriefing } from '../proactive/briefing.js';
 import { runDueDelegations } from '../proactive/delegations.js';
 import { routeResponse } from '../channels/router.js';
 import { createChatRouter } from './routes/chat.js';
-import { createAdminRouter } from './routes/admin.js';
+import { createAdminRouter, createOAuthCallbackRouter } from './routes/admin.js';
+import type { OAuthStateMap } from './routes/admin.js';
 import { createDbRouter } from './routes/db.js';
 import { createPushRouter } from './routes/push.js';
 import { createCalendarRouter } from './routes/calendar.js';
@@ -99,10 +100,15 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   // ── Webhooks (unauthenticated — use channel-specific auth) ────────────────────
   app.use('/webhooks', createWebhooksRouter({ loop, config, rawBodyMap }));
 
-  // Token verification — rate-limited to prevent brute-force
+  // Token verification — rate-limited to prevent brute-force.
+  // When no token is configured the auth endpoint is unavailable (503) — the
+  // server is effectively running without web authentication, not in "open" mode.
   app.post('/api/auth', authRateLimit, (req: Request, res: Response) => {
     const { token } = req.body as { token?: string };
-    if (!config.webToken) { res.json({ ok: true }); return; }
+    if (!config.webToken) {
+      res.status(503).json({ error: 'Authentication not configured' });
+      return;
+    }
     if (!token) { res.status(400).json({ error: 'token required' }); return; }
     if (tokenEqual(token, config.webToken)) {
       res.json({ ok: true });
@@ -111,15 +117,31 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
     }
   });
 
-  // Bearer token auth for all /api/ routes when a token is configured
+  // Bearer token auth for all /api/ routes.
+  // When a token is configured: enforce Bearer auth (or ?token= query param for SSE).
+  // When NO token is configured: deny all /api/ requests with 403 — the server must
+  // be explicitly configured before the web interface is accessible.
   const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
-    if (!config.webToken) { next(); return; }
+    if (!config.webToken) {
+      res.status(403).json({ error: 'Web token not configured' });
+      return;
+    }
     const header = req.headers['authorization'];
-    const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const bearerToken = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
+    // Also accept ?token= query param — needed for SSE (GET-only, no custom headers on some clients)
+    const queryToken = (req.query as Record<string, string | undefined>)['token'];
+    const token = bearerToken ?? queryToken;
     if (!token) { res.status(401).json({ error: 'Authorization required' }); return; }
     if (tokenEqual(token, config.webToken)) { next(); return; }
     res.status(401).json({ error: 'Invalid token' });
   };
+
+  // ── OAuth state (CSRF nonce map) — shared between admin URL builder and callback ──
+  const oauthState: OAuthStateMap = new Map();
+
+  // OAuth callback routes bypass requireAuth — Google redirects here without a bearer token.
+  // Mount BEFORE the /api/ auth guard so they are reachable unauthenticated.
+  app.use('/api/admin', createOAuthCallbackRouter(config, oauthState));
 
   app.use('/api/', requireAuth);
 
@@ -129,13 +151,12 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   let isBusy = false;
 
   // ── API routers (all behind the auth guard) ───────────────────────────────────
-  // Admin OAuth routes have an additional inline auth check in the router for the
-  // OAuth redirect endpoints (they verify the token themselves as a safety net).
   app.use('/api/admin', createAdminRouter({
     loop,
     config,
     getTelegramPoller: () => telegramPoller,
     setTelegramPollerRef: (p) => { telegramPoller = p; },
+    oauthState,
   }));
   app.use('/api', createChatRouter({
     loop,

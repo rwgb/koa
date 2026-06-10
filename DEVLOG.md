@@ -1,5 +1,28 @@
 # Koa — DevLog
 
+## [2026-06-10] — Fable Audit Remediation
+
+### Completed
+- ~30 fixes from FABLE_AUDIT_FIXES.md across §A/§B/§C/§D
+- **C-2**: `validateSafeUrl` made async with DNS resolution; untrusted wrapper, arg injection guard, webpush origin check, cross_repo path safety
+- **A**: max-iteration guard in agent loop, `max_tokens` handling, null-safety, cache fixes, HANDOFF dedup
+- **D-6 + D-1.2**: specialist persona moved to `CODE_SYSTEM`, `SYSTEM_BASE` trimmed + security sentence added
+- **B**: fail-closed auth middleware, loopback-only bind, OAuth CSRF state param, SSE abort signal wiring
+- **D**: ESM playwright import, memory corruption guard, atomic writes, migration backup, `selectAgent` word-boundary regex, router tier labels, notification batch dedup, config validation, `maxTokens=8192`
+
+### Decisions
+- B-6: inline `?token=` check retained (simpler than middleware for SSE handshake)
+- D-8: threshold unchanged (existing heuristic is acceptable)
+- D-9: auto gate kept as-is
+- `compactAfterTurns` / `KOA_COMPACT_TURNS` removed — dead config (maybeCompact was never called; replaced by `semanticCompact` / `maybeCompressContext`)
+
+### Next
+- [ ] **CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env` (key may be exposed)
+- [ ] PR `feature/audit-fixes` → `develop`
+- [ ] Then CP17
+
+---
+
 ## [2026-06-10] — CP16: ClaudeCode fallback on quota exhaustion
 
 ### Completed

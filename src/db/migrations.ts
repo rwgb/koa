@@ -1,3 +1,4 @@
+import fs from 'fs';
 import type Database from 'better-sqlite3';
 
 // Each migration: [version, sql]
@@ -220,18 +221,40 @@ export function runMigrations(db: Database.Database): void {
   `);
 
   const row = db.prepare('SELECT version FROM schema_version').get() as { version: number };
-  let currentVersion = row.version;
+  const currentVersion = row.version;
 
-  for (const [version, sql] of MIGRATIONS) {
-    if (version <= currentVersion) continue;
+  const latestKnown = MIGRATIONS.length === 0 ? 0 : MIGRATIONS[MIGRATIONS.length - 1]![0];
+  if (currentVersion > latestKnown) {
+    throw new Error(
+      `[koa/db] database schema_version ${currentVersion} is newer than the ` +
+        `latest known migration ${latestKnown}. This binary is older than the ` +
+        `database — upgrade koa instead of downgrading the schema.`,
+    );
+  }
 
-    // Run each migration inside a transaction for atomicity
+  const pending = MIGRATIONS.filter(([version]) => version > currentVersion);
+  if (pending.length === 0) return;
+
+  // Snapshot the DB before applying any migration so a bad migration is recoverable.
+  // `db.name` is the on-disk path better-sqlite3 opened (':memory:' for in-memory DBs).
+  const dbFilePath = db.name;
+  if (dbFilePath && dbFilePath !== ':memory:' && fs.existsSync(dbFilePath)) {
+    const backupPath = `${dbFilePath}.bak-v${currentVersion}`;
+    try {
+      fs.copyFileSync(dbFilePath, backupPath);
+      process.stderr.write(`[koa/db] backed up schema v${currentVersion} → ${backupPath}\n`);
+    } catch (err) {
+      throw new Error(
+        `[koa/db] could not back up database before migrating: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  for (const [version, sql] of pending) {
     db.transaction(() => {
       db.exec(sql);
       db.prepare('UPDATE schema_version SET version = ?').run(version);
     })();
-
-    currentVersion = version;
     process.stderr.write(`[koa/db] applied migration ${version}\n`);
   }
 }

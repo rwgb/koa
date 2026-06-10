@@ -61,7 +61,7 @@ The loop has three lifecycle phases:
      - Pushes a `tool_result` message and loops.
    - If `stop_reason !== 'tool_use'`, exits the loop and extracts `finalContent` from the text blocks.
 6. Calls `usage.addTurn()` with the accumulated token counts.
-7. Calls `maybeCompact()` to slide the conversation window.
+7. Calls `maybeCompressContext()` (via `semanticCompact`) to slide the conversation window when it grows large.
 8. Returns a `TurnResult` with `content`, `toolUses`, `stopReason`, `model`, `tier`, and `usage`.
 
 ### `finalize()`
@@ -70,7 +70,9 @@ Calls `engram.rememberSession(summary)` to persist a brief session summary to th
 
 ### Conversation Compaction
 
-`maybeCompact()` drops the oldest messages whenever `state.messages.length` exceeds `compactAfterTurns * 2`. The system prompt is never in `messages[]` — it is built fresh each turn — so it is never dropped. Conversational context (e.g., earlier instructions or file contents) can be lost at the window boundary. This is an acknowledged trade-off over more expensive summarisation.
+`maybeCompressContext()` (called via `semanticCompact`) drops the oldest messages whenever the conversation window grows beyond the configured threshold. The system prompt is never in `messages[]` — it is built fresh each turn — so it is never dropped. Conversational context (e.g., earlier instructions or file contents) can be lost at the window boundary. This is an acknowledged trade-off over more expensive summarisation.
+
+Note: `compactAfterTurns` / `KOA_COMPACT_TURNS` have been removed — they were dead config because `maybeCompact` was never wired into the loop. The replacement is `semanticCompact` / `maybeCompressContext`.
 
 ---
 

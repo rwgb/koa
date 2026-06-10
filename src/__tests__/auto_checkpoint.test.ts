@@ -49,7 +49,6 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     apiKey: 'sk-test',
     smartRouting: false,
     maxToolOutputChars: 12000,
-    compactAfterTurns: 10,
     autoCheckpointTurns: 5,
     autoCheckpointMinutes: 15,
     noCache: false,

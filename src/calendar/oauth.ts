@@ -14,12 +14,13 @@ function makeOAuth2Client(redirectUri?: string) {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function generateCalendarOAuthUrl(redirectUri: string): string {
+export function generateCalendarOAuthUrl(redirectUri: string, state?: string): string {
   const oauth2 = makeOAuth2Client(redirectUri);
   return oauth2.generateAuthUrl({
     access_type: 'offline',
     scope: CALENDAR_SCOPES,
     prompt: 'consent',
+    ...(state ? { state } : {}),
   });
 }
 
