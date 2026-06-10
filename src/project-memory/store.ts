@@ -17,9 +17,11 @@ export function readMarkdownFile(filePath: string): string | null {
   }
 }
 
-// Atomic write: tmp file + rename to prevent corrupt output on crash
+// Atomic write: tmp file + rename to prevent corrupt output on crash.
+// The tmp name is per-process + timestamped so concurrent writers don't clobber
+// each other's staging file before the rename.
 export function writeMarkdownFile(filePath: string, content: string): void {
-  const tmp = `${filePath}.tmp`;
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(tmp, content, { mode: 0o600 });
   fs.renameSync(tmp, filePath);
 }

@@ -16,18 +16,42 @@ interface MemoryFile {
   memories: MemoryEntry[];
 }
 
-function read(): MemoryFile {
+function read(now = Date.now()): MemoryFile {
+  const file = memoryFilePath();
+  let raw: string;
   try {
-    return JSON.parse(fs.readFileSync(memoryFilePath(), 'utf8')) as MemoryFile;
-  } catch {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { memories: [] };
+    throw err;
+  }
+  try {
+    return JSON.parse(raw) as MemoryFile;
+  } catch (err) {
+    // The file exists but is unparseable. Do NOT silently discard it — preserve
+    // the bytes for forensics and start fresh, logging loudly.
+    const corruptPath = `${file}.corrupt-${now}`;
+    try {
+      fs.renameSync(file, corruptPath);
+    } catch {
+      /* best-effort; fall through to empty */
+    }
+    process.stderr.write(
+      `[koa/memory] memory.json was corrupt (${(err as Error).message}); ` +
+        `preserved at ${corruptPath}, starting with empty memory.\n`,
+    );
     return { memories: [] };
   }
 }
 
 function write(file: MemoryFile): void {
-  const dir = path.dirname(memoryFilePath());
+  const target = memoryFilePath();
+  const dir = path.dirname(target);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(memoryFilePath(), JSON.stringify(file, null, 2), { mode: 0o600 });
+  // Atomic write: tmp file + rename so a crash mid-write can't truncate the store.
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(file, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, target);
 }
 
 export function loadMemories(): MemoryEntry[] {
@@ -45,11 +69,11 @@ export function addMemory(fact: string): void {
 
 export function removeMemory(fact: string): boolean {
   const file = read();
-  const lower = fact.toLowerCase();
+  const target = fact.trim().toLowerCase();
   const before = file.memories.length;
-  file.memories = file.memories.filter(
-    (m) => !m.fact.toLowerCase().includes(lower),
-  );
+  // Require a whole-fact match (case-insensitive) so removing one memory
+  // can't accidentally delete every memory that merely contains the substring.
+  file.memories = file.memories.filter((m) => m.fact.trim().toLowerCase() !== target);
   if (file.memories.length < before) {
     write(file);
     return true;

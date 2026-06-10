@@ -19,12 +19,13 @@ function makeOAuth2Client(redirectUri?: string) {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function generateOAuthUrl(redirectUri: string): string {
+export function generateOAuthUrl(redirectUri: string, state?: string): string {
   const oauth2 = makeOAuth2Client(redirectUri);
   return oauth2.generateAuthUrl({
     access_type: 'offline',
     scope: GMAIL_SCOPES,
     prompt: 'consent',
+    ...(state ? { state } : {}),
   });
 }
 

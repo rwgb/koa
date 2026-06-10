@@ -1,5 +1,78 @@
 # Koa — DevLog
 
+## [2026-06-10] — Fable Audit Remediation
+
+### Completed
+- ~30 fixes from FABLE_AUDIT_FIXES.md across §A/§B/§C/§D
+- **C-2**: `validateSafeUrl` made async with DNS resolution; untrusted wrapper, arg injection guard, webpush origin check, cross_repo path safety
+- **A**: max-iteration guard in agent loop, `max_tokens` handling, null-safety, cache fixes, HANDOFF dedup
+- **D-6 + D-1.2**: specialist persona moved to `CODE_SYSTEM`, `SYSTEM_BASE` trimmed + security sentence added
+- **B**: fail-closed auth middleware, loopback-only bind, OAuth CSRF state param, SSE abort signal wiring
+- **D**: ESM playwright import, memory corruption guard, atomic writes, migration backup, `selectAgent` word-boundary regex, router tier labels, notification batch dedup, config validation, `maxTokens=8192`
+
+### Decisions
+- B-6: inline `?token=` check retained (simpler than middleware for SSE handshake)
+- D-8: threshold unchanged (existing heuristic is acceptable)
+- D-9: auto gate kept as-is
+- `compactAfterTurns` / `KOA_COMPACT_TURNS` removed — dead config (maybeCompact was never called; replaced by `semanticCompact` / `maybeCompressContext`)
+
+### Next
+- [ ] **CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env` (key may be exposed)
+- [ ] PR `feature/audit-fixes` → `develop`
+- [ ] Then CP17
+
+---
+
+## [2026-06-10] — CP16: ClaudeCode fallback on quota exhaustion
+
+### Completed
+- `src/agent/loop.ts`: catches 429/quota/overloaded errors, retries with ClaudeCodeProvider when `fallbackToClaudeCode=true`
+- `src/config/index.ts`: `fallbackToClaudeCode` config field + `KOA_FALLBACK_TO_CLAUDE_CODE` env var
+- `src/__tests__/cp16_fallback.test.ts`: ≥5 tests covering all fallback branches
+
+### Decisions
+- Fallback is transparent (debug log only, not surfaced to user) — better UX
+- Re-throws original error if fallback also fails — no silent data loss
+
+### Next
+- [ ] Merge CP16 PR → develop
+- [ ] iOS real-device test via Tailscale
+
+---
+
+## [2026-06-08] — CP10a + CP15: iOS Project Init + Engram Loop 2
+
+### Completed
+
+- **CP10a verified**: all iOS Keychain migration, Siri fix, gmail scope already implemented in prior arcs (CP10f/CP11d)
+- **iOS project initialized**: `ios/project.yml` (xcodegen) → `Koa.xcodeproj` with iOS + watchOS targets
+- **Build errors fixed**: `roundedBorder` unavailable on watchOS → `.plain`; `super.init` ordering in `WatchSession`; bundle ID mismatch between iOS and watchOS targets
+- **Bundle ID**: `com.brynard.koa` / `com.brynard.koa.watch`
+- **App running in Simulator** (iPhone 17 Pro, iOS 26.3) — Connect to Koa auth screen confirmed
+- **Tailscale on LXC**: installed + joined tailnet at `100.101.19.77` (hostname: `koa`); userspace networking mode for unprivileged LXC; persistent via `/etc/default/tailscaled FLAGS=--tun=userspace-networking`
+- **CP15 Loop 2**: `src/engram/signals.ts` (signal collector → `~/.koa/signals/engram.jsonl`), `src/agent/loop.ts` (HANDOFF.md Pending Engram Work section), `src/agent/tools/cross_repo.ts` (allowlisted read/write/test tools); 651 tests passing, tsc clean; committed `a0cad9a` on `feature/cp15-engram-loops`
+
+### Decisions
+
+- Tailscale userspace networking required on unprivileged LXC (kernel TUN unavailable); `FLAGS` in `/etc/default/tailscaled` is the clean override path
+- Tailscale TLS certs require paid plan — HTTP over Tailscale (WireGuard-encrypted) is sufficient for homelab use
+- iOS Simulator reaches local dev server via Mac LAN IP (`192.168.1.17:3000`), not `localhost`
+
+### Issues Found
+
+- Tailscale `tailscale cert` requires paid plan — no `.ts.net` TLS certs on free tier
+- `NSAllowsArbitraryLoads: true` still in `project.yml` — should be scoped to `.ts.net` only (low priority)
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] PR: `feature/cp15-engram-loops` → `develop`
+- [ ] Security review on CP15 branch diff
+- [ ] Test iOS app connecting to LXC via Tailscale IP (`http://100.101.19.77:3000`) on real device
+
+---
+
 ## [2026-06-08] — CP14 Smart Provider Routing + ClaudeCodeProvider
 
 ### Completed

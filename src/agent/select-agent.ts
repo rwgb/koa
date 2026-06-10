@@ -17,27 +17,55 @@ const LIFE_SIGNALS = [
   'weekly', 'monthly', 'journal', 'focus', 'reflect', 'productivity', 'energy',
 ];
 
-export function isCodeQuery(message: string): boolean {
+// Build a case-insensitive whole-word matcher for a signal phrase so "life" no
+// longer matches inside "lifecycle".
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countSignalHits(message: string, signals: readonly string[]): number {
   const lower = message.toLowerCase();
-  return CODE_SIGNALS.some((s) => lower.includes(s));
+  let hits = 0;
+  for (const signal of signals) {
+    const lsignal = signal.toLowerCase();
+    // Signals containing '/' or '.' cannot use \b word-boundary (the non-word
+    // characters break the anchor), so fall back to a plain substring match for
+    // those specific signals only.
+    if (lsignal.includes('/') || lsignal.includes('.')) {
+      if (lower.includes(lsignal)) hits += 1;
+    } else {
+      const re = new RegExp(`\\b${escapeRegExp(lsignal)}(?:es|s)?\\b`);
+      if (re.test(lower)) hits += 1;
+    }
+  }
+  return hits;
+}
+
+export function isCodeQuery(message: string): boolean {
+  return countSignalHits(message, CODE_SIGNALS) > 0;
 }
 
 export function hasBacklogSignals(message: string): boolean {
-  const lower = message.toLowerCase();
-  return BACKLOG_SIGNALS.some((s) => lower.includes(s));
+  return countSignalHits(message, BACKLOG_SIGNALS) > 0;
 }
 
 export function hasLifeSignals(message: string): boolean {
-  const lower = message.toLowerCase();
-  return LIFE_SIGNALS.some((s) => lower.includes(s));
+  return countSignalHits(message, LIFE_SIGNALS) > 0;
 }
 
 /**
  * Keyword-based agent router. No ML — deterministic and fast.
- * Life signals take priority (clearly personal). Then PM signals. Default → code.
+ *
+ * Code is the default. Life/PM only override when their signals are both
+ * clearly present (>= 2 whole-word hits) AND the message isn't a code query,
+ * so a single incidental life/PM word can't hijack an engineering turn.
  */
 export function selectAgent(message: string): AgentName {
-  if (hasLifeSignals(message)) return 'life-manager';
-  if (hasBacklogSignals(message)) return 'project-manager';
+  const code = isCodeQuery(message);
+  const lifeHits = countSignalHits(message, LIFE_SIGNALS);
+  const backlogHits = countSignalHits(message, BACKLOG_SIGNALS);
+
+  if (!code && lifeHits >= 2) return 'life-manager';
+  if (!code && backlogHits >= 2) return 'project-manager';
   return 'code-assistant';
 }

@@ -1,0 +1,527 @@
+/**
+ * server_routes.test.ts — HTTP route integration tests for §B fixes.
+ *
+ * Uses supertest against createServer(). Avoids real background-service
+ * side-effects by mocking the poller/sync modules before importing the server.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import request from 'supertest';
+import type { Express } from 'express';
+import type { TurnResult } from '../types/index.js';
+
+// ── Mock background service modules so createServer() doesn't start real pollers ──
+vi.mock('../channels/gmail.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../channels/gmail.js')>();
+  return {
+    ...actual,
+    gmailPoller: { start: vi.fn(), stop: vi.fn() },
+    generateOAuthUrl: vi.fn((redirectUri: string, state?: string) =>
+      `https://accounts.google.com/o/oauth2/auth?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state ?? ''}`
+    ),
+    exchangeCodeForTokens: vi.fn().mockResolvedValue({
+      refresh_token: 'test-refresh',
+      access_token: 'test-access',
+    }),
+    extractIntent: vi.fn().mockResolvedValue({ type: 'unknown', content: 'x' }),
+  };
+});
+
+vi.mock('../calendar/sync.js', () => ({
+  calendarSync: { start: vi.fn(), stop: vi.fn(), syncNow: vi.fn().mockResolvedValue(undefined) },
+}));
+
+vi.mock('../calendar/oauth.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../calendar/oauth.js')>();
+  return {
+    ...actual,
+    generateCalendarOAuthUrl: vi.fn((redirectUri: string, state?: string) =>
+      `https://accounts.google.com/o/oauth2/cal?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state ?? ''}`
+    ),
+    exchangeCalendarCode: vi.fn().mockResolvedValue({
+      refresh_token: 'cal-refresh',
+      access_token: 'cal-access',
+    }),
+    isCalendarConfigured: vi.fn().mockReturnValue(false),
+  };
+});
+
+vi.mock('../notifications/escalation.js', () => ({
+  escalationScheduler: { start: vi.fn(), stop: vi.fn() },
+}));
+
+vi.mock('../channels/telegram.js', () => ({
+  TelegramPoller: class { start = vi.fn(); stop = vi.fn(); },
+}));
+
+vi.mock('../channels/router.js', () => ({
+  setTelegramPoller: vi.fn(),
+  routeResponse: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../config/credentials.js', () => ({
+  readCredentials: vi.fn().mockReturnValue({}),
+  writeCredential: vi.fn(),
+  deleteCredential: vi.fn(),
+  getCredentialsPath: vi.fn().mockReturnValue('/tmp/koa-test-creds'),
+}));
+
+vi.mock('../integrations/store.js', () => ({
+  loadIntegrations: vi.fn().mockReturnValue([]),
+  saveIntegration: vi.fn(),
+  deleteIntegration: vi.fn(),
+  maskSecrets: vi.fn((x: unknown) => x),
+  mergeConfig: vi.fn(),
+  ALLOWED_TYPES: ['gmail', 'google-calendar', 'slack', 'twilio'],
+}));
+
+vi.mock('../voice/whisper.js', () => ({
+  transcribeAudio: vi.fn().mockResolvedValue('test transcription'),
+}));
+
+vi.mock('../voice/tts.js', () => ({
+  synthesizeStream: vi.fn().mockResolvedValue({ stream: null, contentType: 'audio/mpeg' }),
+}));
+
+vi.mock('../proactive/briefing.js', () => ({
+  buildDailyBriefing: vi.fn().mockResolvedValue('briefing'),
+}));
+
+vi.mock('../proactive/delegations.js', () => ({
+  runDueDelegations: vi.fn().mockResolvedValue(undefined),
+}));
+
+// ── Fake AgentLoop ──────────────────────────────────────────────────────────────
+
+function makeFakeLoop(overrides: Partial<{
+  turn: () => Promise<TurnResult>;
+  checkpoint: () => Promise<void>;
+  rebuildBrain: () => Promise<string>;
+  getState: () => object;
+  contextStats: () => object;
+  initialize: () => Promise<void>;
+  finalize: () => Promise<void>;
+}> = {}) {
+  const defaultUsage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, model: 'test', agent: 'code-assistant' as const };
+  const defaultResult: TurnResult = {
+    content: 'hello',
+    toolUses: [],
+    stopReason: 'end_turn',
+    model: 'claude-sonnet-4-5',
+    tier: 'sonnet',
+    agent: 'code-assistant',
+    usage: defaultUsage,
+  };
+  return {
+    turn: vi.fn().mockResolvedValue(defaultResult),
+    checkpoint: vi.fn().mockResolvedValue(undefined),
+    rebuildBrain: vi.fn().mockResolvedValue('rebuilt'),
+    getState: vi.fn().mockReturnValue({
+      engramContext: null,
+      spiderBrainContext: null,
+      turnCount: 0,
+      lastModel: null,
+      lastTier: null,
+      lastAgent: null,
+      usage: { total: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 } },
+    }),
+    contextStats: vi.fn().mockReturnValue({ inputTokens: 0, outputTokens: 0 }),
+    initialize: vi.fn().mockResolvedValue(undefined),
+    finalize: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+// ── Build app helper ────────────────────────────────────────────────────────────
+
+async function buildApp(token: string | undefined): Promise<Express> {
+  const { createServer } = await import('../server/index.js');
+  const config = {
+    webToken: token,
+    projectPath: '/tmp/koa-test',
+    model: 'claude-sonnet-4-5',
+    maxTokens: 8192,
+    engramEnabled: false,
+    smartRouting: false,
+    noCache: true,
+    maxToolOutputChars: 50000,
+    autoCheckpointTurns: 0,
+    autoCheckpointMinutes: 0,
+    autoChaining: false,
+    briefingEnabled: false,
+    briefingTime: '08:00',
+    ttsProvider: 'say' as const,
+    provider: 'anthropic' as const,
+    ollamaModel: 'llama3.2',
+    ollamaBaseUrl: 'http://localhost:11434',
+    sandboxBackend: 'local' as const,
+    sandboxTimeoutMs: 10000,
+  } as unknown as import('../config/index.js').KoaConfig;
+
+  const loop = makeFakeLoop();
+  const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+  return app;
+}
+
+// ── Tests ───────────────────────────────────────────────────────────────────────
+
+describe('§B server routes — auth matrix', () => {
+  it('GET /api/ping returns 200 with no auth (always accessible)', async () => {
+    const app = await buildApp(undefined);
+    const res = await request(app).get('/api/ping');
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('GET /api/context with no token configured → 403', async () => {
+    const app = await buildApp(undefined);
+    const res = await request(app).get('/api/context');
+    expect(res.status).toBe(403);
+  });
+
+  it('POST /api/auth with no token configured → 503', async () => {
+    const app = await buildApp(undefined);
+    const res = await request(app).post('/api/auth').send({ token: 'any' });
+    expect(res.status).toBe(503);
+  });
+
+  it('GET /api/context with token set but no header → 401', async () => {
+    const app = await buildApp('mysecrettoken');
+    const res = await request(app).get('/api/context');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/context with wrong Bearer → 401', async () => {
+    const app = await buildApp('mysecrettoken');
+    const res = await request(app).get('/api/context').set('Authorization', 'Bearer wrongtoken');
+    expect(res.status).toBe(401);
+  });
+
+  it('GET /api/context with correct Bearer → 200', async () => {
+    const app = await buildApp('mysecrettoken');
+    const res = await request(app).get('/api/context').set('Authorization', 'Bearer mysecrettoken');
+    expect(res.status).toBe(200);
+  });
+
+  it('POST /api/auth with correct token → 200 ok:true', async () => {
+    const app = await buildApp('mytoken');
+    const res = await request(app).post('/api/auth').send({ token: 'mytoken' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('POST /api/auth with wrong token → 401', async () => {
+    const app = await buildApp('mytoken');
+    const res = await request(app).post('/api/auth').send({ token: 'wrongtoken' });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('§B server routes — OAuth state CSRF', () => {
+  it('GET /api/admin/oauth/gmail (valid bearer) issues a 64-char hex state in the URL', async () => {
+    const { generateOAuthUrl } = await import('../channels/gmail.js');
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/admin/oauth/gmail')
+      .set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBeDefined();
+    // The mock captures state= from the URL
+    const url = res.body.url as string;
+    const match = /state=([a-f0-9]+)/.exec(url);
+    expect(match).not.toBeNull();
+    expect(match![1]).toHaveLength(64); // 32 bytes = 64 hex chars
+    expect(generateOAuthUrl).toHaveBeenCalled();
+  });
+
+  it('OAuth gmail callback with valid state → 302 to ?connected=gmail', async () => {
+    // Step 1: get a valid state nonce via the URL builder
+    const app = await buildApp('tok');
+    const urlRes = await request(app)
+      .get('/api/admin/oauth/gmail')
+      .set('Authorization', 'Bearer tok');
+    const url = urlRes.body.url as string;
+    const match = /state=([a-f0-9]+)/.exec(url);
+    const state = match![1];
+
+    // Step 2: simulate Google redirect back with that state
+    const cbRes = await request(app)
+      .get(`/api/admin/oauth/gmail/callback?code=authcode123&state=${state}`);
+    expect(cbRes.status).toBe(302);
+    expect(cbRes.headers['location']).toContain('connected=gmail');
+  });
+
+  it('OAuth gmail callback with bogus state → 302 ?error=oauth_failed, exchange NOT called', async () => {
+    const { exchangeCodeForTokens } = await import('../channels/gmail.js');
+    vi.mocked(exchangeCodeForTokens).mockClear();
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/admin/oauth/gmail/callback?code=authcode123&state=badbadbadbad');
+    expect(res.status).toBe(302);
+    expect(res.headers['location']).toContain('error=oauth_failed');
+    expect(exchangeCodeForTokens).not.toHaveBeenCalled();
+  });
+
+  it('OAuth gmail callback replay (second use of same state) → fails', async () => {
+    const app = await buildApp('tok');
+    const urlRes = await request(app)
+      .get('/api/admin/oauth/gmail')
+      .set('Authorization', 'Bearer tok');
+    const url = urlRes.body.url as string;
+    const match = /state=([a-f0-9]+)/.exec(url);
+    const state = match![1];
+
+    // First use should succeed
+    const first = await request(app)
+      .get(`/api/admin/oauth/gmail/callback?code=code1&state=${state}`);
+    expect(first.status).toBe(302);
+    expect(first.headers['location']).toContain('connected=gmail');
+
+    // Second use with same state should fail (nonce consumed)
+    const second = await request(app)
+      .get(`/api/admin/oauth/gmail/callback?code=code2&state=${state}`);
+    expect(second.status).toBe(302);
+    expect(second.headers['location']).toContain('error=oauth_failed');
+  });
+
+  it('OAuth gmail callback with error=access_denied → 302 ?error=oauth_failed', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/admin/oauth/gmail/callback?error=access_denied');
+    expect(res.status).toBe(302);
+    expect(res.headers['location']).toContain('error=oauth_failed');
+  });
+
+  it('OAuth callback with no auth header reaches handler (not 401d by requireAuth)', async () => {
+    // Callback paths must bypass requireAuth — they arrive from Google with no bearer token
+    const app = await buildApp('tok');
+    // Even without auth, should get 302 (either success redirect or error redirect)
+    // Not 401/403, which requireAuth would return
+    const res = await request(app)
+      .get('/api/admin/oauth/gmail/callback?error=access_denied');
+    expect(res.status).toBe(302);
+    expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(403);
+  });
+
+  it('GET /api/admin/oauth/gmail without token → 401', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app).get('/api/admin/oauth/gmail');
+    // The URL builder is behind requireAuth — no Bearer → 401
+    expect([401, 403]).toContain(res.status);
+  });
+});
+
+describe('§B server routes — error scrubbing', () => {
+  it('POST /api/checkpoint rejecting with path leak returns generic 500', async () => {
+    const { createServer } = await import('../server/index.js');
+    const config = {
+      webToken: 'tok',
+      projectPath: '/tmp/koa-test',
+      model: 'claude-sonnet-4-5',
+      maxTokens: 8192,
+      engramEnabled: false,
+      smartRouting: false,
+      noCache: true,
+      maxToolOutputChars: 50000,
+        autoCheckpointTurns: 0,
+      autoCheckpointMinutes: 0,
+      autoChaining: false,
+      briefingEnabled: false,
+      briefingTime: '08:00',
+      ttsProvider: 'say' as const,
+      provider: 'anthropic' as const,
+      ollamaModel: 'llama3.2',
+      ollamaBaseUrl: 'http://localhost:11434',
+      sandboxBackend: 'local' as const,
+      sandboxTimeoutMs: 10000,
+    } as unknown as import('../config/index.js').KoaConfig;
+
+    const loop = makeFakeLoop({
+      checkpoint: vi.fn().mockRejectedValue(new Error('secret path /etc/shadow exposed')),
+    });
+    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+
+    const res = await request(app)
+      .post('/api/checkpoint')
+      .set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Internal server error' });
+    expect(JSON.stringify(res.body)).not.toContain('secret path');
+  });
+
+  it('POST /api/admin/brain/rebuild rejecting → 500 generic', async () => {
+    const { createServer } = await import('../server/index.js');
+    const config = {
+      webToken: 'tok',
+      projectPath: '/tmp/koa-test',
+      model: 'claude-sonnet-4-5',
+      maxTokens: 8192,
+      engramEnabled: false,
+      smartRouting: false,
+      noCache: true,
+      maxToolOutputChars: 50000,
+        autoCheckpointTurns: 0,
+      autoCheckpointMinutes: 0,
+      autoChaining: false,
+      briefingEnabled: false,
+      briefingTime: '08:00',
+      ttsProvider: 'say' as const,
+      provider: 'anthropic' as const,
+      ollamaModel: 'llama3.2',
+      ollamaBaseUrl: 'http://localhost:11434',
+      sandboxBackend: 'local' as const,
+      sandboxTimeoutMs: 10000,
+    } as unknown as import('../config/index.js').KoaConfig;
+
+    const loop = makeFakeLoop({
+      rebuildBrain: vi.fn().mockRejectedValue(new Error('internal db path /home/user/.koa/db.sqlite')),
+    });
+    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+
+    const res = await request(app)
+      .post('/api/admin/brain/rebuild')
+      .set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Internal server error' });
+  });
+
+  it('POST /api/voice/transcribe non-Whisper error → 500 generic', async () => {
+    const { transcribeAudio } = await import('../voice/whisper.js');
+    vi.mocked(transcribeAudio).mockRejectedValueOnce(new Error('internal path /etc/hosts'));
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .post('/api/voice/transcribe')
+      .set('Authorization', 'Bearer tok')
+      .set('Content-Type', 'audio/wav')
+      .send(Buffer.alloc(1000));
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Internal server error' });
+    expect(JSON.stringify(res.body)).not.toContain('/etc/hosts');
+  });
+
+  it('POST /api/voice/transcribe Whisper error → 502 with preserved message', async () => {
+    const { transcribeAudio } = await import('../voice/whisper.js');
+    vi.mocked(transcribeAudio).mockRejectedValueOnce(
+      new Error('Whisper API returned an error: 400 bad audio')
+    );
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .post('/api/voice/transcribe')
+      .set('Authorization', 'Bearer tok')
+      .set('Content-Type', 'audio/wav')
+      .send(Buffer.alloc(1000));
+    expect(res.status).toBe(502);
+    expect(res.body.error).toContain('Whisper API returned an error');
+  });
+});
+
+describe('§B server routes — SSE busy/auth', () => {
+  it('POST /api/chat when busy → 429', async () => {
+    const { createServer } = await import('../server/index.js');
+    const config = {
+      webToken: 'tok',
+      projectPath: '/tmp/koa-test',
+      model: 'claude-sonnet-4-5',
+      maxTokens: 8192,
+      engramEnabled: false,
+      smartRouting: false,
+      noCache: true,
+      maxToolOutputChars: 50000,
+        autoCheckpointTurns: 0,
+      autoCheckpointMinutes: 0,
+      autoChaining: false,
+      briefingEnabled: false,
+      briefingTime: '08:00',
+      ttsProvider: 'say' as const,
+      provider: 'anthropic' as const,
+      ollamaModel: 'llama3.2',
+      ollamaBaseUrl: 'http://localhost:11434',
+      sandboxBackend: 'local' as const,
+      sandboxTimeoutMs: 10000,
+    } as unknown as import('../config/index.js').KoaConfig;
+
+    // Simulate busy by having the first turn() pause long enough for the test to complete.
+    // We use a short delay + immediate resolve to avoid a hanging test.
+    let resolveFirst!: (v: TurnResult) => void;
+    const firstTurnPromise = new Promise<TurnResult>(r => { resolveFirst = r; });
+    const mockResult: TurnResult = {
+      content: 'hello',
+      toolUses: [],
+      stopReason: 'end_turn',
+      model: 'claude-sonnet-4-5',
+      tier: 'sonnet',
+      agent: 'code-assistant',
+      usage: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, model: 'test', agent: 'code-assistant' as const },
+    };
+
+    const loop = makeFakeLoop({
+      turn: vi.fn().mockImplementationOnce(() => firstTurnPromise)
+                   .mockResolvedValue(mockResult),
+    });
+    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+
+    // Use http.Server to send a request that we can abort mid-stream
+    const http = await import('http');
+    const server = http.createServer(app);
+    await new Promise<void>(r => server.listen(0, r));
+    const port = (server.address() as { port: number }).port;
+
+    // Send first request — isBusy goes true, turn() pauses
+    const firstReqAbort = new AbortController();
+    const firstFetch = fetch(`http://localhost:${port}/api/chat`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'hello' }),
+      signal: firstReqAbort.signal,
+    });
+
+    // Wait briefly for isBusy to be set
+    await new Promise(r => setTimeout(r, 30));
+
+    // Second request should see isBusy=true → 429
+    const res2 = await fetch(`http://localhost:${port}/api/chat`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'hello again' }),
+    });
+    expect(res2.status).toBe(429);
+
+    // Clean up: resolve the first turn so the request can complete
+    resolveFirst(mockResult);
+    try { await firstFetch; } catch { /* ignore */ }
+    await new Promise<void>(r => server.close(() => r()));
+  }, 10000);
+
+  it('GET /api/sse/chat with empty message → 400', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/sse/chat?message=')
+      .set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/sse/chat with no auth → 401/403', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app).get('/api/sse/chat?message=hello');
+    expect([401, 403]).toContain(res.status);
+  });
+
+  it('GET /api/sse/chat with valid ?token= query param → passes auth check', async () => {
+    const app = await buildApp('tok');
+    // We expect either 200 (SSE stream starts) or that it doesn't return 401/403
+    // The turn() mock resolves immediately, so we get the done event then end
+    const res = await request(app)
+      .get('/api/sse/chat?message=hello&token=tok');
+    expect([200, 400]).toContain(res.status);
+    expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(403);
+  });
+
+  it('GET /api/sse/chat with wrong ?token= query param → 401', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app).get('/api/sse/chat?message=hello&token=wrongtoken');
+    expect(res.status).toBe(401);
+  });
+});

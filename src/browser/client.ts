@@ -7,6 +7,9 @@ type PlaywrightBrowser = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PlaywrightPage = any;
 
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
 let playwrightAvailable = false;
 
 // Attempt to detect Playwright at module load time without triggering a hard

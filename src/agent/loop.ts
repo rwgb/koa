@@ -29,6 +29,8 @@ import {
   extractAndMergePreferences,
 } from '../engram/preferences.js';
 import type { Preference } from '../engram/preferences.js';
+import { readRecentSignals } from '../engram/signals.js';
+import type { SignalType } from '../engram/signals.js';
 
 const CONTEXT_COMPRESS_THRESHOLD = 150_000; // ~75% of 200k context
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
@@ -120,6 +122,20 @@ export function groupIntoClusters(messages: Anthropic.MessageParam[]): MessageCl
   }
   if (current.length > 0) clusters.push(current);
   return clusters;
+}
+
+/**
+ * Marks the last block of the last message in the conversation history with
+ * `cache_control: ephemeral` so the API can cache the history up to that point.
+ * This is a prerequisite for prompt caching of multi-turn conversations.
+ * Operates in-place; safe to call before every stream() invocation.
+ */
+function markMessageHistoryCache(messages: Anthropic.MessageParam[]): void {
+  if (messages.length === 0) return;
+  const last = messages[messages.length - 1]!;
+  if (!Array.isArray(last.content) || last.content.length === 0) return;
+  const lastBlock = last.content[last.content.length - 1] as unknown as Record<string, unknown>;
+  lastBlock['cache_control'] = { type: 'ephemeral' };
 }
 
 function isContextLengthError(err: unknown): boolean {
@@ -445,13 +461,6 @@ export class AgentLoop {
     }
   }
 
-  private maybeCompact(): void {
-    this.state.messages = compactMessages(
-      this.state.messages,
-      this.config.compactAfterTurns * 2,
-    );
-  }
-
   private buildConversationSummary(): string {
     const lines: string[] = [];
     for (const msg of this.state.messages) {
@@ -646,9 +655,11 @@ export class AgentLoop {
       const forecastBlock = this.buildForecastBlock();
       if (forecastBlock) extraBlocks.push(forecastBlock);
     }
+    // agentBlock has no cache_control and must come AFTER all cached blocks so
+    // the static cache breakpoints (block1, block2) are not displaced.
     const system = extraBlocks.length > 0
-      ? [agentBlock, ...blocks, ...extraBlocks]
-      : [agentBlock, ...blocks];
+      ? [...blocks, agentBlock, ...extraBlocks]
+      : [...blocks, agentBlock];
 
     const tools = this.registry.toAnthropicTools();
     if (tools.length > 0) {
@@ -658,10 +669,13 @@ export class AgentLoop {
       };
     }
 
-    // Phase 4: check response cache (skip if noCache flag set)
+    // Phase 4: check response cache (skip if noCache flag set, or if mid-conversation).
+    // The cache is only eligible for turn-1 messages (no prior history) — mid-conversation turns
+    // have prior messages that change the semantic meaning of the same message text.
+    const isTurn1 = this.state.messages.length === 1; // only the current user message
     const systemHash = crypto.createHash('sha256').update(blocks[0]!.text).digest('hex').slice(0, 16);
     const cacheKey = ResponseCache.key(systemHash, cleanMessage);
-    if (!this.config.noCache) {
+    if (!this.config.noCache && isTurn1) {
       const cached = this.responseCache.get(cacheKey);
       if (cached) {
         process.stderr.write(`[koa] cache HIT\n`);
@@ -687,13 +701,29 @@ export class AgentLoop {
       tier === 'custom' && this.ollamaProvider ? this.ollamaProvider :
       this.provider;
 
+    const MAX_TOOL_ITERATIONS = 25;
     const toolUses: ToolUse[] = [];
     let finalContent = '';
     let stopReason = 'end_turn';
 
     let continueLoop = true;
     let compressionRetried = false;
+    let iterationCount = 0;
     while (continueLoop) {
+      // Max-iteration guard: stop before entering an infinite tool-use loop
+      if (iterationCount >= MAX_TOOL_ITERATIONS) {
+        const budgetMsg = '[tool-iteration budget exhausted — stopping to prevent infinite loop]';
+        callbacks?.onTextDelta?.(budgetMsg);
+        finalContent = budgetMsg;
+        stopReason = 'max_iterations';
+        break;
+      }
+      iterationCount++;
+
+      // Mark the last block of the last message with cache_control before each stream call
+      // so the API can cache the conversation history up to this point.
+      markMessageHistoryCache(this.state.messages);
+
       let response: Anthropic.Message;
       try {
         const stream = activeProvider.stream({
@@ -725,7 +755,31 @@ export class AgentLoop {
       const assistantContent: Anthropic.MessageParam['content'] = response.content;
       this.state.messages.push({ role: 'assistant', content: assistantContent });
 
-      if (stopReason === 'tool_use') {
+      if (stopReason === 'max_tokens') {
+        // A truncated response: collect text so far and inject a truncation marker.
+        // If there are also tool_use blocks, do NOT execute them — the inputs may be incomplete.
+        finalContent = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .map((b) => b.text)
+          .join('');
+        const truncationMarker = '[response truncated at max_tokens]';
+        finalContent += truncationMarker;
+        callbacks?.onTextDelta?.(truncationMarker);
+
+        // Insert placeholder tool_results for any unexecuted tool_use blocks
+        const toolUseBlocks = response.content.filter(
+          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+        );
+        if (toolUseBlocks.length > 0) {
+          const placeholders: Anthropic.ToolResultBlockParam[] = toolUseBlocks.map((b) => ({
+            type: 'tool_result',
+            tool_use_id: b.id,
+            content: 'skipped — response truncated at max_tokens',
+          }));
+          this.state.messages.push({ role: 'user', content: placeholders });
+        }
+        continueLoop = false;
+      } else if (stopReason === 'tool_use') {
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
         for (const block of response.content) {
@@ -786,8 +840,9 @@ export class AgentLoop {
       handoff: hasHandoff,
     });
 
-    // Store in response cache only when no tool calls occurred (tool results are side-effectful)
-    if (!this.config.noCache && toolUses.length === 0 && finalContent) {
+    // Store in response cache only on turn 1 (no prior history) and with no tool calls
+    // (tool results are side-effectful and should not be cached).
+    if (!this.config.noCache && isTurn1 && toolUses.length === 0 && finalContent) {
       this.responseCache.set(cacheKey, finalContent);
     }
 
@@ -939,6 +994,45 @@ export class AgentLoop {
         ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)
         : Promise.resolve(),
     ]);
+
+    this._appendEngramSignalsToHandoff(paths.handoffMd);
+  }
+
+  private _appendEngramSignalsToHandoff(handoffMd: string): void {
+    const SIGNAL_DESCRIPTIONS: Record<SignalType, string> = {
+      'thin-context': 'getContext returned no goal or session summary — Engram brain may be empty',
+      'empty-query': 'query() returned empty string — index may be stale or missing',
+      'failed-call': 'rememberSession() threw an exception — session not persisted to Engram',
+      'slow-sync': 'sync() took >15s — filesystem scan may be too large',
+      'poor-recall': 'recall quality flagged as poor by the agent',
+    };
+
+    try {
+      const signals = readRecentSignals(20);
+      if (signals.length === 0) return;
+
+      const counts = new Map<SignalType, number>();
+      for (const s of signals) {
+        counts.set(s.type, (counts.get(s.type) ?? 0) + 1);
+      }
+
+      const flagged = Array.from(counts.entries()).filter(([, count]) => count >= 3);
+      if (flagged.length === 0) return;
+
+      const lines = ['', '## Pending Engram Work', ''];
+      for (const [type, count] of flagged) {
+        lines.push(`- **${type}** (${count}x): ${SIGNAL_DESCRIPTIONS[type]}`);
+      }
+      lines.push('');
+
+      const existing = readMarkdownFile(handoffMd) ?? '';
+      // Idempotent: strip any previous ## Pending Engram Work section before appending
+      // so calling this function twice does not produce duplicate sections.
+      const stripped = existing.replace(/\n*## Pending Engram Work[\s\S]*?(?=\n## |\n*$)/g, '');
+      writeMarkdownFile(handoffMd, stripped.trimEnd() + lines.join('\n'));
+    } catch {
+      // non-fatal — HANDOFF.md append is best-effort
+    }
   }
 
   private async _generateConversationTitle(conversationId: string): Promise<void> {

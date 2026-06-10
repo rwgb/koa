@@ -57,6 +57,9 @@ async function flushBatch(key: string): Promise<void> {
   if (!entry) return;
   batchBuffer.delete(key);
   clearTimeout(entry.timer);
+  // The first message was already dispatched when the window opened; if nothing
+  // else arrived there is nothing to flush.
+  if (entry.messages.length === 0) return;
   const title = `Koa: ${entry.messages.length} notifications`;
   const body = entry.messages.slice(0, 10).join('\n');
   await dispatchToChannel(entry.channel, title, body);
@@ -163,9 +166,11 @@ export async function routeResponse(
     return;
   }
 
-  // Start a new batch window
+  // Start a new batch window. The first message is dispatched immediately below,
+  // so the buffer starts EMPTY — only subsequent messages within the window are
+  // accumulated for the batched flush (prevents re-sending this first message).
   const timer = setTimeout(() => { void flushBatch(batchKey); }, BATCH_WINDOW_MS);
-  batchBuffer.set(batchKey, { messages: [body], timer, channel, event });
+  batchBuffer.set(batchKey, { messages: [], timer, channel, event });
   // Deliver first message immediately; subsequent ones batch
   await dispatchToChannel(channel, title, body);
 }

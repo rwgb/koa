@@ -32,6 +32,20 @@ metadata:
 | CP13c | `koa setup` wizard + IPv6 SSRF fix | ✅ done |
 | CP13d | Repo sanitisation & template files | ✅ done |
 | CP13 End-of-Arc | Security review clean, 627 tests, tsc clean, v0.3.0 bump | ✅ done |
+| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | ✅ done |
+| CP15 | Engram signal collector + cross-repo tools (Loop 2) | ✅ done |
+| CP16 | ClaudeCode fallback on Anthropic quota exhaustion | ✅ done |
+| Fable Audit | ~30 fixes from FABLE_AUDIT_FIXES.md — §A/§B/§C/§D | ✅ done 2026-06-10 |
+
+## Fable Audit State (2026-06-10)
+
+- All ~30 fixes applied and committed to `feature/cp15-engram-loops`
+- Note: fixes landed on `feature/cp15-engram-loops` (not `feature/audit-fixes`) because the repo
+  was checked out to that branch when the workflow ran. `feature/audit-fixes` diverged from a
+  common CP13 ancestor via a squash commit — the audit work builds on CP15/CP16 which are only
+  in `feature/cp15-engram-loops`.
+- 765 tests passing, tsc clean, security review clean (0 CRITICAL/HIGH/MEDIUM)
+- **CRITICAL action needed**: rotate `ANTHROPIC_API_KEY` in `.env` (was plaintext)
 
 ## Merge State
 
@@ -41,34 +55,12 @@ metadata:
 - Branch protection on `main`: requires `ci / Lint, typecheck & test` + `ai-review`
 - Branch protection on `develop`: requires `ci / Lint, typecheck & test`
 - CI + AI review + release workflows fully operational
-
-## Current Arc — CP13: Clone-Ready Hardening (complete)
-
-- CP13a–CP13d ✅ all done on `feature/cp13-clone-ready`
-- PR #4 (docs sync) ✅ merged to main 2026-06-05
-- Gate grep: zero hits ✅
-- tsc clean, 619 tests passing ✅
-- Security review: clean ✅
-
-## Infra Recovery (2026-06-08, in-progress)
-
-- Packer rewritten: `proxmox-iso` → `proxmox-clone` from VMID 100 (existing Debian 13 template, `debian:debian`)
-- Packer build running — clone + Ollama install (~5 min vs 40 min); will produce template at VMID 9001
-- Koa web console deployed to LXC 200 ✅ — http://192.168.1.200:3000 live
-- Fixed: deploy.sh (sudo, native rebuild), koa.service (namespace hardening), rsync missing on LXC
-
-| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | ✅ done |
-
-## Merge State (updated 2026-06-08)
-
 - PR #5 (`feature/cp13-clone-ready` → `develop`) ✅ merged
 - PR #6 (`develop` → `main`, v0.3.0) 🔄 open — CI passing, awaiting merge
-- `feature/cp14-smart-routing` in progress
 
 ## Next
 
+- [ ] **CRITICAL**: Rotate `ANTHROPIC_API_KEY` in `.env` before any push
+- [ ] PR: `feature/cp15-engram-loops` → `feature/web-console-and-hardening` (includes CP14+CP15+CP16+Fable audit)
 - [ ] Merge PR #6 → GitHub Release v0.3.0
-- [ ] Confirm Packer build succeeded; `terraform apply` → VM 201 (you run: `cd infra && terraform apply`)
-- [ ] Verify 192.168.1.201 + `ollama list`
-- [ ] PR: `feature/cp14-smart-routing` → `develop`
-- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 spec in TASKS.md)
+- [ ] CP17: Long-term memory — spec in `docs/MEMORY-SPEC.md`; branch `feature/cp17-longterm-memory`

@@ -23,7 +23,9 @@ export function validatePushEndpoint(endpoint: string): boolean {
   try {
     const u = new URL(endpoint);
     if (u.protocol !== 'https:') return false;
-    return ALLOWED_PUSH_ORIGINS.some(o => endpoint.startsWith(o));
+    // Exact origin match — prefix match would accept lookalikes like
+    // https://fcm.googleapis.com.evil.com/... which starts with the allowed origin.
+    return ALLOWED_PUSH_ORIGINS.some(o => u.origin === o);
   } catch { return false; }
 }
 
