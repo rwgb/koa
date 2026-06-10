@@ -8,6 +8,12 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        // Disable compression so SSE chunks are forwarded immediately, not buffered
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Accept-Encoding', 'identity');
+          });
+        },
       },
     },
   },

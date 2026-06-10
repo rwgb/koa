@@ -47,18 +47,14 @@ export class EngramClient {
     if (!(await this.checkAvailable())) return empty;
 
     try {
-      // `status` gives goal and cluster overview
-      const statusOut = await this.run(['status', '--project', this.projectPath]);
+      // Run both subprocesses concurrently — they are independent read-only calls
+      const [statusOut, historyOut] = await Promise.all([
+        this.run(['status', '--project', this.projectPath]),
+        this.run(['session', 'history', '--project', this.projectPath, '--limit', '1']),
+      ]);
       const goalMatch = statusOut.match(/^Goal:\s+(.+)$/m);
       const rawGoal = goalMatch?.[1]?.trim();
       const goal = rawGoal && rawGoal !== '(not set)' ? rawGoal : undefined;
-
-      // `session history` gives decisions logged by previous sessions
-      const historyOut = await this.run([
-        'session', 'history',
-        '--project', this.projectPath,
-        '--limit', '1',
-      ]);
       const decisions: string[] = [];
       for (const line of historyOut.split('\n')) {
         const m = line.match(/^\s+Decision:\s+(.+)$/);

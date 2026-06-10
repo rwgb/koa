@@ -8,10 +8,11 @@ interface Props {
   turnCount: number;
   engramEnabled: boolean;
   isThinking: boolean;
+  isClassifying?: boolean;
   usage?: SessionUsageStats | null;
 }
 
-export function StatusBar({ model, turnCount, engramEnabled, isThinking, usage }: Props) {
+export function StatusBar({ model, turnCount, engramEnabled, isThinking, isClassifying, usage }: Props) {
   return (
     <Box borderStyle="single" borderColor="gray" paddingX={1}>
       <Text color="magenta">{model.replace('claude-', '')}</Text>
@@ -29,7 +30,16 @@ export function StatusBar({ model, turnCount, engramEnabled, isThinking, usage }
           </Text>
         </>
       )}
-      {isThinking && (
+      {isClassifying && (
+        <>
+          <Text dimColor> | </Text>
+          <Text color="cyan">
+            <Spinner type="dots" />
+            {' classifying'}
+          </Text>
+        </>
+      )}
+      {isThinking && !isClassifying && (
         <>
           <Text dimColor> | </Text>
           <Text color="yellow">

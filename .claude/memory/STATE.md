@@ -1,0 +1,74 @@
+---
+name: backlog-burn-state
+description: CP completion status and what's next
+metadata:
+  type: project
+---
+
+# Koa — Backlog Burn State
+
+## Completed Checkpoints
+
+| CP | Label | Status |
+|----|-------|--------|
+| CP0 | Admin UI Phase 1 | ✅ done |
+| CP7–CP10c | DB, channels, voice, iOS, server refactor, calendar/email | ✅ done |
+| CP10d | GitHub integration | ✅ done |
+| CP10f | iOS search tab + TTS voice round-trip | ✅ done |
+| CP11a | Conversation persistence | ✅ done (bundled in CP10e) |
+| CP11b | True multi-agent chaining | ✅ done |
+| CP11c | ElevenLabs TTS | ✅ done (bundled in CP10e) |
+| CP11d | watchOS companion app | ✅ done |
+| CP12a | Plugin/tool extensibility SDK | ✅ done |
+| CP12b | Semantic context-window compaction | ✅ done |
+| CP12c | Ollama self-hosted LLM provider | ✅ done |
+| CP12d | Conversation intelligence (auto-title + search) | ✅ done |
+| CP12e | Sandboxed code execution | ✅ done |
+| CP12f | Browser automation via Playwright | ✅ done |
+| CP12g | Homelab deployment scaffolding | ✅ done |
+| CP13 | Security hardening + lint + test fixes | ✅ done |
+| CP13a | userName plumbing | ✅ done |
+| CP13b | ntfy parameterisation | ✅ done |
+| CP13c | `koa setup` wizard + IPv6 SSRF fix | ✅ done |
+| CP13d | Repo sanitisation & template files | ✅ done |
+| CP13 End-of-Arc | Security review clean, 627 tests, tsc clean, v0.3.0 bump | ✅ done |
+
+## Merge State
+
+- `feature/context-compression` → `develop` ✅ merged 2026-06-04
+- `develop` → `main` PR #3 ✅ squash-merged 2026-06-05 (commit `f5f46bcb`)
+- GitHub Release `v0.2.0` ✅ created 2026-06-05
+- Branch protection on `main`: requires `ci / Lint, typecheck & test` + `ai-review`
+- Branch protection on `develop`: requires `ci / Lint, typecheck & test`
+- CI + AI review + release workflows fully operational
+
+## Current Arc — CP13: Clone-Ready Hardening (complete)
+
+- CP13a–CP13d ✅ all done on `feature/cp13-clone-ready`
+- PR #4 (docs sync) ✅ merged to main 2026-06-05
+- Gate grep: zero hits ✅
+- tsc clean, 619 tests passing ✅
+- Security review: clean ✅
+
+## Infra Recovery (2026-06-08, in-progress)
+
+- Packer rewritten: `proxmox-iso` → `proxmox-clone` from VMID 100 (existing Debian 13 template, `debian:debian`)
+- Packer build running — clone + Ollama install (~5 min vs 40 min); will produce template at VMID 9001
+- Koa web console deployed to LXC 200 ✅ — http://192.168.1.200:3000 live
+- Fixed: deploy.sh (sudo, native rebuild), koa.service (namespace hardening), rsync missing on LXC
+
+| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | ✅ done |
+
+## Merge State (updated 2026-06-08)
+
+- PR #5 (`feature/cp13-clone-ready` → `develop`) ✅ merged
+- PR #6 (`develop` → `main`, v0.3.0) 🔄 open — CI passing, awaiting merge
+- `feature/cp14-smart-routing` in progress
+
+## Next
+
+- [ ] Merge PR #6 → GitHub Release v0.3.0
+- [ ] Confirm Packer build succeeded; `terraform apply` → VM 201 (you run: `cd infra && terraform apply`)
+- [ ] Verify 192.168.1.201 + `ollama list`
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 spec in TASKS.md)

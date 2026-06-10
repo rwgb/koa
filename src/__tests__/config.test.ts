@@ -6,13 +6,18 @@ import fs from 'fs';
 
 describe('loadConfig', () => {
   const originalEnv = process.env;
+  let tmpDir: string;
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    // Point KOA_HOME at a fresh empty dir so tests never read the real ~/.koa/config.json
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-cfg-test-'));
+    process.env['KOA_HOME'] = tmpDir;
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('uses defaults when env vars are absent', () => {
@@ -21,7 +26,7 @@ describe('loadConfig', () => {
     delete process.env['KOA_ENGRAM'];
 
     const config = loadConfig('/tmp/project');
-    expect(config.model).toBe('claude-sonnet-4-6');
+    expect(config.model).toBe('claude-haiku-4-5-20251001');
     expect(config.maxTokens).toBe(8096);
     expect(config.engramEnabled).toBe(true);
     expect(config.projectPath).toBe('/tmp/project');
@@ -147,7 +152,7 @@ describe('auto-checkpoint config', () => {
 
 describe('getEngramBrainPath', () => {
   it('uses only the project basename as the slug (matches Engram Python logic)', () => {
-    const result = getEngramBrainPath('/Users/ralph/projects/koa');
+    const result = getEngramBrainPath('/home/user/projects/koa');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 
@@ -157,7 +162,7 @@ describe('getEngramBrainPath', () => {
   });
 
   it('replaces spaces in basename with hyphens', () => {
-    const result = getEngramBrainPath('/Users/ralph/active projects/koa');
+    const result = getEngramBrainPath('/home/user/active projects/koa');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 

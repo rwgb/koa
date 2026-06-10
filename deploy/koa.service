@@ -1,0 +1,22 @@
+[Unit]
+Description=Koa Personal AI Assistant
+After=network.target
+
+[Service]
+Type=simple
+User=koa
+Group=koa
+WorkingDirectory=/opt/koa
+EnvironmentFile=/etc/koa/env
+ExecStart=/usr/bin/node /opt/koa/dist/cli/index.js web --port 3000
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=koa
+
+# Hardening (namespace options omitted — incompatible with unprivileged LXC)
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+# Koa reverse proxy
+# Usage: KOA_DOMAIN=koa.example.com caddy run --config Caddyfile
+{$KOA_DOMAIN} {
+    reverse_proxy localhost:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        # Stream SSE responses immediately without buffering
+        flush_interval -1
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        -Server
+    }
+
+    encode gzip
+
+    log {
+        output file /var/log/caddy/koa.log
+        format json
+    }
+}

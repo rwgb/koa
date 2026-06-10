@@ -1,4 +1,4 @@
-import type { TurnUsage, SessionUsageStats } from '../types/index.js';
+import type { TurnUsage, SessionUsageStats, AgentCostEntry } from '../types/index.js';
 
 interface PricingTier {
   inputPerM: number;
@@ -49,6 +49,10 @@ export class UsageTracker {
   private estimatedCostUsd = 0;
   private cacheHitRate = 0;
   private turnsCount = 0;
+  private classifierCalls = 0;
+  private classifierInputTokens = 0;
+  private classifierOutputTokens = 0;
+  private agentBreakdown: Record<string, AgentCostEntry> = {};
 
   addTurn(usage: TurnUsage): void {
     this.inputTokens += usage.inputTokens;
@@ -68,6 +72,30 @@ export class UsageTracker {
 
     const denominator = this.inputTokens + this.cacheReadTokens + this.cacheWriteTokens;
     this.cacheHitRate = denominator === 0 ? 0 : this.cacheReadTokens / denominator;
+
+    if (usage.agent) {
+      const turnCost = computeCost(
+        pricing,
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cacheWriteTokens,
+        usage.cacheReadTokens,
+      );
+      const entry = this.agentBreakdown[usage.agent] ?? { turns: 0, estimatedCostUsd: 0 };
+      this.agentBreakdown[usage.agent] = {
+        turns: entry.turns + 1,
+        estimatedCostUsd: entry.estimatedCostUsd + turnCost,
+      };
+    }
+  }
+
+  addClassifierCall(inputTokens: number, outputTokens: number): void {
+    this.classifierCalls++;
+    this.classifierInputTokens += inputTokens;
+    this.classifierOutputTokens += outputTokens;
+    // Classifier cost folds into estimatedCostUsd using haiku pricing
+    const pricing = getPricing('claude-haiku');
+    this.estimatedCostUsd += (inputTokens * pricing.inputPerM + outputTokens * pricing.outputPerM) / 1_000_000;
   }
 
   getStats(): SessionUsageStats {
@@ -79,6 +107,10 @@ export class UsageTracker {
       estimatedCostUsd: this.estimatedCostUsd,
       cacheHitRate: this.cacheHitRate,
       turnsCount: this.turnsCount,
+      classifierCalls: this.classifierCalls,
+      classifierInputTokens: this.classifierInputTokens,
+      classifierOutputTokens: this.classifierOutputTokens,
+      agentBreakdown: { ...this.agentBreakdown },
     };
   }
 
@@ -90,5 +122,9 @@ export class UsageTracker {
     this.estimatedCostUsd = 0;
     this.cacheHitRate = 0;
     this.turnsCount = 0;
+    this.classifierCalls = 0;
+    this.classifierInputTokens = 0;
+    this.classifierOutputTokens = 0;
+    this.agentBreakdown = {};
   }
 }

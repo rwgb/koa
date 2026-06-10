@@ -1,4 +1,5 @@
 import type Anthropic from '@anthropic-ai/sdk';
+import type { AgentName } from '../agent/specialists.js';
 
 export interface TurnUsage {
   inputTokens: number;
@@ -6,6 +7,12 @@ export interface TurnUsage {
   cacheWriteTokens: number;
   cacheReadTokens: number;
   model: string;
+  agent?: AgentName;
+}
+
+export interface AgentCostEntry {
+  turns: number;
+  estimatedCostUsd: number;
 }
 
 export interface SessionUsageStats {
@@ -16,6 +23,17 @@ export interface SessionUsageStats {
   estimatedCostUsd: number;
   cacheHitRate: number;
   turnsCount: number;
+  classifierCalls: number;
+  classifierInputTokens: number;
+  classifierOutputTokens: number;
+  agentBreakdown: Record<string, AgentCostEntry>;
+}
+
+export interface ContextStats {
+  totalMessages: number;
+  estimatedTokens: number;
+  clusterCount: number;
+  lastCompactionAt: string | null;
 }
 
 export interface EngramContext {
@@ -31,19 +49,15 @@ export interface HotFile {
   cluster?: string;
 }
 
-export interface EngramSession {
-  id: string;
-  startedAt: Date;
-  goal?: string;
-}
-
 export type ToolInput = Record<string, unknown>;
+export type ToolResultContent = string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam>;
 
 export interface Tool {
   name: string;
   description: string;
   inputSchema: Anthropic.Tool['input_schema'];
-  execute(input: ToolInput): Promise<string>;
+  source?: 'builtin' | 'custom-skill' | 'plugin';
+  execute(input: ToolInput): Promise<ToolResultContent>;
 }
 
 export interface SpiderBrainMaster {
@@ -75,10 +89,10 @@ export interface AgentState {
   engramContext: EngramContext;
   spiderBrainContext?: SpiderBrainContext;
   projectMemory?: ProjectMemory;
-  sessionId?: string;
   turnCount: number;
   lastModel?: string;
   lastTier?: string;
+  lastAgent?: AgentName;
   usage: SessionUsageStats;
 }
 
@@ -88,7 +102,11 @@ export interface TurnResult {
   stopReason: string;
   model: string;
   tier: string;
+  agent: string;
   usage?: TurnUsage;
+  classifierLatencyMs?: number;
+  contextStats?: ContextStats;
+  chainedResult?: { content: string; agent: string };
 }
 
 export interface ToolUse {
