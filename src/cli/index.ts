@@ -364,4 +364,73 @@ program
     await runSetupWizard(opts);
   });
 
+program
+  .command('doctor')
+  .description('Diagnose and optionally fix stale ~/.koa/config.json entries')
+  .option('--fix', 'Back up config and rewrite to canonical format')
+  .action(async (opts: { fix?: boolean }) => {
+    const os = await import('node:os');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    const configPath = path.join(os.homedir(), '.koa', 'config.json');
+    if (!fs.existsSync(configPath)) {
+      console.log('No config file found at', configPath);
+      return;
+    }
+
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch {
+      console.error('Could not parse config.json — file may be corrupt.');
+      process.exit(1);
+    }
+
+    const issues: Array<{ field: string; description: string; fix: (cfg: Record<string, unknown>) => void }> = [];
+
+    if ('smartRouting' in raw) {
+      issues.push({
+        field: 'smartRouting',
+        description: raw['smartRouting'] === true
+          ? 'smartRouting: true — migrate to provider: "auto"'
+          : 'smartRouting field is obsolete — removing',
+        fix: (cfg) => {
+          if (cfg['smartRouting'] === true && !('provider' in cfg)) cfg['provider'] = 'auto';
+          delete cfg['smartRouting'];
+        },
+      });
+    }
+    if ('compactAfterTurns' in raw) {
+      issues.push({
+        field: 'compactAfterTurns',
+        description: 'compactAfterTurns is a dead config field — removing',
+        fix: (cfg) => { delete cfg['compactAfterTurns']; },
+      });
+    }
+
+    if (issues.length === 0) {
+      console.log('Config looks clean. No issues found.');
+      return;
+    }
+
+    console.log(`Found ${issues.length} issue(s):`);
+    for (const issue of issues) console.log(`  • ${issue.description}`);
+
+    if (!opts.fix) {
+      console.log("\nRun 'koa doctor --fix' to automatically apply these fixes.");
+      return;
+    }
+
+    // --fix path: backup + atomic write
+    const backup = configPath + '.bak';
+    fs.copyFileSync(configPath, backup);
+    const updated = { ...raw };
+    for (const issue of issues) issue.fix(updated);
+    const tmp = configPath + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, configPath);
+    console.log(`Fixed ${issues.length} issue(s). Backup saved to ${backup}`);
+  });
+
 program.parse(process.argv);
