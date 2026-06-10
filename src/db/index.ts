@@ -91,6 +91,7 @@ interface RawProject {
   name: string;
   description: string;
   status: string;
+  budget_usd: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +100,7 @@ function hydrateProject(row: RawProject): Project {
   return {
     ...row,
     status: row.status as ProjectStatus,
+    budget_usd: row.budget_usd ?? null,
   };
 }
 
@@ -182,7 +184,7 @@ export function listProjects(status?: ProjectStatus): Project[] {
 
 export function updateProject(
   id: string,
-  updates: Partial<Pick<Project, 'name' | 'description' | 'status'>>,
+  updates: Partial<Pick<Project, 'name' | 'description' | 'status' | 'budget_usd'>>,
 ): Project {
   const db = getDb();
   const project = getProject(id);
@@ -194,6 +196,7 @@ export function updateProject(
   if (updates.name !== undefined) { fields.push('name = ?'); values.push(updates.name); }
   if (updates.description !== undefined) { fields.push('description = ?'); values.push(updates.description); }
   if (updates.status !== undefined) { fields.push('status = ?'); values.push(updates.status); }
+  if ('budget_usd' in updates) { fields.push('budget_usd = ?'); values.push(updates.budget_usd ?? null); }
 
   if (fields.length === 0) return project;
 
@@ -210,6 +213,12 @@ export function deleteProject(id: string): void {
   // Soft delete — archive only
   updateProject(id, { status: 'archived' });
   audit('project', id, 'archive');
+}
+
+export function getProjectBudget(projectId: string): number | null {
+  const db = getDb();
+  const row = db.prepare('SELECT budget_usd FROM projects WHERE id = ?').get(projectId);
+  return (row as { budget_usd: number | null } | undefined)?.budget_usd ?? null;
 }
 
 // ── Tasks ──────────────────────────────────────────────────────────────────

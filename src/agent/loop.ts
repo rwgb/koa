@@ -1,4 +1,5 @@
 import Anthropic, { BadRequestError } from '@anthropic-ai/sdk';
+import path from 'path';
 import { createProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/index.js';
 import { ClaudeCodeProvider } from './providers/claude_code.js';
@@ -57,6 +58,8 @@ import {
   closeConversation,
   getConversationTurns,
   updateConversationTitle,
+  getProjectBySlug,
+  getProjectBudget,
 } from '../db/index.js';
 import { routeResponse } from '../channels/router.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
@@ -204,6 +207,8 @@ export class AgentLoop {
   private lastCompactionAt: string | null = null;
   private _busy = false;
   private agentSpecs: ReturnType<typeof buildAgentSpecs>;
+  private projectBudget: number | null = null;
+  private sessionCostUsd = 0;
 
   constructor(
     config: KoaConfig,
@@ -302,6 +307,21 @@ export class AgentLoop {
       this._conversationId = conv.id;
     } catch {
       // non-fatal — conversation persistence is best-effort
+    }
+
+    // Load per-project spending budget (null = no limit)
+    try {
+      const projectSlug = this.config.projectPath
+        ? path.basename(this.config.projectPath)
+        : null;
+      if (projectSlug) {
+        const project = getProjectBySlug(projectSlug);
+        if (project?.id) {
+          this.projectBudget = getProjectBudget(project.id);
+        }
+      }
+    } catch {
+      // non-fatal — budget enforcement is best-effort
     }
 
     if (this.config.autoCheckpointMinutes > 0) {
@@ -730,6 +750,13 @@ export class AgentLoop {
       }
       iterationCount++;
 
+      // Per-project budget guard: block new API calls if session cost exceeds the budget
+      if (this.projectBudget !== null && this.sessionCostUsd >= this.projectBudget) {
+        throw new Error(
+          `Project budget exceeded: session cost $${this.sessionCostUsd.toFixed(4)} >= budget $${this.projectBudget.toFixed(2)}`,
+        );
+      }
+
       // Mark the last block of the last message with cache_control before each stream call
       // so the API can cache the conversation history up to this point.
       markMessageHistoryCache(this.state.messages);
@@ -759,6 +786,14 @@ export class AgentLoop {
       acc.outputTokens += response.usage.output_tokens;
       acc.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
       acc.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+
+      // Accumulate session cost for per-project budget enforcement
+      const p = pricingFor(selectedModel);
+      this.sessionCostUsd +=
+        response.usage.input_tokens * p.input +
+        (response.usage.cache_creation_input_tokens ?? 0) * p.cacheWrite +
+        (response.usage.cache_read_input_tokens ?? 0) * p.cacheRead +
+        response.usage.output_tokens * p.output;
 
       stopReason = response.stop_reason ?? 'end_turn';
 
