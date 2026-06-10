@@ -88,10 +88,17 @@ export function createDbRouter(): Router {
   router.put('/projects/:id', (req, res) => {
     try {
       const id = (req.params as { id: string }).id;
-      const body = req.body as { name?: string; description?: string; status?: string };
+      const body = req.body as { name?: string; description?: string; status?: string; budget_usd?: unknown };
       if (body.status !== undefined && !VALID_PROJECT_STATUS.has(body.status)) {
         res.status(400).json({ error: `Invalid status — must be one of: ${[...VALID_PROJECT_STATUS].join(', ')}` });
         return;
+      }
+      if ('budget_usd' in body) {
+        const bud = body.budget_usd;
+        if (bud !== null && (typeof bud !== 'number' || !isFinite(bud) || bud <= 0)) {
+          res.status(400).json({ error: 'budget_usd must be a positive finite number or null' });
+          return;
+        }
       }
       res.json({ project: updateProject(id, body as Parameters<typeof updateProject>[1]) });
     } catch (e) { dbError(res, e); }
