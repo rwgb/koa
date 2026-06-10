@@ -1,5 +1,100 @@
 # Koa — DevLog
 
+## [2026-06-10] — CP16: ClaudeCode fallback on quota exhaustion
+
+### Completed
+- `src/agent/loop.ts`: catches 429/quota/overloaded errors, retries with ClaudeCodeProvider when `fallbackToClaudeCode=true`
+- `src/config/index.ts`: `fallbackToClaudeCode` config field + `KOA_FALLBACK_TO_CLAUDE_CODE` env var
+- `src/__tests__/cp16_fallback.test.ts`: ≥5 tests covering all fallback branches
+
+### Decisions
+- Fallback is transparent (debug log only, not surfaced to user) — better UX
+- Re-throws original error if fallback also fails — no silent data loss
+
+### Next
+- [ ] Merge CP16 PR → develop
+- [ ] iOS real-device test via Tailscale
+
+---
+
+## [2026-06-08] — CP10a + CP15: iOS Project Init + Engram Loop 2
+
+### Completed
+
+- **CP10a verified**: all iOS Keychain migration, Siri fix, gmail scope already implemented in prior arcs (CP10f/CP11d)
+- **iOS project initialized**: `ios/project.yml` (xcodegen) → `Koa.xcodeproj` with iOS + watchOS targets
+- **Build errors fixed**: `roundedBorder` unavailable on watchOS → `.plain`; `super.init` ordering in `WatchSession`; bundle ID mismatch between iOS and watchOS targets
+- **Bundle ID**: `com.brynard.koa` / `com.brynard.koa.watch`
+- **App running in Simulator** (iPhone 17 Pro, iOS 26.3) — Connect to Koa auth screen confirmed
+- **Tailscale on LXC**: installed + joined tailnet at `100.101.19.77` (hostname: `koa`); userspace networking mode for unprivileged LXC; persistent via `/etc/default/tailscaled FLAGS=--tun=userspace-networking`
+- **CP15 Loop 2**: `src/engram/signals.ts` (signal collector → `~/.koa/signals/engram.jsonl`), `src/agent/loop.ts` (HANDOFF.md Pending Engram Work section), `src/agent/tools/cross_repo.ts` (allowlisted read/write/test tools); 651 tests passing, tsc clean; committed `a0cad9a` on `feature/cp15-engram-loops`
+
+### Decisions
+
+- Tailscale userspace networking required on unprivileged LXC (kernel TUN unavailable); `FLAGS` in `/etc/default/tailscaled` is the clean override path
+- Tailscale TLS certs require paid plan — HTTP over Tailscale (WireGuard-encrypted) is sufficient for homelab use
+- iOS Simulator reaches local dev server via Mac LAN IP (`192.168.1.17:3000`), not `localhost`
+
+### Issues Found
+
+- Tailscale `tailscale cert` requires paid plan — no `.ts.net` TLS certs on free tier
+- `NSAllowsArbitraryLoads: true` still in `project.yml` — should be scoped to `.ts.net` only (low priority)
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] PR: `feature/cp15-engram-loops` → `develop`
+- [ ] Security review on CP15 branch diff
+- [ ] Test iOS app connecting to LXC via Tailscale IP (`http://100.101.19.77:3000`) on real device
+
+---
+
+## [2026-06-08] — CP14 Smart Provider Routing + ClaudeCodeProvider
+
+### Completed
+
+- **PR #5 merged** (`feature/cp13-clone-ready` → `develop`)
+- **PR #6 opened** (`develop` → `main`, v0.3.0 release)
+- **`ClaudeCodeProvider`** (`src/agent/providers/claude_code.ts`): spawns `claude -p --output-format json` subprocess; fits `LlmProvider` interface; uses EventEmitter stream pattern matching OllamaProvider
+- **Config additions**: `provider` enum extended to `'anthropic' | 'ollama' | 'claude-code' | 'auto'`; `claudeCodePath` field added (env: `KOA_CLAUDE_CODE_PATH`, default: `'claude'`)
+- **Auto routing** (`loop.ts`): when `provider === 'auto'`, routes code queries to claude-code, simple queries to ollama (if configured), complex to Anthropic; `activeProvider` local var per-turn so tool-use continuation stays on the same provider
+- **ntfy topic validation** (`PUT /integrations/:id`): rejects topics not matching `/^[a-zA-Z0-9_-]{1,64}$/` with HTTP 400; `NTFY_TOPIC_RE` exported for testing
+- **Tests**: 643 passing (added `claude_code_provider.test.ts` + `ntfy_topic_validation.test.ts`); tsc clean
+
+### Decisions
+
+- `'auto'` routing in loop.ts (not in a `RoutingProvider` wrapper) — keeps routing colocated with turn logic where agent context is available
+- `ClaudeCodeProvider` does not pass `--system-prompt` to claude CLI — let it use its own context rather than injecting koa's full system blocks
+- `NTFY_TOPIC_RE` exported constant to keep validation testable without a server
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [x] Confirm Packer + terraform for Ollama VM 201 → CP14c sealed
+- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 from TASKS.md)
+
+## [2026-06-08] — CP14c: terraform apply + Ollama VM deploy
+
+### Completed
+
+- Terraform applied: VM 201 cloned from Packer template 9001 (`ollama-debian13`) in 54s
+- VM came up at 192.168.1.36 (DHCP, not static .201 — tfvars updated)
+- `ollama.service` patched: `OLLAMA_HOST=0.0.0.0` so LXC at .200 can reach it
+- `qwen2.5:7b` (4.7GB) pre-baked in template — no pull needed
+- Koa env on LXC: `KOA_OLLAMA_BASE_URL=http://192.168.1.36:11434`, `KOA_OLLAMA_MODEL=qwen2.5:7b`
+- `KOA_PROVIDER` left unset — koa auto-routes to Claude by default; Ollama available on demand
+
+### Decisions
+
+- CPU-only Ollama inference on `qwen2.5:7b` is too slow for interactive use (~30–90s/response); Ollama wiring kept intact for future GPU addition or batch tasks
+- Did not set `KOA_PROVIDER=ollama` in production env; smart-routing default (Claude) is better UX
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] CP15: Engram quality signal collector + cross-repo tools
+
 ## [2026-06-08] — CP13 End-of-Arc + version bump to 0.3.0
 
 ### Completed

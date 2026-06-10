@@ -25,9 +25,10 @@ const ConfigSchema = z.object({
   ttsProvider: z.enum(['say', 'elevenlabs']).default('say'),
   elevenLabsVoiceId: z.string().default('21m00Tcm4TlvDq8ikWAM'),
   elevenLabsModel: z.string().default('eleven_turbo_v2_5'),
-  provider: z.enum(['anthropic', 'ollama']).default('anthropic'),
+  provider: z.enum(['anthropic', 'ollama', 'claude-code', 'auto']).default('anthropic'),
   ollamaModel: z.string().default('llama3.2'),
   ollamaBaseUrl: z.string().default('http://localhost:11434'),
+  claudeCodePath: z.string().default('claude'),
   sandboxBackend: z.enum(['local', 'docker']).default('local'),
   sandboxTimeoutMs: z.number().default(10000),
   browserEnabled: z.boolean().default(false),
@@ -58,9 +59,10 @@ export interface KoaConfigFile {
   ttsProvider?: 'say' | 'elevenlabs';
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
-  provider?: 'anthropic' | 'ollama';
+  provider?: 'anthropic' | 'ollama' | 'claude-code' | 'auto';
   ollamaModel?: string;
   ollamaBaseUrl?: string;
+  claudeCodePath?: string;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
@@ -134,9 +136,10 @@ export function loadConfig(projectPath?: string): KoaConfig {
     ttsProvider: (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | undefined) ?? fileConfig.ttsProvider ?? 'say',
     elevenLabsVoiceId: fileConfig.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
     elevenLabsModel: fileConfig.elevenLabsModel ?? 'eleven_turbo_v2_5',
-    provider: (process.env['KOA_PROVIDER'] as 'anthropic' | 'ollama' | undefined) ?? fileConfig.provider ?? 'anthropic',
+    provider: (process.env['KOA_PROVIDER'] as 'anthropic' | 'ollama' | 'claude-code' | 'auto' | undefined) ?? fileConfig.provider ?? 'anthropic',
     ollamaModel: process.env['KOA_OLLAMA_MODEL'] ?? fileConfig.ollamaModel ?? 'llama3.2',
     ollamaBaseUrl: process.env['KOA_OLLAMA_BASE_URL'] ?? fileConfig.ollamaBaseUrl ?? 'http://localhost:11434',
+    claudeCodePath: process.env['KOA_CLAUDE_CODE_PATH'] ?? fileConfig.claudeCodePath ?? 'claude',
     sandboxBackend: (process.env['KOA_SANDBOX_BACKEND'] as 'local' | 'docker' | undefined) ?? fileConfig.sandboxBackend ?? 'local',
     sandboxTimeoutMs: process.env['KOA_SANDBOX_TIMEOUT_MS']
       ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)

@@ -86,6 +86,8 @@ const MARKETPLACE: MarketplaceEntry[] = [
   { name: 'eset_scan', description: 'Trigger ESET on-demand scans and read alerts', icon: '🛡', requires: ['eset'] },
 ];
 
+export const NTFY_TOPIC_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 export function createAdminRouter(deps: AdminRouterDeps): Router {
   const router = Router();
   const { loop, config, getTelegramPoller, setTelegramPollerRef } = deps;
@@ -605,9 +607,16 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       res.status(400).json({ error: 'config object is required' });
       return;
     }
+    const submittedRaw = body.config as Record<string, unknown>;
+    if (body.type === 'ntfy' && submittedRaw['topic'] !== undefined) {
+      const topic = submittedRaw['topic'];
+      if (typeof topic !== 'string' || !NTFY_TOPIC_RE.test(topic)) {
+        res.status(400).json({ error: 'ntfy topic must be 1–64 alphanumeric, hyphen, or underscore characters' });
+        return;
+      }
+    }
     const existing = loadIntegrations().find(i => i.id === id);
-    const submittedConfig = body.config as Record<string, string>;
-    const mergedConfig = mergeConfig(existing?.config ?? {}, submittedConfig, body.type);
+    const mergedConfig = mergeConfig(existing?.config ?? {}, submittedRaw as Record<string, string>, body.type);
     const hasValues = Object.values(mergedConfig).some(v => v && v !== '***');
     const integration = {
       id,

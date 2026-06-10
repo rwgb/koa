@@ -57,9 +57,18 @@ metadata:
 - Koa web console deployed to LXC 200 ✅ — http://192.168.1.200:3000 live
 - Fixed: deploy.sh (sudo, native rebuild), koa.service (namespace hardening), rsync missing on LXC
 
+| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | ✅ done |
+
+## Merge State (updated 2026-06-08)
+
+- PR #5 (`feature/cp13-clone-ready` → `develop`) ✅ merged
+- PR #6 (`develop` → `main`, v0.3.0) 🔄 open — CI passing, awaiting merge
+- `feature/cp14-smart-routing` in progress
+
 ## Next
 
+- [ ] Merge PR #6 → GitHub Release v0.3.0
 - [ ] Confirm Packer build succeeded; `terraform apply` → VM 201 (you run: `cd infra && terraform apply`)
 - [ ] Verify 192.168.1.201 + `ollama list`
-- [ ] PR: `feature/cp13-clone-ready` → `develop` → release v0.3.0
-- [ ] CP14: Smart model routing (Ollama/Anthropic/Claude-Code providers) + fix `PUT /integrations/:id` ntfy topic validation
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 spec in TASKS.md)

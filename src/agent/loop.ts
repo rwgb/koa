@@ -1,13 +1,15 @@
 import Anthropic, { BadRequestError } from '@anthropic-ai/sdk';
 import { createProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/index.js';
+import { ClaudeCodeProvider } from './providers/claude_code.js';
+import { OllamaProvider } from './providers/ollama.js';
 import crypto from 'crypto';
 import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent, ContextStats } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
 import type { KoaConfig } from '../config/index.js';
-import { selectModel } from './router.js';
+import { selectModel, classifyMessage } from './router.js';
 import type { UsageTracker } from './usage.js';
 import { loadMemories, buildMemoryPromptInjection } from '../memory/store.js';
 import type { MemoryEntry } from '../memory/store.js';
@@ -27,6 +29,8 @@ import {
   extractAndMergePreferences,
 } from '../engram/preferences.js';
 import type { Preference } from '../engram/preferences.js';
+import { readRecentSignals } from '../engram/signals.js';
+import type { SignalType } from '../engram/signals.js';
 
 const CONTEXT_COMPRESS_THRESHOLD = 150_000; // ~75% of 200k context
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
@@ -158,6 +162,8 @@ function logUsage(
 
 export class AgentLoop {
   private provider: LlmProvider;
+  private claudeCodeProvider?: LlmProvider;
+  private ollamaProvider?: LlmProvider;
   // Kept for Anthropic-specific background tasks (preference extraction, selectModel classifier)
   private anthropicClient: Anthropic | null;
   private registry: ToolRegistry;
@@ -191,6 +197,12 @@ export class AgentLoop {
     this.usage = usage;
     this.agentSpecs = buildAgentSpecs(config.userName ?? 'User');
     this.provider = createProvider(config);
+    if (config.provider === 'auto') {
+      this.claudeCodeProvider = new ClaudeCodeProvider(config.claudeCodePath ?? 'claude');
+      if (config.ollamaBaseUrl) {
+        this.ollamaProvider = new OllamaProvider(config.ollamaBaseUrl);
+      }
+    }
     this.anthropicClient = config.apiKey ? new Anthropic({ apiKey: config.apiKey }) : null;
     this.state = {
       messages: [],
@@ -204,7 +216,7 @@ export class AgentLoop {
     this.config.apiKey = key;
     this.anthropicClient = new Anthropic({ apiKey: key });
     // If currently using Anthropic provider, recreate it with the new key
-    if (this.config.provider !== 'ollama') {
+    if (this.config.provider !== 'ollama' && this.config.provider !== 'claude-code') {
       this.provider = createProvider(this.config);
     }
   }
@@ -562,6 +574,35 @@ export class AgentLoop {
       selectedModel = this.config.ollamaModel;
       tier = 'custom';
       cleanMessage = userMessage;
+    } else if (this.config.provider === 'claude-code') {
+      selectedModel = 'claude-code';
+      tier = 'claude-code';
+      cleanMessage = userMessage;
+    } else if (this.config.provider === 'auto') {
+      if (isCodeQuery(userMessage) && this.claudeCodeProvider) {
+        selectedModel = 'claude-code';
+        tier = 'claude-code';
+        cleanMessage = userMessage;
+      } else if (classifyMessage(userMessage) === 'simple' && this.ollamaProvider) {
+        selectedModel = this.config.ollamaModel;
+        tier = 'custom';
+        cleanMessage = userMessage;
+      } else {
+        const baseModel = this.config.smartRouting ? agentSpec.model : this.config.model;
+        if (this.config.smartRouting) callbacks?.onClassifying?.();
+        const result = await selectModel(
+          userMessage,
+          this.state.messages.filter((m) => m.role === 'assistant').length,
+          { model: baseModel, smartRouting: this.config.smartRouting },
+          this.anthropicClient!,
+        );
+        selectedModel = result.model;
+        tier = result.tier;
+        cleanMessage = result.cleanMessage;
+        classifierLatencyMs = result.classifierLatencyMs;
+        classifierUsage = result.classifierUsage;
+        if (this.config.smartRouting) callbacks?.onClassified?.(tier);
+      }
     } else {
       const baseModel = this.config.smartRouting ? agentSpec.model : this.config.model;
       if (this.config.smartRouting) callbacks?.onClassifying?.();
@@ -643,6 +684,11 @@ export class AgentLoop {
 
     const acc = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
 
+    const activeProvider: LlmProvider =
+      tier === 'claude-code' && this.claudeCodeProvider ? this.claudeCodeProvider :
+      tier === 'custom' && this.ollamaProvider ? this.ollamaProvider :
+      this.provider;
+
     const toolUses: ToolUse[] = [];
     let finalContent = '';
     let stopReason = 'end_turn';
@@ -652,7 +698,7 @@ export class AgentLoop {
     while (continueLoop) {
       let response: Anthropic.Message;
       try {
-        const stream = this.provider.stream({
+        const stream = activeProvider.stream({
           model: selectedModel,
           max_tokens: this.config.maxTokens,
           system,
@@ -895,6 +941,42 @@ export class AgentLoop {
         ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)
         : Promise.resolve(),
     ]);
+
+    this._appendEngramSignalsToHandoff(paths.handoffMd);
+  }
+
+  private _appendEngramSignalsToHandoff(handoffMd: string): void {
+    const SIGNAL_DESCRIPTIONS: Record<SignalType, string> = {
+      'thin-context': 'getContext returned no goal or session summary — Engram brain may be empty',
+      'empty-query': 'query() returned empty string — index may be stale or missing',
+      'failed-call': 'rememberSession() threw an exception — session not persisted to Engram',
+      'slow-sync': 'sync() took >15s — filesystem scan may be too large',
+      'poor-recall': 'recall quality flagged as poor by the agent',
+    };
+
+    try {
+      const signals = readRecentSignals(20);
+      if (signals.length === 0) return;
+
+      const counts = new Map<SignalType, number>();
+      for (const s of signals) {
+        counts.set(s.type, (counts.get(s.type) ?? 0) + 1);
+      }
+
+      const flagged = Array.from(counts.entries()).filter(([, count]) => count >= 3);
+      if (flagged.length === 0) return;
+
+      const lines = ['', '## Pending Engram Work', ''];
+      for (const [type, count] of flagged) {
+        lines.push(`- **${type}** (${count}x): ${SIGNAL_DESCRIPTIONS[type]}`);
+      }
+      lines.push('');
+
+      const existing = readMarkdownFile(handoffMd) ?? '';
+      writeMarkdownFile(handoffMd, existing + lines.join('\n'));
+    } catch {
+      // non-fatal — HANDOFF.md append is best-effort
+    }
   }
 
   private async _generateConversationTitle(conversationId: string): Promise<void> {

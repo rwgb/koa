@@ -19,6 +19,7 @@ import { githubTools } from '../agent/tools/github.js';
 import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
 import { createExecuteCodeTool } from '../agent/tools/execute_code.js';
 import { browserTools } from '../agent/tools/browser.js';
+import { crossRepoTools } from '../agent/tools/cross_repo.js';
 import { loadCustomSkills } from '../skills/store.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { createPluginTool } from '../plugins/bridge.js';
@@ -53,6 +54,7 @@ function buildRegistry(
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
   registry.register(createExecuteCodeTool(createRunner(config), config));
   for (const tool of browserTools) registry.register(tool);
+  for (const tool of crossRepoTools) registry.register(tool);
   for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
   for (const plugin of loadPlugins()) {
     registry.registerMany(plugin.tools.map(createPluginTool));
