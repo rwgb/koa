@@ -1,5 +1,22 @@
 # Koa — DevLog
 
+## [2026-06-10] — CP16: ClaudeCode fallback on quota exhaustion
+
+### Completed
+- `src/agent/loop.ts`: catches 429/quota/overloaded errors, retries with ClaudeCodeProvider when `fallbackToClaudeCode=true`
+- `src/config/index.ts`: `fallbackToClaudeCode` config field + `KOA_FALLBACK_TO_CLAUDE_CODE` env var
+- `src/__tests__/cp16_fallback.test.ts`: ≥5 tests covering all fallback branches
+
+### Decisions
+- Fallback is transparent (debug log only, not surfaced to user) — better UX
+- Re-throws original error if fallback also fails — no silent data loss
+
+### Next
+- [ ] Merge CP16 PR → develop
+- [ ] iOS real-device test via Tailscale
+
+---
+
 ## [2026-06-08] — CP10a + CP15: iOS Project Init + Engram Loop 2
 
 ### Completed
