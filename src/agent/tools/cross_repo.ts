@@ -8,7 +8,7 @@ const ALLOWLIST: Record<string, string> = {
   engram: path.join(os.homedir(), 'active projects/engram'),
 };
 
-function resolveAllowed(repo: string, relPath: string): string {
+async function resolveAllowed(repo: string, relPath: string): Promise<string> {
   const base = ALLOWLIST[repo];
   if (!base) {
     throw new Error(`Unknown repo "${repo}". Allowed repos: ${Object.keys(ALLOWLIST).join(', ')}`);
@@ -16,7 +16,16 @@ function resolveAllowed(repo: string, relPath: string): string {
   if (relPath.includes('..')) {
     throw new Error(`Path traversal rejected: relPath must not contain ".."`);
   }
-  return path.join(base, relPath);
+  const joined = path.join(base, relPath);
+  // Resolve symlinks to catch traversal via symlinks inside the repo
+  const [realJoined, realBase] = await Promise.all([
+    fs.realpath(joined).catch(() => joined),
+    fs.realpath(base).catch(() => base),
+  ]);
+  if (!realJoined.startsWith(realBase + path.sep) && realJoined !== realBase) {
+    throw new Error(`Path traversal via symlink rejected`);
+  }
+  return joined;
 }
 
 export const crossRepoReadTool: Tool = {
@@ -37,7 +46,7 @@ export const crossRepoReadTool: Tool = {
     required: ['repo', 'relPath'],
   },
   async execute(input: ToolInput): Promise<string> {
-    const filePath = resolveAllowed(input['repo'] as string, input['relPath'] as string);
+    const filePath = await resolveAllowed(input['repo'] as string, input['relPath'] as string);
     return fs.readFile(filePath, 'utf-8');
   },
 };
@@ -64,7 +73,7 @@ export const crossRepoWriteTool: Tool = {
     required: ['repo', 'relPath', 'content'],
   },
   async execute(input: ToolInput): Promise<string> {
-    const filePath = resolveAllowed(input['repo'] as string, input['relPath'] as string);
+    const filePath = await resolveAllowed(input['repo'] as string, input['relPath'] as string);
     const content = input['content'] as string;
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, content, 'utf-8');

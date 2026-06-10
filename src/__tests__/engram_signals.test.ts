@@ -100,4 +100,18 @@ describe('cross_repo_write path traversal guard', () => {
       crossRepoReadTool.execute({ repo: 'notallowed', relPath: 'file.txt' }),
     ).rejects.toThrow('Unknown repo');
   });
+
+  it('still rejects .. traversal after symlink-guard refactor (write)', async () => {
+    const { crossRepoWriteTool } = await import('../agent/tools/cross_repo.js');
+    await expect(
+      crossRepoWriteTool.execute({ repo: 'engram', relPath: '../../etc/passwd', content: 'evil' }),
+    ).rejects.toThrow('Path traversal');
+  });
+
+  it('still rejects .. traversal after symlink-guard refactor (read)', async () => {
+    const { crossRepoReadTool } = await import('../agent/tools/cross_repo.js');
+    await expect(
+      crossRepoReadTool.execute({ repo: 'engram', relPath: '../../etc/passwd' }),
+    ).rejects.toThrow('Path traversal');
+  });
 });
