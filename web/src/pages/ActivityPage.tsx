@@ -342,7 +342,7 @@ function ConversationsTab() {
               {turns[c.id]!.map((t) => (
                 <div key={t.id} style={{ marginBottom: 8 }}>
                   <strong>{t.role === 'user' ? 'User' : 'Koa'}</strong>
-                  {t.model && <span style={{ fontSize: 11, color: '#888', marginLeft: 4 }}>({t.model})</span>}
+                  {t.model && <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4 }}>({t.model})</span>}
                   <pre style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0', fontSize: 12 }}>{t.content.slice(0, 800)}{t.content.length > 800 ? '…' : ''}</pre>
                 </div>
               ))}
