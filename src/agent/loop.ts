@@ -32,10 +32,18 @@ import type { Preference } from '../engram/preferences.js';
 import { readRecentSignals } from '../engram/signals.js';
 import type { SignalType } from '../engram/signals.js';
 
-const CONTEXT_COMPRESS_THRESHOLD = 150_000; // ~75% of 200k context
+const MIN_PROMPT_BUDGET_TOKENS = 8_000;
+const MIN_PROMPT_BUDGET_RATIO = 0.5;
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-haiku-4-5-20251001': 200_000,
+  'claude-sonnet-4-6': 200_000,
+  'claude-opus-4-8': 200_000,
+  'claude-fable-5': 200_000,
+};
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
 
 export { isCodeQuery, hasBacklogSignals };
+export { MIN_PROMPT_BUDGET_TOKENS, MIN_PROMPT_BUDGET_RATIO, MODEL_CONTEXT_WINDOWS };
 import {
   ensureProjectMemoryDir,
   readMarkdownFile,
@@ -545,7 +553,9 @@ export class AgentLoop {
   }
 
   private async maybeCompressContext(inputTokens: number): Promise<void> {
-    if (inputTokens < CONTEXT_COMPRESS_THRESHOLD) return;
+    const contextWindow = MODEL_CONTEXT_WINDOWS[this.config.model] ?? 200_000;
+    const compressThreshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
+    if (inputTokens < compressThreshold) return;
     if (!this.config.apiKey) return;
     process.stderr.write(`[koa] context at ${inputTokens} tokens — compressing\n`);
     await this.semanticCompact();
