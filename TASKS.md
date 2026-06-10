@@ -1238,3 +1238,43 @@ Items worth watching — not yet specced, revisit after CP13.
   and a generated secret URL, letting GitHub CI, Zapier, or IFTTT trigger Koa actions.
 - **Agent memory diff panel** — "What Koa remembered" section in web console showing the delta
   to project markdown / Engram after each session, building trust in the memory system.
+
+---
+
+## OpenClaw Reference Items
+
+> Patterns learned from a deep review of [openclaw/openclaw](https://github.com/openclaw/openclaw)
+> (377k stars, 78k forks). Not specced yet — revisit when the relevant arc is in scope.
+> Full comparison written 2026-06-08; ask Claude Code to recall it for context.
+
+- **Token-budget compaction** — Replace the `compactAfterTurns * 2` message-count heuristic in
+  `src/agent/loop.ts` with a check against the active model's context window using two constants:
+  `MIN_PROMPT_BUDGET_TOKENS = 8_000` (absolute floor) and `MIN_PROMPT_BUDGET_RATIO = 0.5`
+  (minimum share of window). The `TurnUsage` data already tracked makes this a one-function
+  change. Risk today: a heavy-tool-output session can overflow the context window before the
+  message count fires.
+
+- **`koa doctor --fix` config migrations** — When config keys change between releases, existing
+  `~/.koa/config.json` silently breaks. Add a `koa doctor` CLI command that detects old shapes
+  (e.g. missing `provider` field, old `smartRouting: true` → `provider: auto`), backs them up,
+  and rewrites to canonical format. Openclaw treats this as a first-class citizen alongside every
+  config change.
+
+- **Koa-owned SQLite for first-party state** — `~/.koa/signals/engram.jsonl` and flat-file session
+  data should move to `~/.koa/koa.db` (Kysely, one table per concern: `signals`, `sessions`,
+  `preferences`). Engram's `brain.db` stays Python-owned. Benefits: atomic writes, indexed
+  queries, proper migration history, no JSONL parsing edge cases. Openclaw rule: all runtime state
+  in SQLite; file storage only for named product artifacts.
+
+- **Executable security invariant tests** — Add `src/__tests__/security/` with assertions that
+  existing security properties haven't regressed: path traversal rejected by `sandboxPath()`,
+  CORS wildcard rejected, bash timeout clamped at 300s, `/api/chat` returns 429 when busy, SSE
+  error payload contains no stack frames. Openclaw's `src/security/` has 80+ such files. These
+  aren't new features — they're regression guards.
+
+- **Context engine interface extraction** — As Engram, SpiderBrain, working memory markdown, and
+  journal entries all feed into the system prompt, the inline assembly in `loop.ts` will become
+  unmaintainable. Extract a `ContextProvider` interface with `provide(budget: number): ContextSlice`.
+  Register each source (Engram, SpiderBrain, WorkingMemory) separately; the engine merges them
+  token-budget-aware. Decouples memory backends from the agent loop and makes each provider
+  independently testable. The 1041-line `loop.ts` is the signal this is needed.

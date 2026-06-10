@@ -1,5 +1,38 @@
 # Koa — DevLog
 
+## [2026-06-08] — CP10a + CP15: iOS Project Init + Engram Loop 2
+
+### Completed
+
+- **CP10a verified**: all iOS Keychain migration, Siri fix, gmail scope already implemented in prior arcs (CP10f/CP11d)
+- **iOS project initialized**: `ios/project.yml` (xcodegen) → `Koa.xcodeproj` with iOS + watchOS targets
+- **Build errors fixed**: `roundedBorder` unavailable on watchOS → `.plain`; `super.init` ordering in `WatchSession`; bundle ID mismatch between iOS and watchOS targets
+- **Bundle ID**: `com.brynard.koa` / `com.brynard.koa.watch`
+- **App running in Simulator** (iPhone 17 Pro, iOS 26.3) — Connect to Koa auth screen confirmed
+- **Tailscale on LXC**: installed + joined tailnet at `100.101.19.77` (hostname: `koa`); userspace networking mode for unprivileged LXC; persistent via `/etc/default/tailscaled FLAGS=--tun=userspace-networking`
+- **CP15 Loop 2**: `src/engram/signals.ts` (signal collector → `~/.koa/signals/engram.jsonl`), `src/agent/loop.ts` (HANDOFF.md Pending Engram Work section), `src/agent/tools/cross_repo.ts` (allowlisted read/write/test tools); 651 tests passing, tsc clean; committed `a0cad9a` on `feature/cp15-engram-loops`
+
+### Decisions
+
+- Tailscale userspace networking required on unprivileged LXC (kernel TUN unavailable); `FLAGS` in `/etc/default/tailscaled` is the clean override path
+- Tailscale TLS certs require paid plan — HTTP over Tailscale (WireGuard-encrypted) is sufficient for homelab use
+- iOS Simulator reaches local dev server via Mac LAN IP (`192.168.1.17:3000`), not `localhost`
+
+### Issues Found
+
+- Tailscale `tailscale cert` requires paid plan — no `.ts.net` TLS certs on free tier
+- `NSAllowsArbitraryLoads: true` still in `project.yml` — should be scoped to `.ts.net` only (low priority)
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] PR: `feature/cp15-engram-loops` → `develop`
+- [ ] Security review on CP15 branch diff
+- [ ] Test iOS app connecting to LXC via Tailscale IP (`http://100.101.19.77:3000`) on real device
+
+---
+
 ## [2026-06-08] — CP14 Smart Provider Routing + ClaudeCodeProvider
 
 ### Completed

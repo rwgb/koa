@@ -22,7 +22,7 @@ struct WatchDictationView: View {
 
             // On watchOS, TextField activates the dictation keyboard.
             TextField("Dictate message", text: $inputText)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
                 .font(.caption)
                 .disabled(isLoading)
 

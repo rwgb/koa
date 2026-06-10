@@ -14,10 +14,12 @@ final class WatchSession: NSObject, ObservableObject, WCSessionDelegate {
     @Published var isConfigured: Bool = false
 
     private override init() {
-        serverURL = defaults.string(forKey: "koa_serverURL") ?? ""
-        bearerToken = defaults.string(forKey: "koa_bearerToken") ?? ""
-        isConfigured = !serverURL.isEmpty && !bearerToken.isEmpty
+        let storedURL = UserDefaults.standard.string(forKey: "koa_serverURL") ?? ""
+        let storedToken = UserDefaults.standard.string(forKey: "koa_bearerToken") ?? ""
         super.init()
+        serverURL = storedURL
+        bearerToken = storedToken
+        isConfigured = !storedURL.isEmpty && !storedToken.isEmpty
         if WCSession.isSupported() {
             WCSession.default.delegate = self
             WCSession.default.activate()
