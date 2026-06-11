@@ -2,15 +2,6 @@ import type { Tool } from '../../types/index.js';
 import { loadIntegrations } from '../../integrations/store.js';
 import { getOpenPRs, getPRStatus, createIssue } from '../../integrations/github.js';
 
-function getGitHubCredentials() {
-  const integrations = loadIntegrations();
-  const gh = integrations.find(i => i.type === 'github');
-  return {
-    token: gh?.config['token'] as string ?? '',
-    defaultRepo: gh?.config['defaultRepo'] as string ?? '',
-  };
-}
-
 const REPO_SEGMENT_RE = /^[a-zA-Z0-9._-]+$/;
 
 function parseRepo(repoStr: string): { owner: string; repo: string } | null {
@@ -18,6 +9,31 @@ function parseRepo(repoStr: string): { owner: string; repo: string } | null {
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   if (!REPO_SEGMENT_RE.test(parts[0]) || !REPO_SEGMENT_RE.test(parts[1])) return null;
   return { owner: parts[0], repo: parts[1] };
+}
+
+// Multiple GitHub integrations may be configured (e.g. work + personal accounts).
+// When a target repo is given, prefer the instance whose defaultRepo owner matches
+// the target's owner; on multiple matches prefer a connected instance AMONG the
+// matches (never an instance whose owner does not match); on zero matches fall
+// back to the first connected instance. With no target repo, keep legacy
+// behavior: the first instance.
+function getGitHubCredentials(targetRepo?: string) {
+  const instances = loadIntegrations().filter(i => i.type === 'github');
+  let gh = instances[0];
+  const target = targetRepo ? parseRepo(targetRepo) : null;
+  if (target) {
+    const matches = instances.filter(i => {
+      const def = parseRepo(i.config['defaultRepo'] as string ?? '');
+      return def !== null && def.owner.toLowerCase() === target.owner.toLowerCase();
+    });
+    gh = matches.length > 0
+      ? matches.find(i => i.status === 'connected') ?? matches[0]
+      : instances.find(i => i.status === 'connected') ?? instances[0];
+  }
+  return {
+    token: gh?.config['token'] as string ?? '',
+    defaultRepo: gh?.config['defaultRepo'] as string ?? '',
+  };
 }
 
 const listPRsTool: Tool = {
@@ -32,8 +48,9 @@ const listPRsTool: Tool = {
   },
   async execute(input) {
     const { repo } = input as { repo?: unknown };
-    const { token, defaultRepo } = getGitHubCredentials();
-    const repoStr = (typeof repo === 'string' && repo) ? repo : defaultRepo;
+    const repoArg = (typeof repo === 'string' && repo) ? repo : undefined;
+    const { token, defaultRepo } = getGitHubCredentials(repoArg);
+    const repoStr = repoArg ?? defaultRepo;
     if (!repoStr) return 'Error: no repo specified and no default repo configured';
     const parsed = parseRepo(repoStr);
     if (!parsed) return `Error: invalid repo format "${repoStr}" — expected owner/repo`;
@@ -65,8 +82,9 @@ const getPRStatusTool: Tool = {
   async execute(input) {
     const { pr_number, repo } = input as { pr_number?: unknown; repo?: unknown };
     if (typeof pr_number !== 'number') return 'Error: pr_number is required';
-    const { token, defaultRepo } = getGitHubCredentials();
-    const repoStr = (typeof repo === 'string' && repo) ? repo : defaultRepo;
+    const repoArg = (typeof repo === 'string' && repo) ? repo : undefined;
+    const { token, defaultRepo } = getGitHubCredentials(repoArg);
+    const repoStr = repoArg ?? defaultRepo;
     if (!repoStr) return 'Error: no repo specified and no default repo configured';
     const parsed = parseRepo(repoStr);
     if (!parsed) return `Error: invalid repo format "${repoStr}" — expected owner/repo`;
@@ -104,8 +122,9 @@ const createGitHubIssueTool: Tool = {
     const { title, body, repo } = input as { title?: unknown; body?: unknown; repo?: unknown };
     if (!title || typeof title !== 'string') return 'Error: title is required';
     if (!body || typeof body !== 'string') return 'Error: body is required';
-    const { token, defaultRepo } = getGitHubCredentials();
-    const repoStr = (typeof repo === 'string' && repo) ? repo : defaultRepo;
+    const repoArg = (typeof repo === 'string' && repo) ? repo : undefined;
+    const { token, defaultRepo } = getGitHubCredentials(repoArg);
+    const repoStr = repoArg ?? defaultRepo;
     if (!repoStr) return 'Error: no repo specified and no default repo configured';
     const parsed = parseRepo(repoStr);
     if (!parsed) return `Error: invalid repo format "${repoStr}" — expected owner/repo`;

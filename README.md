@@ -16,7 +16,7 @@ Koa is a self-hosted personal AI assistant built on Claude. It provides a termin
 - **Sandboxed code execution** — JavaScript, Python, and Bash via local process or Docker container
 - **Browser automation** — Playwright-backed tools for navigating, extracting, and screenshotting pages
 - **Web search + fetch** — Brave Search API + Jina Reader for reading live pages
-- **GitHub tools** — list PRs, get CI status, create issues
+- **GitHub tools** — list PRs, get CI status, create issues; supports multiple instances (per-instance token + default repo, resolved by repo owner)
 - **Gmail + Google Calendar** — read email, send email, create/update/delete calendar events
 - **Channels** — Telegram bot, Slack slash commands, Twilio SMS inbound
 - **Push notifications** — Web Push (VAPID) and APNs for iOS
