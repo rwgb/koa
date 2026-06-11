@@ -1,5 +1,70 @@
 # Koa — DevLog
 
+## [2026-06-10] — CP18 Scope: koa update with automatic rollback
+
+### Completed
+- Confirmed no auto-update/rollback feature exists in the codebase
+- Scoped CP18 as `koa update` command with git-pull-based upgrade and automatic dist/ rollback
+
+### Decisions
+- Update source: `git pull origin/main + npm run build` (repo-local, no separate release channel)
+- Rollback target: snapshot `dist/` → `dist.bak/` before build; restore on tsc or vitest failure
+- CLI surface: `koa update`, `koa update --check`, `koa update --no-test`, `koa update --force`
+- New module: `src/updater/index.ts` encapsulates git pull, build, backup/restore logic
+- ntfy ping on both success and rollback
+
+### Next
+- [ ] Implement CP18 via Workflow with pipeline gates
+
+---
+
+## [2026-06-10] — CP17: Token-budget compaction, koa doctor, per-project budgets
+
+### Completed
+- **OC-1**: Token-budget compaction — replaced hardcoded CONTEXT_COMPRESS_THRESHOLD=150000 with dynamic threshold: contextWindow - max(MIN_PROMPT_BUDGET_TOKENS=8000, contextWindow * MIN_PROMPT_BUDGET_RATIO=0.5). For 200k models: compresses at 100k tokens (50% of window).
+- **OC-2**: koa doctor --fix — new CLI subcommand that detects stale config fields (smartRouting→provider, compactAfterTurns removal) and migrates them with atomic backup-and-write.
+- **R-3**: Per-project spending budgets — budget_usd column on projects (migration 10); AgentLoop tracks session cost and blocks turns when budget exceeded.
+- 799 tests passing, tsc clean, security review clean.
+
+### Decisions
+- OC-1: dynamic threshold fires earlier (100k vs old 150k) for 200k models — more proactive compaction is correct; MODEL_CONTEXT_WINDOWS map is authoritative, unknown models fall back to 200k.
+- OC-2: --fix is idempotent; always backs up before writing; atomic via tmp+rename.
+- R-3: budget check is session-scoped (not cumulative historical), sufficient to guard against runaway loops within a session.
+
+### Next
+- [ ] PR feature/cp17 → feature/web-console-and-hardening
+- [ ] CP18: decide scope (context engine interface extraction, webhook-triggered delegations, ambient dashboard)
+
+---
+
+## [2026-06-10] — Obsidian Pro Theme + Housekeeping Sprint
+
+### Completed
+- **Obsidian Pro theme** applied to web console (`938b183`) — `web/src/index.css`, `index.html`, `ActivityPage.tsx`, `IntegrationsPage.tsx` updated to winning design palette (zinc-based darks, indigo accent `#6366F1`)
+- **H-1**: `AbortSignal.timeout(30s)` added to tool dispatch in `loop.ts` — prevents hung `web_fetch` blocking entire turn
+- **H-2**: `escapeFts()` helper added to `db/index.ts` — FTS5 queries no longer throw 500 on bare `"`
+- **H-3**: Internal helpers unexported in `select-agent.ts` (`isCodeQuery`, `hasBacklogSignals`, `hasLifeSignals`)
+- **H-4**: Duplicate `HAIKU_MODEL` constant consolidated — `router.ts` now imports from `config/index.ts`
+- **H-5**: `bash_tool.test.ts` coverage improved — allowed commands, blocked commands, stdout truncation, exit codes
+- **H-6**: `server/index.ts` trimmed to <200 lines — middleware extracted
+- **H-7**: `any` casts replaced with `unknown + instanceof Error` in `web_fetch.ts` and `web_search.ts`
+- **H-8**: `src/__tests__/security/invariants.test.ts` created — path traversal, SSRF guard, bash blocked commands, SSE error safety
+- **EL-1**: `scripts/engram-impact.js` created — detects koa→Engram interface changes in git diff
+- **EL-2**: `.github/workflows/engram-impact.yml` created — triggers on `src/engram/client.ts` changes, comments on PR if interface shifted
+- **iOS-1**: `NSAllowsArbitraryLoads` scoped to `.ts.net` + `localhost` only in `ios/project.yml`
+- 783 tests passing, tsc clean, committed `b08dc75`
+
+### Decisions
+- Theme update kept existing CSS variable names, updated values only — zero component renames needed
+- Security test suite is a skeleton (5 invariants); H-8 / OC-4 full suite (80+ assertions) is a separate future CP
+
+### Next
+- [x] ~~**CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env`~~ — done 2026-06-10
+- [ ] PR feature/cp15-engram-loops → feature/web-console-and-hardening
+- [ ] Decide CP17 scope
+
+---
+
 ## [2026-06-10] — Fable Audit Remediation
 
 ### Completed

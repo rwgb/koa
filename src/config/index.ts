@@ -32,6 +32,7 @@ const ConfigSchema = z.object({
   sandboxTimeoutMs: z.number().default(10000),
   browserEnabled: z.boolean().default(false),
   userName: z.string().default('User'),
+  toolTimeoutMs: z.number().optional(),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -65,6 +66,7 @@ export interface KoaConfigFile {
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
   userName?: string;
+  toolTimeoutMs?: number;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -166,6 +168,9 @@ export function loadConfig(projectPath?: string): KoaConfig {
         : (fileConfig.sandboxTimeoutMs ?? 10000),
       browserEnabled: fileConfig.browserEnabled ?? false,
       userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User',
+      toolTimeoutMs: process.env['KOA_TOOL_TIMEOUT_MS']
+        ? parseInt(process.env['KOA_TOOL_TIMEOUT_MS'], 10)
+        : fileConfig.toolTimeoutMs,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -258,10 +263,6 @@ export function getEngramBrainPath(projectPath: string): string {
 }
 
 export const ENGRAM_CLI = path.join(os.homedir(), '.claude', 'skills', 'engram', 'cli', 'engram.py');
-
-// Haiku is used for all background LLM generation (journal, STATE.md, PROJECT.md, dispatch_agent)
-// to minimize cost. Kept as a single constant so a model version bump is a one-line change.
-export const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
 // Maximum ms to wait for the Haiku pre-classifier before falling back to 'moderate'.
 export const HAIKU_CLASSIFIER_TIMEOUT_MS = 3000;

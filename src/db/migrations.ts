@@ -208,6 +208,12 @@ const MIGRATIONS: [number, string][] = [
     END;
     `,
   ],
+  [
+    10,
+    `
+    ALTER TABLE projects ADD COLUMN budget_usd REAL DEFAULT NULL;
+    `,
+  ],
 ];
 
 export function runMigrations(db: Database.Database): void {

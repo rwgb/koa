@@ -1,4 +1,5 @@
 import Anthropic, { BadRequestError } from '@anthropic-ai/sdk';
+import path from 'path';
 import { createProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/index.js';
 import { ClaudeCodeProvider } from './providers/claude_code.js';
@@ -32,10 +33,18 @@ import type { Preference } from '../engram/preferences.js';
 import { readRecentSignals } from '../engram/signals.js';
 import type { SignalType } from '../engram/signals.js';
 
-const CONTEXT_COMPRESS_THRESHOLD = 150_000; // ~75% of 200k context
+const MIN_PROMPT_BUDGET_TOKENS = 8_000;
+const MIN_PROMPT_BUDGET_RATIO = 0.5;
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-haiku-4-5-20251001': 200_000,
+  'claude-sonnet-4-6': 200_000,
+  'claude-opus-4-8': 200_000,
+  'claude-fable-5': 200_000,
+};
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
 
 export { isCodeQuery, hasBacklogSignals };
+export { MIN_PROMPT_BUDGET_TOKENS, MIN_PROMPT_BUDGET_RATIO, MODEL_CONTEXT_WINDOWS };
 import {
   ensureProjectMemoryDir,
   readMarkdownFile,
@@ -49,6 +58,8 @@ import {
   closeConversation,
   getConversationTurns,
   updateConversationTitle,
+  getProjectBySlug,
+  getProjectBudget,
 } from '../db/index.js';
 import { routeResponse } from '../channels/router.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
@@ -196,6 +207,8 @@ export class AgentLoop {
   private lastCompactionAt: string | null = null;
   private _busy = false;
   private agentSpecs: ReturnType<typeof buildAgentSpecs>;
+  private projectBudget: number | null = null;
+  private sessionCostUsd = 0;
 
   constructor(
     config: KoaConfig,
@@ -294,6 +307,21 @@ export class AgentLoop {
       this._conversationId = conv.id;
     } catch {
       // non-fatal — conversation persistence is best-effort
+    }
+
+    // Load per-project spending budget (null = no limit)
+    try {
+      const projectSlug = this.config.projectPath
+        ? path.basename(this.config.projectPath)
+        : null;
+      if (projectSlug) {
+        const project = getProjectBySlug(projectSlug);
+        if (project?.id) {
+          this.projectBudget = getProjectBudget(project.id);
+        }
+      }
+    } catch {
+      // non-fatal — budget enforcement is best-effort
     }
 
     if (this.config.autoCheckpointMinutes > 0) {
@@ -545,7 +573,9 @@ export class AgentLoop {
   }
 
   private async maybeCompressContext(inputTokens: number): Promise<void> {
-    if (inputTokens < CONTEXT_COMPRESS_THRESHOLD) return;
+    const contextWindow = MODEL_CONTEXT_WINDOWS[this.config.model] ?? 200_000;
+    const compressThreshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
+    if (inputTokens < compressThreshold) return;
     if (!this.config.apiKey) return;
     process.stderr.write(`[koa] context at ${inputTokens} tokens — compressing\n`);
     await this.semanticCompact();
@@ -720,6 +750,13 @@ export class AgentLoop {
       }
       iterationCount++;
 
+      // Per-project budget guard: block new API calls if session cost exceeds the budget
+      if (this.projectBudget !== null && this.sessionCostUsd >= this.projectBudget) {
+        throw new Error(
+          `Project budget exceeded: session cost $${this.sessionCostUsd.toFixed(4)} >= budget $${this.projectBudget.toFixed(2)}`,
+        );
+      }
+
       // Mark the last block of the last message with cache_control before each stream call
       // so the API can cache the conversation history up to this point.
       markMessageHistoryCache(this.state.messages);
@@ -749,6 +786,14 @@ export class AgentLoop {
       acc.outputTokens += response.usage.output_tokens;
       acc.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
       acc.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+
+      // Accumulate session cost for per-project budget enforcement
+      const p = pricingFor(selectedModel);
+      this.sessionCostUsd +=
+        response.usage.input_tokens * p.input +
+        (response.usage.cache_creation_input_tokens ?? 0) * p.cacheWrite +
+        (response.usage.cache_read_input_tokens ?? 0) * p.cacheRead +
+        response.usage.output_tokens * p.output;
 
       stopReason = response.stop_reason ?? 'end_turn';
 
@@ -794,7 +839,13 @@ export class AgentLoop {
           } else {
             callbacks?.onToolCall?.(block.name, toolInput);
             try {
-              result = await tool.execute(toolInput);
+              const timeoutMs = this.config.toolTimeoutMs ?? 30_000;
+              result = await Promise.race([
+                tool.execute(toolInput),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`tool timed out after ${timeoutMs}ms`)), timeoutMs),
+                ),
+              ]);
             } catch (err) {
               result = `Error: ${err instanceof Error ? err.message : String(err)}`;
             }

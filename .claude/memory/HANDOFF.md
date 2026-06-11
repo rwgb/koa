@@ -1,22 +1,23 @@
 ---
 written: 2026-06-10
-branch: feature/cp16-claude-fallback
-tests: 651 passing
+branch: feature/cp17
+tests: 799
 tsc: clean
+tip: a910a49
 ---
 
 ## Where We Are
 
-CP16 is complete — ClaudeCode fallback on Anthropic 429/quota exhaustion delivered. PR created against `feature/web-console-and-hardening`. CP15 and CP14 PRs are open against `develop`.
+CP17 complete. OC-1 (dynamic token-budget compression threshold — 100k for 200k models), OC-2 (koa doctor --fix CLI migration command), R-3 (per-project budget_usd + session-cost guard in agent loop). 799 tests, tsc clean.
 
 ## Active Branch
 
-feature/cp16-claude-fallback — ClaudeCode fallback on quota exhaustion. PR created → feature/web-console-and-hardening.
+feature/cp17 — CP17 complete, PR pending against feature/web-console-and-hardening.
 
 ## What's Next
 
-1. Merge CP16 PR → develop
-2. iOS real-device test via Tailscale (100.101.19.77:3000)
+1. Merge feature/cp17 → feature/web-console-and-hardening (PR)
+2. CP18 — decide scope (candidates: context engine interface extraction, webhook-triggered delegations, ambient dashboard)
 
 ## Open Questions
 
@@ -26,6 +27,7 @@ feature/cp16-claude-fallback — ClaudeCode fallback on quota exhaustion. PR cre
 
 - Tried Tailscale TLS certs: requires paid plan. HTTP over WireGuard is sufficient.
 - Tried setInterval for briefing at 08:00: deferred to CP10e (not yet started).
+- iOS real-device test via Tailscale: deferred indefinitely (skipped by user).
 
 ## Completed Checkpoints (reference)
 
@@ -36,22 +38,10 @@ feature/cp16-claude-fallback — ClaudeCode fallback on quota exhaustion. PR cre
 | CP10a | iOS Keychain hardening + Siri fix | done |
 | CP10d | GitHub integration | done |
 | CP10f | iOS search tab + TTS voice round-trip | done |
-| CP11a | Conversation persistence | done |
-| CP11b | True multi-agent chaining | done |
-| CP11c | ElevenLabs TTS | done |
-| CP11d | watchOS companion app | done |
-| CP12a | Plugin/tool extensibility SDK | done |
-| CP12b | Semantic context-window compaction | done |
-| CP12c | Ollama self-hosted LLM provider | done |
-| CP12d | Conversation intelligence (auto-title + search) | done |
-| CP12e | Sandboxed code execution | done |
-| CP12f | Browser automation via Playwright | done |
-| CP12g | Homelab deployment scaffolding | done |
-| CP13 | Security hardening + lint + test fixes | done |
-| CP13a | userName plumbing | done |
-| CP13b | ntfy parameterisation | done |
-| CP13c | `koa setup` wizard + IPv6 SSRF fix | done |
-| CP13d | Repo sanitisation & template files | done |
+| CP11a–CP11d | ElevenLabs, multi-agent chaining, conversation persistence, watchOS | done |
+| CP12a–CP12g | Plugin SDK, context compaction, Ollama, conv intelligence, sandbox, browser, homelab | done |
+| CP13–CP13d | Security hardening, userName, ntfy param, koa setup, repo sanitisation | done |
 | CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | done |
 | CP15 | Engram Loop 2: signals.ts + cross_repo tools + HANDOFF wiring | done |
 | CP16 | ClaudeCode fallback on Anthropic 429/quota exhaustion | done |
+| CP17 | OC-1 token-budget compaction + OC-2 koa doctor + R-3 per-project budgets | done |

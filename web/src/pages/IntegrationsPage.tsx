@@ -669,7 +669,7 @@ export default function IntegrationsPage() {
               <span className="intg-card__name">Brave Search</span>
               <span className="intg-card__summary">Web search via Brave Search API — powers web_search tool</span>
             </div>
-            {braveSaved && <span className="intg-card__edit" style={{ color: 'var(--color-success, #22c55e)', cursor: 'default' }}>Saved ✓</span>}
+            {braveSaved && <span className="intg-card__edit" style={{ color: 'var(--success)', cursor: 'default' }}>Saved ✓</span>}
           </div>
           <div className="intg-card__bottom">
             {statusBadge(braveKeySet ? 'connected' : 'unconfigured')}
@@ -707,7 +707,7 @@ export default function IntegrationsPage() {
               <span className="intg-card__name">Telegram Bot</span>
               <span className="intg-card__summary">Bidirectional chat via Telegram bot — send and receive messages</span>
             </div>
-            {telegramSaved && <span className="intg-card__edit" style={{ color: 'var(--color-success, #22c55e)', cursor: 'default' }}>Saved ✓</span>}
+            {telegramSaved && <span className="intg-card__edit" style={{ color: 'var(--success)', cursor: 'default' }}>Saved ✓</span>}
           </div>
           <div className="intg-card__bottom">
             {statusBadge(telegramStatus.polling ? 'connected' : telegramStatus.configured ? 'connected' : 'unconfigured')}

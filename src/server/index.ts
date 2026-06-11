@@ -1,8 +1,7 @@
 import express from 'express';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response } from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { AgentLoop } from '../agent/loop.js';
@@ -13,10 +12,8 @@ import { calendarSync } from '../calendar/sync.js';
 import { escalationScheduler } from '../notifications/escalation.js';
 import { TelegramPoller } from '../channels/telegram.js';
 import { setTelegramPoller } from '../channels/router.js';
-import { tokenEqual } from './utils.js';
-import { buildDailyBriefing } from '../proactive/briefing.js';
 import { runDueDelegations } from '../proactive/delegations.js';
-import { routeResponse } from '../channels/router.js';
+import { tokenEqual } from './utils.js';
 import { createChatRouter } from './routes/chat.js';
 import { createAdminRouter, createOAuthCallbackRouter } from './routes/admin.js';
 import type { OAuthStateMap } from './routes/admin.js';
@@ -25,46 +22,9 @@ import { createPushRouter } from './routes/push.js';
 import { createCalendarRouter } from './routes/calendar.js';
 import { createWebhooksRouter, createVoiceRouter } from './routes/webhooks.js';
 import { createConversationsRouter } from './routes/conversations.js';
+import { authRateLimit, requireAuth, scheduleBriefing } from './middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-function scheduleBriefing(loop: AgentLoop, config: KoaConfig): void {
-  const [hStr, mStr] = (config.briefingTime ?? '08:00').split(':');
-  const h = parseInt(hStr ?? '8', 10);
-  const m = parseInt(mStr ?? '0', 10);
-
-  function msUntilNext(): number {
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(h, m, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
-    return next.getTime() - now.getTime();
-  }
-
-  function scheduleNext(): void {
-    setTimeout(async () => {
-      if (config.briefingEnabled) {
-        try {
-          const text = await buildDailyBriefing();
-          void routeResponse('briefing', 'Good morning', text);
-        } catch (err) {
-          process.stderr.write(`[koa/briefing] error: ${err}\n`);
-        }
-      }
-      scheduleNext(); // reschedule for next day
-    }, msUntilNext());
-  }
-
-  scheduleNext();
-}
-
-const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many attempts — try again later' },
-});
 
 export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173) {
   const app = express();
@@ -117,25 +77,6 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
     }
   });
 
-  // Bearer token auth for all /api/ routes.
-  // When a token is configured: enforce Bearer auth (or ?token= query param for SSE).
-  // When NO token is configured: deny all /api/ requests with 403 — the server must
-  // be explicitly configured before the web interface is accessible.
-  const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
-    if (!config.webToken) {
-      res.status(403).json({ error: 'Web token not configured' });
-      return;
-    }
-    const header = req.headers['authorization'];
-    const bearerToken = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
-    // Also accept ?token= query param — needed for SSE (GET-only, no custom headers on some clients)
-    const queryToken = (req.query as Record<string, string | undefined>)['token'];
-    const token = bearerToken ?? queryToken;
-    if (!token) { res.status(401).json({ error: 'Authorization required' }); return; }
-    if (tokenEqual(token, config.webToken)) { next(); return; }
-    res.status(401).json({ error: 'Invalid token' });
-  };
-
   // ── OAuth state (CSRF nonce map) — shared between admin URL builder and callback ──
   const oauthState: OAuthStateMap = new Map();
 
@@ -143,7 +84,7 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   // Mount BEFORE the /api/ auth guard so they are reachable unauthenticated.
   app.use('/api/admin', createOAuthCallbackRouter(config, oauthState));
 
-  app.use('/api/', requireAuth);
+  app.use('/api/', requireAuth(config));
 
   // ── Mutable telegramPoller ref — shared between admin router and startup ──────
   let telegramPoller: TelegramPoller | null = null;
