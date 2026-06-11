@@ -1,21 +1,23 @@
 ---
 written: 2026-06-10
-branch: feature/cp15-engram-loops
-tests: 651 passing
+branch: feature/cp17
+tests: 799
 tsc: clean
+tip: a910a49
 ---
 
 ## Where We Are
 
-CP15 + CP16 + Fable audit fixes merged into `feature/web-console-and-hardening` via PR #17 (merged 2026-06-10). iOS real-device test deferred indefinitely.
+CP17 complete. OC-1 (dynamic token-budget compression threshold — 100k for 200k models), OC-2 (koa doctor --fix CLI migration command), R-3 (per-project budget_usd + session-cost guard in agent loop). 799 tests, tsc clean.
 
 ## Active Branch
 
-feature/cp15-engram-loops — all CP15/CP16/audit work landed. Ready for CP17.
+feature/cp17 — CP17 complete, PR pending against feature/web-console-and-hardening.
 
 ## What's Next
 
-1. CP17 (TBD)
+1. Merge feature/cp17 → feature/web-console-and-hardening (PR)
+2. CP18 — decide scope (candidates: context engine interface extraction, webhook-triggered delegations, ambient dashboard)
 
 ## Open Questions
 
@@ -36,22 +38,10 @@ feature/cp15-engram-loops — all CP15/CP16/audit work landed. Ready for CP17.
 | CP10a | iOS Keychain hardening + Siri fix | done |
 | CP10d | GitHub integration | done |
 | CP10f | iOS search tab + TTS voice round-trip | done |
-| CP11a | Conversation persistence | done |
-| CP11b | True multi-agent chaining | done |
-| CP11c | ElevenLabs TTS | done |
-| CP11d | watchOS companion app | done |
-| CP12a | Plugin/tool extensibility SDK | done |
-| CP12b | Semantic context-window compaction | done |
-| CP12c | Ollama self-hosted LLM provider | done |
-| CP12d | Conversation intelligence (auto-title + search) | done |
-| CP12e | Sandboxed code execution | done |
-| CP12f | Browser automation via Playwright | done |
-| CP12g | Homelab deployment scaffolding | done |
-| CP13 | Security hardening + lint + test fixes | done |
-| CP13a | userName plumbing | done |
-| CP13b | ntfy parameterisation | done |
-| CP13c | `koa setup` wizard + IPv6 SSRF fix | done |
-| CP13d | Repo sanitisation & template files | done |
+| CP11a–CP11d | ElevenLabs, multi-agent chaining, conversation persistence, watchOS | done |
+| CP12a–CP12g | Plugin SDK, context compaction, Ollama, conv intelligence, sandbox, browser, homelab | done |
+| CP13–CP13d | Security hardening, userName, ntfy param, koa setup, repo sanitisation | done |
 | CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | done |
 | CP15 | Engram Loop 2: signals.ts + cross_repo tools + HANDOFF wiring | done |
 | CP16 | ClaudeCode fallback on Anthropic 429/quota exhaustion | done |
+| CP17 | OC-1 token-budget compaction + OC-2 koa doctor + R-3 per-project budgets | done |
