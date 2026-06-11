@@ -1,5 +1,37 @@
 # Koa — DevLog
 
+## [2026-06-11] — Full v1 Audit (session limit hit; findings recorded, fixes queued)
+
+### Completed
+- 14-area E2E audit fanned out; 117 findings surfaced; 11 confirmed HIGH/MEDIUM (0 refuted), verified before session limit
+- Fix + gate phases killed by session-limit 429s; no source changes made yet — all findings are queue items only
+- CHANGELOG.md created; TASKS.md archived to docs/archive/TASKS-v6-cp10.md; feature/cp18-updater, chore/deps-compat, feature/cp19-github-multi all merged
+
+### Confirmed Findings (must fix before v1.0.0)
+- **[HIGH] cache_control breakpoints accumulate** — loop.ts markMessageHistoryCache never strips prior markers; 5th breakpoint on turn 2 → guaranteed 400 from Anthropic on multi-tool conversations
+- **[HIGH] CP16 quota fallback absent from release branch** — the feature/cp16-claude-fallback commit never merged; isQuotaError/fallbackToClaudeCode do not exist on HEAD; needs reimplementation against current provider API
+- **[MEDIUM] `config unset web-token` silent failure** — deleteCredential('web-token') no-ops; token remains valid; CLI falsely reports "Removed"
+- **[MEDIUM] `koa doctor` ignores KOA_HOME** — uses os.homedir() directly; breaks Docker/systemd deployments per docs/DEPLOYMENT.md
+- **[MEDIUM] Updater misreports local-ahead as update-available** — simple SHA comparison instead of merge-base --is-ancestor; false downgrade prompt on dev installs
+- **[MEDIUM] Compaction trigger uses wrong token metric** — accumulated per-turn sum, not last-request size; excludes cached tokens; keys off config.model not routed model
+- **[MEDIUM] Budget guard phantom costs for free providers** — pricingFor falls through to Sonnet rates for claude-code/ollama; per-session-only enforcement of per-project budget
+- **[MEDIUM] PM auto-chain tool calls silently dropped** — chain call uses provider.create() with no tool loop; tool_use blocks discarded
+- **[MEDIUM] ClaudeCodeProvider drops conversation history and system prompt** — buildPrompt serializes only last message; params.system and params.tools ignored
+- **[MEDIUM] No global Express error handler** — unhandled throws return HTML stack traces with absolute filesystem paths
+- **[MEDIUM] Gmail send scope permanently broken** — Re-authorize flow uses readonly scope only; scopes key never stored in config; send_email tool silently fails
+
+### Carry-in LOWs (also fix before v1.0.0)
+- checkpoint.sh grep -Po is GNU-only (macOS silently skips ntfy ping)
+- Updater uncaught git failures leak stack traces
+- README documents non-existent CLI commands (koa migrate/backup/health)
+
+### Next
+- [ ] Resume audit-fix workflow (session resets 01:20 CT) — fix all HIGH/MEDIUM + carry-in LOWs, gate, commit, PR
+- [ ] Release prep: CHANGELOG review, ntfy topic rotation, PR #12 (actions/checkout) if workflow-scope grant
+- [ ] v1.0.0 release
+
+---
+
 ## [2026-06-10] — CP19: Multi-instance GitHub integration
 
 ### Completed

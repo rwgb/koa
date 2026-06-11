@@ -39,13 +39,20 @@ metadata:
 | Obsidian Pro Theme | Winning UI theme applied to web console | ✅ done 2026-06-10 — commit 938b183 |
 | Housekeeping Sprint | H-1–H-8, EL-1/EL-2, iOS-1 — 10 fixes | ✅ done 2026-06-10 — commit b08dc75 |
 | CP17 | OC-1 token-budget + OC-2 koa doctor + R-3 per-project budgets | ✅ done 2026-06-10 |
+| CP18 | koa update with automatic rollback (--check/--no-test/--force) | ✅ done 2026-06-10 — PR #19 merged |
+| Deps fold-in | dependabot #11/#13–#16 + compat fixes (SDK 0.104, zod 4, etc.) | ✅ done 2026-06-10 — PR #20 merged |
+| CP19 | multi-instance GitHub integration | ✅ done 2026-06-10 — PR #21 merged |
 
 ## Current State (2026-06-10)
 
-- Branch: `feature/cp17`, tip `a910a49`
-- 799 tests passing, tsc clean
-- CP17 complete: OC-1 dynamic token-budget compaction, OC-2 koa doctor --fix, R-3 per-project budget_usd guard
-- PR pending: feature/cp17 → feature/web-console-and-hardening
+- Branch: `chore/deps-compat` (off feature/web-console-and-hardening)
+- CP18 merged (PR #19): koa update self-updater, 811 tests at merge
+- Dependabot PRs #11/#13/#14/#15/#16 merged (SDK 0.104, zod 4, commander 15, ink 7, react 19, better-sqlite3 12); #12 (actions/checkout) awaiting dependabot merge — needs `workflow` scope or @dependabot command
+- v1 full audit run wf_84003079-68c: audit+verify completed; fix/gate/report killed by session-limit — NOT RESUMABLE (fix agents died, no source changes to cache)
+- 11 confirmed HIGH/MEDIUM, 0 refuted — full list in DEVLOG.md [2026-06-11] session entry
+- CRITICAL: CP16 fallback NOT on release branch (needs reimplementation); cache_control accumulation bug causes hard 400 failures
+- Fix workflow to be re-launched fresh once session resets (01:20 CT)
+- v1.0.0 push: CP19 (multi-instance GitHub) → full E2E audit → release prep (CHANGELOG, TASKS.md cleanup, ntfy topic rotation) → release
 
 ## Merge State
 
