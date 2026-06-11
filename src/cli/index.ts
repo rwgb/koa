@@ -433,4 +433,24 @@ program
     console.log(`Fixed ${issues.length} issue(s). Backup saved to ${backup}`);
   });
 
+program
+  .command('update')
+  .description('Update Koa: git pull + rebuild, with automatic rollback if the build or tests fail')
+  .option('--check', 'Report whether an update is available without applying it')
+  .option('--no-test', 'Skip the vitest verification step after building')
+  .option('--force', 'Proceed even if guards (e.g. dirty worktree) would normally block')
+  .action(async (opts: { check?: boolean; test: boolean; force?: boolean }) => {
+    const { runUpdate } = await import('../updater/index.js');
+    const result = await runUpdate({
+      check: opts.check ?? false,
+      test: opts.test,
+      force: opts.force ?? false,
+      log: (msg) => console.log(msg),
+    });
+    console.log(result.message);
+    if (result.status === 'blocked' || result.status === 'rolled-back' || result.status === 'error') {
+      process.exit(1);
+    }
+  });
+
 program.parse(process.argv);

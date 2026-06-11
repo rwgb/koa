@@ -1,5 +1,27 @@
 # Koa — DevLog
 
+## [2026-06-10] — CP18: koa update with automatic rollback
+
+### Completed
+- **CP18**: `koa update` command — `git pull --ff-only` from the current branch's configured upstream (`@{u}`, not hardcoded origin/main) + `npm run build`, with automatic rollback on failure
+- Rollback mechanism: `dist/` snapshotted to `dist.bak/` before build; restored automatically if build (tsc) or test (vitest) verification fails
+- CLI flags: `--check` (report available updates without applying), `--no-test` (skip vitest verification step), `--force` (proceed past dirty-worktree / no-upstream-changes guards; diverged history is never forced — the pull is `--ff-only` and errors out)
+- New module: `src/updater/index.ts` encapsulates git pull, build, snapshot/restore logic
+- ntfy notification fires on both successful update and rollback
+- Tests: 811 passing (`npx vitest run`, includes CP18 updater tests)
+
+### Decisions
+- Update source is repo-local (`git pull` + rebuild), not a separate release channel — matches self-hosted deployment model
+- Rollback restores the `dist/` snapshot rather than `git reset` — source tree stays at the new commit so the failure can be inspected, while the running build remains the last-known-good
+- `--no-test` skips only vitest; tsc build success is always required before the snapshot is discarded
+- ntfy pings on rollback as well as success so a failed unattended update is never silent
+
+### Next
+- [ ] PR feature/cp18-updater → feature/web-console-and-hardening
+- [ ] Decide CP19 scope
+
+---
+
 ## [2026-06-10] — CP18 Scope: koa update with automatic rollback
 
 ### Completed

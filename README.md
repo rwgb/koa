@@ -102,6 +102,10 @@ The install script handles dependency installation, TypeScript compilation, Vite
 | `koa restore <file>` | | Restore DB from a backup file |
 | `koa health` | | Print DB status and row counts |
 | `koa seed` | | Populate a fresh DB with sample data |
+| `koa update` | | Update Koa: git pull + rebuild, with automatic rollback of `dist/` if the build or tests fail |
+| | `--check` | Report whether an update is available without applying it |
+| | `--no-test` | Skip the vitest verification step after building |
+| | `--force` | Proceed even if guards (e.g. dirty worktree) would normally block |
 
 ---
 
