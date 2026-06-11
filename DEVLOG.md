@@ -1,5 +1,26 @@
 # Koa — DevLog
 
+## [2026-06-10] — CP19: Multi-instance GitHub integration
+
+### Completed
+- **CP19**: Multiple GitHub integration instances — each instance carries its own token and `defaultRepo`, so Koa can operate across personal and org accounts simultaneously
+- Per-instance config: token + defaultRepo stored per instance instead of a single global GitHub credential
+- Repo-owner-based token resolution in agent tools — GitHub tools resolve which instance's token to use from the owner of the target repo, falling back sensibly when no instance matches
+- Web console: "Add another" flow on the GitHub integration card to register additional instances
+- Tests: 819 passing (`npx vitest run`, includes CP19 multi-instance tests)
+
+### Decisions
+- Token resolution keys off repo owner rather than requiring the caller to name an instance — tool call surface stays unchanged, existing prompts keep working
+- Resolution order: prefer the instance whose `defaultRepo` owner matches the target repo's owner (connected instances win among matches); zero matches fall back to first connected instance; no target repo keeps legacy behavior (first instance)
+- No schema migration needed — `~/.koa/integrations.json` already stores an array, so existing single GitHub entries just become the first instance
+- `defaultRepo` stays per-instance so unqualified repo references resolve against the matching account's default
+
+### Next
+- [ ] PR feature/cp19 → feature/web-console-and-hardening
+- [ ] Decide CP20 scope
+
+---
+
 ## [2026-06-10] — CP18: koa update with automatic rollback
 
 ### Completed
