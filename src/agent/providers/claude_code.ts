@@ -99,11 +99,18 @@ export class ClaudeCodeProvider implements LlmProvider {
       model,
       stop_reason: 'end_turn',
       stop_sequence: null,
+      container: null,
+      stop_details: null,
       usage: {
         input_tokens: usage?.input_tokens ?? 0,
         output_tokens: usage?.output_tokens ?? 0,
+        cache_creation: null,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
+        inference_geo: null,
+        output_tokens_details: null,
+        server_tool_use: null,
+        service_tier: null,
       },
     };
   }

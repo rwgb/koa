@@ -6,9 +6,9 @@ import { z } from 'zod';
 const ToolManifestSchema = z.object({
   name: z.string().regex(/^[a-z][a-z0-9_]{1,49}$/, 'name must match /^[a-z][a-z0-9_]{1,49}$/'),
   description: z.string(),
-  inputSchema: z.record(z.unknown()).optional(),
+  inputSchema: z.record(z.string(), z.unknown()).optional(),
   transport: z.enum(['bash', 'http', 'mcp']),
-  config: z.record(z.string()),
+  config: z.record(z.string(), z.string()),
 });
 
 const PluginDefSchema = z.object({
