@@ -1,4 +1,7 @@
 #!/usr/bin/env -S node --no-deprecation
+import { Agent, setGlobalDispatcher } from 'undici';
+setGlobalDispatcher(new Agent({ headersTimeout: 0, bodyTimeout: 0 }));
+
 import { Command } from 'commander';
 import { render } from 'ink';
 import React from 'react';

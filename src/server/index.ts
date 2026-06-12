@@ -1,3 +1,7 @@
+import { Agent, setGlobalDispatcher } from 'undici';
+// Disable undici's 10-second headersTimeout globally so Ollama cold-start requests don't fail.
+setGlobalDispatcher(new Agent({ headersTimeout: 0, bodyTimeout: 0 }));
+
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
