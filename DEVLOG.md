@@ -1,5 +1,29 @@
 # Koa — DevLog
 
+## 2026-06-12 — Production chat routing fix: ClaudeCode fallback via QuotaFallbackProvider
+
+### Completed
+- **Provider routing**: Changed production `KOA_PROVIDER=anthropic` (was `ollama`); `QuotaFallbackProvider` now automatically routes to ClaudeCode CLI when Anthropic quota exhausted (expires 2026-07-01)
+- **Root cause of ClaudeCode exit 1**: `ClaudeCodeProvider.doRun()` was spawning claude with `ANTHROPIC_API_KEY` inherited from service env — claude used the exhausted API key instead of `~/.claude.json` subscription credentials. Fixed by `delete spawnEnv['ANTHROPIC_API_KEY']` before spawn
+- **Service crash on shutdown**: `generateStateDoc` / `generateJournalEntry` called Anthropic directly in `finalize()` without error handling → unhandled rejection crashed the process when quota exhausted. Fixed with try/catch in both functions (returns placeholder string on failure)
+- **better-sqlite3 ABI mismatch**: macOS-compiled `.node` file rsynced to Linux Node.js 20 host crashed on startup. Fixed by stopping service before rsync in `scripts/deploy.sh` (prevents auto-restart before rebuild), removed `--silent` from `npm rebuild` for visibility
+- **Conversation auto-titling**: Working via `QuotaFallbackProvider` — Anthropic fails → ClaudeCode CLI generates title. Verified in production DB
+- **Revert undici**: `undici@8.4.1` requires Node.js 22; production runs Node.js 20. Reverted the global dispatcher approach
+
+### Decisions
+- `KOA_PROVIDER=anthropic` on production: QuotaFallbackProvider handles the Anthropic→ClaudeCode routing automatically; when quota resets July 1 it will switch back without config change
+- Ollama removed from active routing: too slow for 7B model on current VM hardware; can be re-enabled by setting `KOA_PROVIDER=auto` and ensuring `KOA_OLLAMA_BASE_URL` is set
+- state-doc.ts errors return placeholder strings, not empty: journal and STATE.md still get written even during API quota outages (with a note about the failure)
+
+### Issues Found
+- Node.js version mismatch (dev: v22, prod: v20) is a standing issue for all native modules; deploy script now stops service before rsync to prevent the crash window
+
+### Next Session
+- [ ] Verify web voice in browser at 192.168.1.200
+- [ ] Run Ansible hardening playbooks (`ansible-galaxy collection install community.general` first)
+- [ ] Tag v1.0.0
+- [ ] Consider upgrading production to Node.js 22 to eliminate the ABI mismatch permanently
+
 ## 2026-06-12 — Production hardening: updater, TTS/web voice, installer, Ansible
 
 ### Completed

@@ -3,42 +3,45 @@ written: 2026-06-12
 branch: feature/web-console-and-hardening
 tests: 837
 tsc: clean
-tip: uncommitted working tree (production hardening session)
+tip: 3 commits pushed (bfd7305)
 ---
 
 ## Where We Are
 
-Production hardening complete. Chat working on 192.168.1.200 via Ollama primary + ClaudeCode CLI fallback.
+Production chat working on 192.168.1.200 via **QuotaFallbackProvider**: Anthropic tries first (quota exhausted until 2026-07-01) → falls back to ClaudeCode CLI subscription. Auto-titling and conversation naming verified working.
 
-- **Production fix**: `KOA_PROVIDER=ollama` added to `/etc/koa/env`; Claude Code credentials deployed to `/home/koa/.claude.json` for fallback auth. Service restarted and confirmed healthy.
-- **Updater**: Hard-coded `origin`/`main`/`https://github.com/rwgb/koa.git`; graceful fallback when no upstream; `GITHUB_PAT` support in fetch URL.
-- **TTS**: `'none'` provider added; OS-aware default (linux→none, darwin→say); no-op on server side.
-- **Web voice**: `useSpeech` hook in `web/src/hooks/useSpeech.ts` — auto-speaks Koa responses on `done` event; server TTS when available, Web Speech API when provider is `'none'`.
-- **Installer**: GitHub PAT prompt, OS-aware TTS config, upstream tracking.
-- **Ansible**: `infra/ansible/` with `inventory.yml`, `playbook-koa-lxc.yml`, `playbook-ollama-vm.yml`.
+### What Was Fixed This Session
+
+- **Root cause of ClaudeCode exit 1**: `ClaudeCodeProvider.doRun()` inherited `ANTHROPIC_API_KEY` from service env → claude used exhausted API key instead of `~/.claude.json`. Fixed by stripping the key before spawn.
+- **Service crash on shutdown**: `generateStateDoc` / `generateJournalEntry` threw unhandled in `finalize()` when Anthropic quota hit. Fixed with try/catch (returns placeholder on failure).
+- **better-sqlite3 ABI mismatch**: `scripts/deploy.sh` now stops service before rsync to prevent crash window during node_modules sync.
+- **Provider routing**: Production `KOA_PROVIDER=anthropic` (was `ollama`). QuotaFallbackProvider handles routing automatically.
+
+### Production State
+
+- `/etc/koa/env` → `KOA_PROVIDER=anthropic`
+- `/home/koa/.claude.json` → valid Claude subscription credentials (koa user)
+- `node_modules/better-sqlite3` → rebuilt for Node.js v20.20.2 on production
+- Service: active (running), no crash loop
 
 ## Active Branch
 
-`feature/web-console-and-hardening` — production hardening changes uncommitted.
+`feature/web-console-and-hardening` — all changes committed and pushed.
 
 ## What's Next
 
-1. Commit this session's changes (atomic commits) + open PR
-2. Deploy to production: `git push` → SSH pull/rebuild on 192.168.1.200
-3. Verify web voice in browser at 192.168.1.200
-4. Tag v1.0.0
-5. Install Ansible collection before running playbooks: `ansible-galaxy collection install community.general`
-
-## Open Questions
-
-(none)
+1. Verify web voice component works in browser at 192.168.1.200
+2. Run Ansible hardening playbooks: `ansible-galaxy collection install community.general` then run playbooks
+3. Tag v1.0.0
+4. Consider upgrading production to Node.js 22 to eliminate the ABI mismatch permanently
 
 ## Don't Restart
 
-- Tried Tailscale TLS certs: requires paid plan. HTTP over WireGuard is sufficient.
-- Tried setInterval for briefing at 08:00: deferred to CP10e.
-- iOS real-device test via Tailscale: deferred indefinitely.
-- `CLAUDE_CODE_TMPDIR`: session sandbox fills up on large piped commands; set `CLAUDE_CODE_TMPDIR=~/.claude/tmp` in shell profile before next session.
+- Tried undici@8.4.1 for Ollama timeout fix: incompatible with Node.js 20. Reverted.
+- Ollama removed from routing for now (too slow for 7B model); re-enable via `KOA_PROVIDER=auto` when VM gets more resources.
+- Tried Tailscale TLS certs: requires paid plan.
+- iOS real-device test via Tailscale: deferred.
+- `CLAUDE_CODE_TMPDIR`: set `CLAUDE_CODE_TMPDIR=~/.claude/tmp` in shell profile to fix ENOSPC.
 
 ## Completed Checkpoints (reference)
 
@@ -47,3 +50,4 @@ Production hardening complete. Chat working on 192.168.1.200 via Ollama primary 
 | CP0–CP21 | (see DEVLOG for history) | done |
 | Hotfix | Chat transcript persistence | done |
 | CP22 | Production hardening: updater, TTS, web voice, Ansible | done |
+| CP23 | Production routing: ClaudeCode fallback, crash fixes | done |
