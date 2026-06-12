@@ -16,7 +16,7 @@ Koa is a self-hosted personal AI assistant built on Claude. It provides a termin
 - **Sandboxed code execution** — JavaScript, Python, and Bash via local process or Docker container
 - **Browser automation** — Playwright-backed tools for navigating, extracting, and screenshotting pages
 - **Web search + fetch** — Brave Search API + Jina Reader for reading live pages
-- **GitHub tools** — list PRs, get CI status, create issues
+- **GitHub tools** — list PRs, get CI status, create issues; supports multiple instances (per-instance token + default repo, resolved by repo owner)
 - **Gmail + Google Calendar** — read email, send email, create/update/delete calendar events
 - **Channels** — Telegram bot, Slack slash commands, Twilio SMS inbound
 - **Push notifications** — Web Push (VAPID) and APNs for iOS
@@ -97,11 +97,18 @@ The install script handles dependency installation, TypeScript compilation, Vite
 | `koa mcp` | | Start Koa as an MCP tool server on stdio |
 | | `-p, --project <path>` | Override project root |
 | | `--no-engram` | Disable Engram memory integration |
-| `koa migrate` | | Run SQLite migrations (safe to repeat) |
-| `koa backup` | | Copy DB to `~/.koa/backups/koa-<timestamp>.db` |
-| `koa restore <file>` | | Restore DB from a backup file |
-| `koa health` | | Print DB status and row counts |
-| `koa seed` | | Populate a fresh DB with sample data |
+| `koa setup` | | Interactive first-run setup wizard |
+| | `--reset` | Re-prompt for all values even if already set |
+| | `--headless` | Validate T1 credentials only; exit 1 if missing (for Docker/CI) |
+| `koa doctor` | | Diagnose and optionally fix stale `~/.koa/config.json` entries |
+| | `--fix` | Back up config and rewrite to canonical format |
+| `koa config set <key> [value]` | | Persist a configuration value (omit value for `web-token` to auto-generate) |
+| `koa config unset <key>` | | Remove a persisted configuration value |
+| `koa config show` | | Show current configuration (credentials are masked) |
+| `koa update` | | Update Koa: git pull + rebuild, with automatic rollback of `dist/` if the build or tests fail |
+| | `--check` | Report whether an update is available without applying it |
+| | `--no-test` | Skip the vitest verification step after building |
+| | `--force` | Proceed even if guards (e.g. dirty worktree) would normally block |
 
 ---
 

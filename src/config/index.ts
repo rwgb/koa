@@ -7,13 +7,12 @@ import { readCredentials, writeCredential } from './credentials.js';
 
 const ConfigSchema = z.object({
   model: z.string().default('claude-haiku-4-5-20251001'),
-  maxTokens: z.number().default(8096),
+  maxTokens: z.number().default(8192),
   projectPath: z.string(),
   engramEnabled: z.boolean().default(true),
   apiKey: z.string().optional(),
   smartRouting: z.boolean().default(false),
   maxToolOutputChars: z.number().default(12000),
-  compactAfterTurns: z.number().default(10),
   spiderBrainBrain: z.string().optional(),
   autoCheckpointTurns: z.number().default(5),
   autoCheckpointMinutes: z.number().default(15),
@@ -29,6 +28,7 @@ const ConfigSchema = z.object({
   ollamaModel: z.string().default('llama3.2'),
   ollamaBaseUrl: z.string().default('http://localhost:11434'),
   claudeCodePath: z.string().default('claude'),
+  quotaFallback: z.boolean().default(true),
   sandboxBackend: z.enum(['local', 'docker']).default('local'),
   sandboxTimeoutMs: z.number().default(10000),
   browserEnabled: z.boolean().default(false),
@@ -46,7 +46,6 @@ export interface KoaConfigFile {
   maxTokens?: number;
   smartRouting?: boolean;
   maxToolOutputChars?: number;
-  compactAfterTurns?: number;
   autoCheckpointTurns?: number;
   autoCheckpointMinutes?: number;
   engramEnabled?: boolean;
@@ -63,6 +62,7 @@ export interface KoaConfigFile {
   ollamaModel?: string;
   ollamaBaseUrl?: string;
   claudeCodePath?: string;
+  quotaFallback?: boolean;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
@@ -147,6 +147,59 @@ export function loadConfig(projectPath?: string): KoaConfig {
     browserEnabled: fileConfig.browserEnabled ?? false,
     userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User',
   });
+  return (
+    `Invalid Koa configuration:\n${lines.join('\n')}\n` +
+    `Check your environment variables and ~/.koa/config.json.`
+  );
+}
+
+// Validates that a claude binary path is safe to pass to spawn():
+//   1. Must be absolute (starts with /)
+//   2. Basename must start with "claude" — blocks /usr/bin/rm etc.
+//   3. Must not contain shell metacharacters that could cause injection
+export function validateClaudeCodePath(p: string): void {
+  const shellMeta = /[;|&`$\n\r\0]/;
+  if (!path.isAbsolute(p)) {
+    throw new Error(
+      'KOA_CLAUDE_CODE_PATH must be an absolute path to a claude binary (e.g. /usr/local/bin/claude)',
+    );
+  }
+  if (!/^claude/.test(path.basename(p))) {
+    throw new Error(
+      'KOA_CLAUDE_CODE_PATH must be an absolute path to a claude binary (e.g. /usr/local/bin/claude)',
+    );
+  }
+  if (shellMeta.test(p)) {
+    throw new Error(
+      'KOA_CLAUDE_CODE_PATH must be an absolute path to a claude binary (e.g. /usr/local/bin/claude)',
+    );
+  }
+}
+
+// Enforces provider<->credential coherence that the schema can't express, with
+// one-line actionable errors instead of a mid-turn provider failure.
+export function validateConfig(config: KoaConfig): void {
+  const errors: string[] = [];
+
+  if (config.provider === 'anthropic' && !config.apiKey) {
+    errors.push(
+      'provider is "anthropic" but no API key is set. ' +
+        'Run `koa config set api-key <key>` or set ANTHROPIC_API_KEY.',
+    );
+  }
+  if (config.provider === 'auto' && !config.apiKey) {
+    errors.push(
+      'provider is "auto" but no Anthropic API key is set; auto cannot fall back to ' +
+        'Anthropic. Set ANTHROPIC_API_KEY or choose provider "ollama"/"claude-code".',
+    );
+  }
+  if (!Number.isFinite(config.maxTokens) || config.maxTokens <= 0) {
+    errors.push(`KOA_MAX_TOKENS must be a positive number (got ${config.maxTokens}).`);
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid Koa configuration:\n${errors.map((e) => `  - ${e}`).join('\n')}`);
+  }
 }
 
 export function getEngramBrainPath(projectPath: string): string {
@@ -156,10 +209,6 @@ export function getEngramBrainPath(projectPath: string): string {
 }
 
 export const ENGRAM_CLI = path.join(os.homedir(), '.claude', 'skills', 'engram', 'cli', 'engram.py');
-
-// Haiku is used for all background LLM generation (journal, STATE.md, PROJECT.md, dispatch_agent)
-// to minimize cost. Kept as a single constant so a model version bump is a one-line change.
-export const HAIKU_MODEL = 'claude-haiku-4-5-20251001';
 
 // Maximum ms to wait for the Haiku pre-classifier before falling back to 'moderate'.
 export const HAIKU_CLASSIFIER_TIMEOUT_MS = 3000;

@@ -1,14 +1,24 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { HAIKU_CLASSIFIER_TIMEOUT_MS } from '../config/index.js';
+import { MODEL_MAP } from '../types/index.js';
 
-// Model tier identifiers
+// Model tier identifiers (routing names; values sourced from MODEL_MAP so
+// model ids have a single source of truth in src/types/index.ts)
 export const MODELS = {
-  haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-7',
+  haiku: MODEL_MAP.fast,
+  sonnet: MODEL_MAP.standard,
+  opus: MODEL_MAP.powerful,
 } as const;
 
 export type ModelTier = keyof typeof MODELS;
+
+// Substring tier detection so custom/dated model ids (e.g. claude-sonnet-4-7-YYYYMMDD)
+// still classify correctly instead of exact-matching the MODELS constants.
+export function modelToTier(model: string): ModelTier {
+  if (model.includes('haiku')) return 'haiku';
+  if (model.includes('opus')) return 'opus';
+  return 'sonnet';
+}
 
 // Returns the tier override if the message starts with @haiku:/@sonnet:/@opus:
 // Also strips the prefix from the message text
@@ -54,7 +64,8 @@ export async function classifyWithHaiku(
   try {
     const response = await anthropicClient.messages.create(
       {
-        model: MODELS.haiku,
+        // tier: fast — routing classification (internal, non-user-facing)
+        model: MODEL_MAP.fast,
         max_tokens: 16,
         temperature: 0,
         system: CLASSIFIER_SYSTEM,
@@ -89,7 +100,7 @@ export async function selectModel(
   message: string,
   recentToolUseCount: number,
   config: { model: string; smartRouting: boolean },
-  anthropicClient: Anthropic,
+  anthropicClient: Anthropic | null,
 ): Promise<{
   model: string;
   tier: ModelTier;
@@ -106,8 +117,7 @@ export async function selectModel(
   }
 
   if (!config.smartRouting) {
-    const tier: ModelTier =
-      config.model === MODELS.haiku ? 'haiku' : config.model === MODELS.opus ? 'opus' : 'sonnet';
+    const tier = modelToTier(config.model);
     debugLog(`tier=${tier} source=config`);
     return { model: config.model, tier, cleanMessage: message, source: 'config' };
   }
@@ -122,6 +132,13 @@ export async function selectModel(
   if (complexity === 'complex') {
     debugLog(`tier=opus source=regex-fast-path`);
     return { model: MODELS.opus, tier: 'opus', cleanMessage: message, source: 'regex-fast-path' };
+  }
+
+  // Moderate: refine with Haiku classifier — but only if we have an Anthropic client.
+  // In keyless/Ollama mode there is no client, so fall back to the regex tier (sonnet).
+  if (!anthropicClient) {
+    debugLog(`tier=sonnet source=config (no anthropic client for classifier)`);
+    return { model: MODELS.sonnet, tier: 'sonnet', cleanMessage: message, source: 'config' };
   }
 
   // Moderate: refine with Haiku classifier

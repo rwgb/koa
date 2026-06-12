@@ -3,8 +3,6 @@ import { useAgent } from '../context/AgentContext.js';
 import { fetchHealth } from '../api.js';
 import type { HealthStatus } from '../types.js';
 
-const VERSION = '0.2.0';
-
 function ContextPressureBadge({ estimatedTokens }: { estimatedTokens: number }) {
   const MAX_TOKENS = 200_000;
   const pct = Math.min(estimatedTokens / MAX_TOKENS, 1);
@@ -26,18 +24,7 @@ function ContextPressureBadge({ estimatedTokens }: { estimatedTokens: number }) 
   );
 }
 
-function HealthPill() {
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-
-  useEffect(() => {
-    const check = () => {
-      fetchHealth().then(setHealth).catch(() => setHealth(null));
-    };
-    check();
-    const id = setInterval(check, 30_000);
-    return () => clearInterval(id);
-  }, []);
-
+function HealthPill({ health }: { health: HealthStatus | null }) {
   const dotClass = health === null
     ? 'top-nav__health-dot'
     : health.db === 'ok'
@@ -86,6 +73,17 @@ function StatusPill({ isThinking, activeTool }: { isThinking: boolean; activeToo
 
 export default function TopNav() {
   const { isThinking, activeTool, usage, agentStatus, contextStats } = useAgent();
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  // Single /health poll feeds both the version badge and the health dot.
+  useEffect(() => {
+    const check = () => {
+      fetchHealth().then(setHealth).catch(() => setHealth(null));
+    };
+    check();
+    const id = setInterval(check, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const tierColor =
     agentStatus?.activeTier === 'haiku'
@@ -98,8 +96,10 @@ export default function TopNav() {
     <header className="top-nav">
       <div className="top-nav__left">
         <span className="top-nav__brand">Koa</span>
-        <span className="top-nav__version">v{VERSION}</span>
-        <HealthPill />
+        {health?.version && (
+          <span className="top-nav__version">v{health.version}</span>
+        )}
+        <HealthPill health={health} />
       </div>
 
       <div className="top-nav__center">

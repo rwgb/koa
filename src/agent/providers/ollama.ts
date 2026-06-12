@@ -161,6 +161,7 @@ export function fromOpenAIResponse(data: unknown, model: string): Anthropic.Mess
         id: tc.id,
         name: tc.function.name,
         input: parsedInput,
+        caller: { type: 'direct' },
       });
     }
   }
@@ -173,8 +174,13 @@ export function fromOpenAIResponse(data: unknown, model: string): Anthropic.Mess
   const usage: Anthropic.Usage = {
     input_tokens: resp.usage?.prompt_tokens ?? 0,
     output_tokens: resp.usage?.completion_tokens ?? 0,
+    cache_creation: null,
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: 0,
+    inference_geo: null,
+    output_tokens_details: null,
+    server_tool_use: null,
+    service_tier: null,
   };
 
   return {
@@ -185,6 +191,8 @@ export function fromOpenAIResponse(data: unknown, model: string): Anthropic.Mess
     model,
     stop_reason: stopReason,
     stop_sequence: null,
+    container: null,
+    stop_details: null,
     usage,
   };
 }

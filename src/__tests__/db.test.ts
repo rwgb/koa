@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import Database from 'better-sqlite3';
 import {
   closeDb,
   createProject, getProject, getProjectBySlug, listProjects, updateProject, deleteProject,
@@ -13,6 +14,7 @@ import {
   generateStateFromDb,
 } from '../db/index.js';
 import { bootstrapFromProjectMemory } from '../db/first-run.js';
+import { runMigrations } from '../db/migrations.js';
 
 let tempDir: string;
 
@@ -316,5 +318,78 @@ describe('first-run bootstrap', () => {
     const result = await bootstrapFromProjectMemory(p.id, stateMd, backlogMd);
     expect(result.imported).toBe(1);
     expect(listTasks({ projectId: p.id }).length).toBe(1);
+  });
+});
+
+describe('runMigrations: D-4 safety guards', () => {
+  let migTempDir: string;
+
+  beforeEach(() => {
+    migTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-mig-test-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(migTempDir, { recursive: true, force: true });
+  });
+
+  it('fresh DB: applies all migrations and creates a bak-v0 file', () => {
+    const dbFile = path.join(migTempDir, 'koa.db');
+    // Open a real on-disk DB so better-sqlite3 reports db.name as the file path.
+    const db = new Database(dbFile);
+    try {
+      runMigrations(db);
+      // All migrations applied — schema_version should equal the latest migration number.
+      const row = db.prepare('SELECT version FROM schema_version').get() as { version: number };
+      expect(row.version).toBeGreaterThan(0);
+      // Backup file must exist: koa.db.bak-v0
+      const backupPath = `${dbFile}.bak-v0`;
+      expect(fs.existsSync(backupPath)).toBe(true);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('schema_version = latestKnown+5 throws "newer than"', () => {
+    const dbFile = path.join(migTempDir, 'future.db');
+    const db = new Database(dbFile);
+    try {
+      // Bootstrap the schema_version table manually, then set a future version.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+        INSERT INTO schema_version (version) SELECT 0
+          WHERE NOT EXISTS (SELECT 1 FROM schema_version);
+      `);
+      db.prepare('UPDATE schema_version SET version = ?').run(9999);
+      expect(() => runMigrations(db)).toThrow(/newer than/);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('second run on a fully-migrated DB is a no-op (no backup created a second time)', () => {
+    const dbFile = path.join(migTempDir, 'idempotent.db');
+    const db = new Database(dbFile);
+    try {
+      runMigrations(db);
+      // First run created the bak-v0 file; record its mtime.
+      const backupPath = `${dbFile}.bak-v0`;
+      const mtime1 = fs.statSync(backupPath).mtimeMs;
+
+      // Brief pause so a second write would produce a different mtime.
+      const start = Date.now();
+      while (Date.now() - start < 10) { /* spin */ }
+
+      // Second run — should return early with no migrations applied.
+      runMigrations(db);
+      // No new backup created; the original bak-v0 is unchanged.
+      const mtime2 = fs.statSync(backupPath).mtimeMs;
+      expect(mtime2).toBe(mtime1);
+
+      // schema_version unchanged.
+      const row = db.prepare('SELECT version FROM schema_version').get() as { version: number };
+      expect(row.version).toBeGreaterThan(0);
+    } finally {
+      db.close();
+    }
   });
 });

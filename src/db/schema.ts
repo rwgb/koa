@@ -7,6 +7,7 @@ export interface Project {
   name: string;
   description: string;
   status: ProjectStatus;
+  budget_usd?: number | null;  // optional per-project spending cap in USD
   created_at: string;   // ISO 8601
   updated_at: string;
 }

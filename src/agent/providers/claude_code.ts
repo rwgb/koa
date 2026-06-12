@@ -27,14 +27,32 @@ export class ClaudeCodeProvider implements LlmProvider {
     return this.doRun(params, () => {});
   }
 
+  // Serializes the system prompt and the FULL conversation history into a single
+  // prompt — the claude CLI is stateless across invocations, so dropping history
+  // would make every turn amnesiac. params.tools cannot be forwarded: the CLI
+  // only exposes its own built-in tools, not Anthropic API tool definitions.
   private buildPrompt(params: LlmCallParams): string {
-    const lastMsg = params.messages.at(-1);
-    if (!lastMsg) return '';
-    if (typeof lastMsg.content === 'string') return lastMsg.content;
-    return (lastMsg.content as Anthropic.ContentBlockParam[])
-      .filter((b): b is Anthropic.TextBlockParam => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n');
+    const sections: string[] = [];
+    const systemText = params.system.map((b) => b.text).join('\n');
+    if (systemText) sections.push(`System:\n${systemText}`);
+    for (const msg of params.messages) {
+      const role = msg.role === 'user' ? 'User' : 'Assistant';
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : msg.content
+              .map((b) => {
+                if (b.type === 'text') return b.text;
+                if (b.type === 'tool_result' && typeof b.content === 'string') {
+                  return `[tool result]\n${b.content}`;
+                }
+                return '';
+              })
+              .filter(Boolean)
+              .join('\n');
+      if (text) sections.push(`${role}:\n${text}`);
+    }
+    return sections.join('\n\n');
   }
 
   private doRun(
@@ -99,11 +117,18 @@ export class ClaudeCodeProvider implements LlmProvider {
       model,
       stop_reason: 'end_turn',
       stop_sequence: null,
+      container: null,
+      stop_details: null,
       usage: {
         input_tokens: usage?.input_tokens ?? 0,
         output_tokens: usage?.output_tokens ?? 0,
+        cache_creation: null,
         cache_creation_input_tokens: 0,
         cache_read_input_tokens: 0,
+        inference_geo: null,
+        output_tokens_details: null,
+        server_tool_use: null,
+        service_tier: null,
       },
     };
   }

@@ -1,8 +1,7 @@
 import express from 'express';
-import type { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { AgentLoop } from '../agent/loop.js';
@@ -13,57 +12,19 @@ import { calendarSync } from '../calendar/sync.js';
 import { escalationScheduler } from '../notifications/escalation.js';
 import { TelegramPoller } from '../channels/telegram.js';
 import { setTelegramPoller } from '../channels/router.js';
-import { tokenEqual } from './utils.js';
-import { buildDailyBriefing } from '../proactive/briefing.js';
 import { runDueDelegations } from '../proactive/delegations.js';
-import { routeResponse } from '../channels/router.js';
+import { tokenEqual } from './utils.js';
 import { createChatRouter } from './routes/chat.js';
-import { createAdminRouter } from './routes/admin.js';
+import { createAdminRouter, createOAuthCallbackRouter } from './routes/admin.js';
+import type { OAuthStateMap } from './routes/admin.js';
 import { createDbRouter } from './routes/db.js';
 import { createPushRouter } from './routes/push.js';
 import { createCalendarRouter } from './routes/calendar.js';
 import { createWebhooksRouter, createVoiceRouter } from './routes/webhooks.js';
 import { createConversationsRouter } from './routes/conversations.js';
+import { authRateLimit, requireAuth, scheduleBriefing } from './middleware.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-function scheduleBriefing(loop: AgentLoop, config: KoaConfig): void {
-  const [hStr, mStr] = (config.briefingTime ?? '08:00').split(':');
-  const h = parseInt(hStr ?? '8', 10);
-  const m = parseInt(mStr ?? '0', 10);
-
-  function msUntilNext(): number {
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(h, m, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
-    return next.getTime() - now.getTime();
-  }
-
-  function scheduleNext(): void {
-    setTimeout(async () => {
-      if (config.briefingEnabled) {
-        try {
-          const text = await buildDailyBriefing();
-          void routeResponse('briefing', 'Good morning', text);
-        } catch (err) {
-          process.stderr.write(`[koa/briefing] error: ${err}\n`);
-        }
-      }
-      scheduleNext(); // reschedule for next day
-    }, msUntilNext());
-  }
-
-  scheduleNext();
-}
-
-const authRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many attempts — try again later' },
-});
 
 export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173) {
   const app = express();
@@ -99,10 +60,15 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   // ── Webhooks (unauthenticated — use channel-specific auth) ────────────────────
   app.use('/webhooks', createWebhooksRouter({ loop, config, rawBodyMap }));
 
-  // Token verification — rate-limited to prevent brute-force
+  // Token verification — rate-limited to prevent brute-force.
+  // When no token is configured the auth endpoint is unavailable (503) — the
+  // server is effectively running without web authentication, not in "open" mode.
   app.post('/api/auth', authRateLimit, (req: Request, res: Response) => {
     const { token } = req.body as { token?: string };
-    if (!config.webToken) { res.json({ ok: true }); return; }
+    if (!config.webToken) {
+      res.status(503).json({ error: 'Authentication not configured' });
+      return;
+    }
     if (!token) { res.status(400).json({ error: 'token required' }); return; }
     if (tokenEqual(token, config.webToken)) {
       res.json({ ok: true });
@@ -111,17 +77,14 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
     }
   });
 
-  // Bearer token auth for all /api/ routes when a token is configured
-  const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
-    if (!config.webToken) { next(); return; }
-    const header = req.headers['authorization'];
-    const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
-    if (!token) { res.status(401).json({ error: 'Authorization required' }); return; }
-    if (tokenEqual(token, config.webToken)) { next(); return; }
-    res.status(401).json({ error: 'Invalid token' });
-  };
+  // ── OAuth state (CSRF nonce map) — shared between admin URL builder and callback ──
+  const oauthState: OAuthStateMap = new Map();
 
-  app.use('/api/', requireAuth);
+  // OAuth callback routes bypass requireAuth — Google redirects here without a bearer token.
+  // Mount BEFORE the /api/ auth guard so they are reachable unauthenticated.
+  app.use('/api/admin', createOAuthCallbackRouter(config, oauthState));
+
+  app.use('/api/', requireAuth(config));
 
   // ── Mutable telegramPoller ref — shared between admin router and startup ──────
   let telegramPoller: TelegramPoller | null = null;
@@ -129,13 +92,12 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   let isBusy = false;
 
   // ── API routers (all behind the auth guard) ───────────────────────────────────
-  // Admin OAuth routes have an additional inline auth check in the router for the
-  // OAuth redirect endpoints (they verify the token themselves as a safety net).
   app.use('/api/admin', createAdminRouter({
     loop,
     config,
     getTelegramPoller: () => telegramPoller,
     setTelegramPollerRef: (p) => { telegramPoller = p; },
+    oauthState,
   }));
   app.use('/api', createChatRouter({
     loop,
@@ -161,6 +123,15 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
         );
       }
     });
+  });
+
+  // ── Global error handler (must be last middleware) ─────────────────────────────
+  // Logs server-side; never exposes err.stack, messages, or filesystem paths to clients.
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[server] unhandled error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   // ── Background services ────────────────────────────────────────────────────────

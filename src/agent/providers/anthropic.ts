@@ -9,6 +9,8 @@ export class AnthropicProvider implements LlmProvider {
   }
 
   create(params: LlmCallParams): Promise<Anthropic.Message> {
+    // tier: dynamic — user-facing turns; model selected upstream by the router
+    // (AgentConfig tier / smart routing), defaults to 'standard'
     return this.client.messages.create(params);
   }
 }

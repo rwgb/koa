@@ -117,6 +117,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       activeAgent: state.lastAgent ?? 'code-assistant',
       usage: state.usage,
       spiderBrain: state.spiderBrainContext ?? null,
+      conversationId: loop.getConversationId(),
     });
   });
 
@@ -128,9 +129,10 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
     loop
       .checkpoint()
       .then(() => res.json({ status: 'ok', message: 'Checkpoint saved.' }))
-      .catch((err: unknown) =>
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) }),
-      );
+      .catch((err: unknown) => {
+        console.error('[koa] checkpoint error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+      });
   });
 
   router.post('/chat', (req, res) => {

@@ -6,10 +6,16 @@ import { loadIntegrations, saveIntegration } from '../integrations/store.js';
 import { isDuplicate, markProcessed, contentHash } from './dedup.js';
 import { createTask } from '../db/index.js';
 import type { ExtractedIntent } from './types.js';
+import { MODEL_MAP } from '../types/index.js';
 
 // ── OAuth2 ────────────────────────────────────────────────────────────────────
 
-const GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
+// Both scopes are required: readonly for the inbox poller, send for the send_email
+// tool. Re-authorizing with readonly alone would permanently break send capability.
+export const GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+];
 
 function makeOAuth2Client(redirectUri?: string) {
   const integrations = loadIntegrations();
@@ -19,25 +25,27 @@ function makeOAuth2Client(redirectUri?: string) {
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 
-export function generateOAuthUrl(redirectUri: string): string {
+export function generateOAuthUrl(redirectUri: string, state?: string): string {
   const oauth2 = makeOAuth2Client(redirectUri);
   return oauth2.generateAuthUrl({
     access_type: 'offline',
     scope: GMAIL_SCOPES,
     prompt: 'consent',
+    ...(state ? { state } : {}),
   });
 }
 
 export async function exchangeCodeForTokens(
   code: string,
   redirectUri: string,
-): Promise<{ refresh_token: string; access_token: string }> {
+): Promise<{ refresh_token: string; access_token: string; scope: string }> {
   const oauth2 = makeOAuth2Client(redirectUri);
   const { tokens } = await oauth2.getToken(code);
   if (!tokens.refresh_token) throw new Error('No refresh_token — ensure prompt=consent was set');
   return {
     refresh_token: tokens.refresh_token,
     access_token: tokens.access_token ?? '',
+    scope: tokens.scope ?? GMAIL_SCOPES.join(' '),
   };
 }
 
@@ -70,7 +78,8 @@ const INTENT_SCHEMA = {
 export async function extractIntent(body: string, apiKey: string): Promise<ExtractedIntent> {
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
+    // tier: fast — email intent extraction (internal, non-user-facing)
+    model: MODEL_MAP.fast,
     max_tokens: 256,
     messages: [{
       role: 'user',

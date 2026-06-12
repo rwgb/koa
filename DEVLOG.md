@@ -3127,3 +3127,7 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 ### Learnings
 - Engram brains live at `~/.engram/brains/<slug>/brain.db`
 - Engram hooks gracefully exit when no brain exists — safe to enable globally
+
+<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+
+<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->

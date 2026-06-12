@@ -33,14 +33,12 @@ metadata:
 | CP13d | Repo sanitisation & template files | ✅ done |
 | CP13 End-of-Arc | Security review clean, 627 tests, tsc clean, v0.3.0 bump | ✅ done |
 
-## Merge State
+## Current State (2026-06-11)
 
-- `feature/context-compression` → `develop` ✅ merged 2026-06-04
-- `develop` → `main` PR #3 ✅ squash-merged 2026-06-05 (commit `f5f46bcb`)
-- GitHub Release `v0.2.0` ✅ created 2026-06-05
-- Branch protection on `main`: requires `ci / Lint, typecheck & test` + `ai-review`
-- Branch protection on `develop`: requires `ci / Lint, typecheck & test`
-- CI + AI review + release workflows fully operational
+- Branch: `feature/web-console-and-hardening`
+- CP20 done: all 11 HIGH/MEDIUM audit findings fixed, 3 LOW carry-ins fixed, api-cost-optimization phases 1–3 and smart-routing hybrid classifier implemented
+- CHANGELOG.md "Fixed" claims verified accurate — no audit blockers remain for the v1.0.0 tag
+- Hard deadline: koa stable (no iOS/watchOS) before 2026-06-29
 
 ## Current Arc — CP13: Clone-Ready Hardening (complete)
 

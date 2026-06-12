@@ -1,0 +1,63 @@
+name: Engram Impact Check
+
+on:
+  push:
+    paths:
+      - src/engram/client.ts
+  pull_request:
+    paths:
+      - src/engram/client.ts
+
+jobs:
+  engram-impact:
+    name: Detect Engram interface changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch enough history so HEAD~1 and origin/main are available
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run impact detector
+        id: impact
+        # Capture output; allow exit 1 without failing the step so we can act on it
+        run: |
+          set +e
+          OUTPUT=$(node scripts/engram-impact.js --base origin/main --head HEAD)
+          EXIT_CODE=$?
+          echo "output=$OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Comment on PR (interface changed)
+        if: >
+          steps.impact.outputs.exit_code == '1' &&
+          github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ## ⚠️ Engram interface changed — review Engram repo for compatibility
+
+            `src/engram/client.ts` has public interface changes that may require
+            a matching update in the Engram Python repo.
+
+            <details>
+            <summary>Change summary</summary>
+
+            ```json
+            ${{ steps.impact.outputs.output }}
+            ```
+
+            </details>
+
+      - name: Fail if interface changed
+        if: steps.impact.outputs.exit_code == '1'
+        run: |
+          echo "EngramClient public interface changed. Review the Engram repo for compatibility."
+          exit 1
