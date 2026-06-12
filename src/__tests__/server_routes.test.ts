@@ -97,6 +97,7 @@ function makeFakeLoop(overrides: Partial<{
   checkpoint: () => Promise<void>;
   rebuildBrain: () => Promise<string>;
   getState: () => object;
+  getConversationId: () => string | null;
   contextStats: () => object;
   initialize: () => Promise<void>;
   finalize: () => Promise<void>;
@@ -124,6 +125,7 @@ function makeFakeLoop(overrides: Partial<{
       lastAgent: null,
       usage: { total: { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 } },
     }),
+    getConversationId: vi.fn().mockReturnValue(null),
     contextStats: vi.fn().mockReturnValue({ inputTokens: 0, outputTokens: 0 }),
     initialize: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
@@ -133,7 +135,10 @@ function makeFakeLoop(overrides: Partial<{
 
 // ── Build app helper ────────────────────────────────────────────────────────────
 
-async function buildApp(token: string | undefined): Promise<Express> {
+async function buildApp(
+  token: string | undefined,
+  loopOverrides: Parameters<typeof makeFakeLoop>[0] = {},
+): Promise<Express> {
   const { createServer } = await import('../server/index.js');
   const config = {
     webToken: token,
@@ -157,7 +162,7 @@ async function buildApp(token: string | undefined): Promise<Express> {
     sandboxTimeoutMs: 10000,
   } as unknown as import('../config/index.js').KoaConfig;
 
-  const loop = makeFakeLoop();
+  const loop = makeFakeLoop(loopOverrides);
   const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
   return app;
 }
@@ -213,6 +218,22 @@ describe('§B server routes — auth matrix', () => {
     const app = await buildApp('mytoken');
     const res = await request(app).post('/api/auth').send({ token: 'wrongtoken' });
     expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /api/context — conversationId exposure', () => {
+  it('returns conversationId: null before the first turn (lazy creation)', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app).get('/api/context').set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(200);
+    expect(res.body.conversationId).toBeNull();
+  });
+
+  it('returns the active conversation id once one exists', async () => {
+    const app = await buildApp('tok', { getConversationId: () => 'conv-42' });
+    const res = await request(app).get('/api/context').set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(200);
+    expect(res.body.conversationId).toBe('conv-42');
   });
 });
 

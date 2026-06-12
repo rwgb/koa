@@ -746,3 +746,19 @@ export async function searchConversations(query: string): Promise<ConversationSe
   if (!res.ok) throw new Error('Conversation search failed');
   return res.json() as Promise<ConversationSearchResult[]>;
 }
+
+export async function checkForUpdate(): Promise<{ status: string; message: string }> {
+  const res = await authFetch('/api/admin/update/check');
+  if (!res.ok) throw new Error('Update check failed');
+  return res.json() as Promise<{ status: string; message: string }>;
+}
+
+export async function runUpdate(opts: { test?: boolean } = {}): Promise<{ status: string; message: string }> {
+  const res = await authFetch('/api/admin/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(opts),
+  });
+  if (!res.ok) throw new Error('Update failed');
+  return res.json() as Promise<{ status: string; message: string }>;
+}

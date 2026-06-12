@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { fetchCalendarEvents, fetchCalendarAvailability, triggerCalendarSync, updateTask } from '../api.js';
 import type { CalendarEvent, CalendarBlock } from '../types.js';
 import { Icon } from '../components/Icon.js';
@@ -80,7 +80,7 @@ function MonthGrid({ year, month, events, selectedDay, onSelectDay, onDeadlineDr
         {DOW.map(d => <div key={d} className="cal-grid__dow">{d}</div>)}
       </div>
       <div className="cal-grid__body">
-        {days.map((d, i) => {
+        {days.map((d) => {
           const inMonth = d.getMonth() === month;
           const isToday = sameDay(d, today);
           const isSelected = selectedDay ? sameDay(d, selectedDay) : false;
@@ -88,7 +88,7 @@ function MonthGrid({ year, month, events, selectedDay, onSelectDay, onDeadlineDr
 
           return (
             <div
-              key={i}
+              key={d.toISOString()}
               className={[
                 'cal-cell',
                 inMonth ? '' : 'cal-cell--out',
@@ -187,11 +187,11 @@ export default function CalendarPage() {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const monthStart = new Date(year, month, 1).toISOString();
-  const monthEnd = new Date(year, month + 1, 1).toISOString();
-  const weekEnd = new Date(Date.now() + 7 * 86_400_000).toISOString();
+  const monthStart = useMemo(() => new Date(year, month, 1).toISOString(), [year, month]);
+  const monthEnd = useMemo(() => new Date(year, month + 1, 1).toISOString(), [year, month]);
 
   const loadData = useCallback(async () => {
+    const weekEnd = new Date(Date.now() + 7 * 86_400_000).toISOString();
     setLoading(true);
     setError(null);
     try {
@@ -206,7 +206,7 @@ export default function CalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [monthStart, monthEnd, weekEnd]);
+  }, [monthStart, monthEnd]);
 
   useEffect(() => { void loadData(); }, [loadData]);
 

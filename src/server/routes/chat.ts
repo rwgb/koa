@@ -117,6 +117,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       activeAgent: state.lastAgent ?? 'code-assistant',
       usage: state.usage,
       spiderBrain: state.spiderBrainContext ?? null,
+      conversationId: loop.getConversationId(),
     });
   });
 

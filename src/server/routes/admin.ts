@@ -104,6 +104,7 @@ export function createOAuthCallbackRouter(
           config: {
             ...(existing?.config ?? {}),
             refreshToken: tokens.refresh_token,
+            scopes: tokens.scope,
           },
         });
         if (config.apiKey) gmailPoller.start(config.apiKey);
@@ -989,6 +990,22 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     if (!d) { res.status(404).json({ error: 'Not found' }); return; }
     deleteDelegation(req.params['id']!);
     res.status(204).send();
+  });
+
+  // ── Software update ───────────────────────────────────────────────────────────
+
+  router.get('/update/check', async (_req, res: Response) => {
+    const { runUpdate } = await import('../../updater/index.js');
+    const result = await runUpdate({ check: true });
+    res.json(result);
+  });
+
+  router.post('/update', async (req, res: Response) => {
+    const body = req.body as { test?: unknown };
+    const runTests = body.test !== false; // default true
+    const { runUpdate } = await import('../../updater/index.js');
+    const result = await runUpdate({ test: runTests, log: (msg) => process.stdout.write(`[koa/update] ${msg}\n`) });
+    res.json(result);
   });
 
   return router;

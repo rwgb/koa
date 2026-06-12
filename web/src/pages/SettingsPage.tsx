@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAdminConfig, updateAdminConfig, getOllamaModels, getSandboxStatus, getBrowserStatus, installBrowser } from '../api.js';
+import { fetchAdminConfig, updateAdminConfig, getOllamaModels, getSandboxStatus, getBrowserStatus, installBrowser, checkForUpdate, runUpdate } from '../api.js';
 import type { AdminConfig } from '../types.js';
 
 // ── Inline editable string/number row ──────────────────────────────────────────
@@ -420,6 +420,64 @@ function OllamaSection({
   );
 }
 
+// ── Software update section ────────────────────────────────────────────────────
+
+function UpdateSection() {
+  const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [result, setResult] = useState<{ status: string; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleCheck() {
+    setChecking(true); setResult(null); setError(null);
+    try { setResult(await checkForUpdate()); }
+    catch (e) { setError((e as Error).message); }
+    finally { setChecking(false); }
+  }
+
+  async function handleUpdate() {
+    setUpdating(true); setResult(null); setError(null);
+    try { setResult(await runUpdate()); }
+    catch (e) { setError((e as Error).message); }
+    finally { setUpdating(false); }
+  }
+
+  const busy = checking || updating;
+  const statusColor = result
+    ? result.status === 'updated' ? 'var(--green)'
+      : result.status === 'up-to-date' ? 'var(--text-muted)'
+      : result.status === 'rolled-back' || result.status === 'error' ? 'var(--red)'
+      : 'var(--blue)'
+    : undefined;
+
+  return (
+    <div className="section">
+      <div className="section-header">
+        <span className="section-title">Software Update</span>
+      </div>
+      <div className="setting-row">
+        <span className="setting-row__label">Update</span>
+        <div className="setting-row__actions" style={{ gap: '8px', display: 'flex', alignItems: 'center' }}>
+          <button className="btn btn-secondary btn-sm" onClick={handleCheck} disabled={busy}>
+            {checking ? 'Checking…' : 'Check'}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={handleUpdate} disabled={busy}>
+            {updating ? 'Updating…' : 'Update now'}
+          </button>
+        </div>
+      </div>
+      {(result || error) && (
+        <div className="setting-row">
+          <span className="setting-row__label" />
+          <span style={{ fontSize: '12px', color: error ? 'var(--red)' : statusColor }}>
+            {error ?? result?.message}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Code Execution section ─────────────────────────────────────────────────────
 
 function CodeExecutionSection({
@@ -756,6 +814,9 @@ export default function SettingsPage() {
             </>
           )}
         </div>
+
+        {/* Software Update */}
+        <UpdateSection />
 
         {/* Project */}
         <div className="section">

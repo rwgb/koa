@@ -91,16 +91,6 @@ const CATALOG: IntegrationDef[] = [
     ],
   },
   {
-    type: 'eset',
-    name: 'ESET Web Analyzer',
-    icon: 'shield',
-    description: 'URL and file analysis via ESET Web Analyzer API.',
-    fields: [
-      { key: 'apiKey', label: 'API Key', secret: true, placeholder: '' },
-      { key: 'baseUrl', label: 'Base URL', secret: false, placeholder: 'https://www.virustotal.com/api' },
-    ],
-  },
-  {
     type: 'custom_http',
     name: 'Custom HTTP',
     icon: 'link',

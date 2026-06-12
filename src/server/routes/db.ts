@@ -27,7 +27,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let _appVersion = '0.0.0';
 try {
-  const pkgPath = path.join(__dirname, '../../../../package.json');
+  // Root package.json is 3 levels up from this file in both layouts:
+  // src/server/routes (dev via tsx) and dist/server/routes (built).
+  const pkgPath = path.join(__dirname, '../../../package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { version?: string };
   _appVersion = pkg.version ?? '0.0.0';
 } catch { /* non-fatal */ }
