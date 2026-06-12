@@ -32,17 +32,6 @@ metadata:
 | CP13c | `koa setup` wizard + IPv6 SSRF fix | ✅ done |
 | CP13d | Repo sanitisation & template files | ✅ done |
 | CP13 End-of-Arc | Security review clean, 627 tests, tsc clean, v0.3.0 bump | ✅ done |
-| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | ✅ done |
-| CP15 | Engram signal collector + cross-repo tools (Loop 2) | ✅ done |
-| CP16 | ClaudeCode fallback on Anthropic quota exhaustion | ✅ done |
-| Fable Audit | ~30 fixes from FABLE_AUDIT_FIXES.md — §A/§B/§C/§D | ✅ done 2026-06-10 |
-| Obsidian Pro Theme | Winning UI theme applied to web console | ✅ done 2026-06-10 — commit 938b183 |
-| Housekeeping Sprint | H-1–H-8, EL-1/EL-2, iOS-1 — 10 fixes | ✅ done 2026-06-10 — commit b08dc75 |
-| CP17 | OC-1 token-budget + OC-2 koa doctor + R-3 per-project budgets | ✅ done 2026-06-10 |
-| CP18 | koa update with automatic rollback (--check/--no-test/--force) | ✅ done 2026-06-10 — PR #19 merged |
-| Deps fold-in | dependabot #11/#13–#16 + compat fixes (SDK 0.104, zod 4, etc.) | ✅ done 2026-06-10 — PR #20 merged |
-| CP19 | multi-instance GitHub integration | ✅ done 2026-06-10 — PR #21 merged |
-| CP20 | 11 audit fixes + 3 LOW carry-ins + api-cost-opt p1–3 + smart-routing classifier | ✅ done 2026-06-11 |
 
 ## Current State (2026-06-11)
 
@@ -51,7 +40,24 @@ metadata:
 - CHANGELOG.md "Fixed" claims verified accurate — no audit blockers remain for the v1.0.0 tag
 - Hard deadline: koa stable (no iOS/watchOS) before 2026-06-29
 
+## Current Arc — CP13: Clone-Ready Hardening (complete)
+
+- CP13a–CP13d ✅ all done on `feature/cp13-clone-ready`
+- PR #4 (docs sync) ✅ merged to main 2026-06-05
+- Gate grep: zero hits ✅
+- tsc clean, 619 tests passing ✅
+- Security review: clean ✅
+
+## Infra Recovery (2026-06-08, in-progress)
+
+- Packer rewritten: `proxmox-iso` → `proxmox-clone` from VMID 100 (existing Debian 13 template, `debian:debian`)
+- Packer build running — clone + Ollama install (~5 min vs 40 min); will produce template at VMID 9001
+- Koa web console deployed to LXC 200 ✅ — http://192.168.1.200:3000 live
+- Fixed: deploy.sh (sudo, native rebuild), koa.service (namespace hardening), rsync missing on LXC
+
 ## Next
 
-- [ ] Commit CP20 working-tree changes, tag v1.0.0
-- [ ] CP21 (TBD)
+- [ ] Confirm Packer build succeeded; `terraform apply` → VM 201 (you run: `cd infra && terraform apply`)
+- [ ] Verify 192.168.1.201 + `ollama list`
+- [ ] PR: `feature/cp13-clone-ready` → `develop` → release v0.3.0
+- [ ] CP14: Smart model routing (Ollama/Anthropic/Claude-Code providers) + fix `PUT /integrations/:id` ntfy topic validation

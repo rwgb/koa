@@ -236,10 +236,6 @@ export class AgentLoop {
   private lastCompactionAt: string | null = null;
   private _busy = false;
   private agentSpecs: ReturnType<typeof buildAgentSpecs>;
-  private projectBudget: number | null = null;
-  private sessionCostUsd = 0;
-  /** Cost already recorded for this project in prior sessions (cumulative budget enforcement). */
-  private priorProjectCostUsd = 0;
 
   constructor(
     config: KoaConfig,

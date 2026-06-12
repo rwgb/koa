@@ -33,7 +33,6 @@ const ConfigSchema = z.object({
   sandboxTimeoutMs: z.number().default(10000),
   browserEnabled: z.boolean().default(false),
   userName: z.string().default('User'),
-  toolTimeoutMs: z.number().optional(),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -68,7 +67,6 @@ export interface KoaConfigFile {
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
   userName?: string;
-  toolTimeoutMs?: number;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -104,108 +102,49 @@ export function loadConfig(projectPath?: string): KoaConfig {
   const rawModel = process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-haiku-4-5-20251001';
   const resolvedModel = tierAliases[rawModel] ?? rawModel;
 
-  let parsed: KoaConfig;
-  try {
-    parsed = ConfigSchema.parse({
-      model: resolvedModel,
-      maxTokens: process.env['KOA_MAX_TOKENS']
-        ? parseInt(process.env['KOA_MAX_TOKENS'], 10)
-        : (fileConfig.maxTokens ?? 8192),
-      projectPath: resolvedPath,
-      engramEnabled:
-        process.env['KOA_ENGRAM'] !== undefined
-          ? process.env['KOA_ENGRAM'] !== 'false'
-          : (fileConfig.engramEnabled ?? true),
-      apiKey,
-      smartRouting:
-        process.env['KOA_SMART_ROUTING'] !== undefined
-          ? process.env['KOA_SMART_ROUTING'] === 'true'
-          : (fileConfig.smartRouting ?? false),
-      maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
-        ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
-        : (fileConfig.maxToolOutputChars ?? 12000),
-      spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'] ?? fileConfig.spiderBrainBrain,
-      autoCheckpointTurns: process.env['KOA_CHECKPOINT_TURNS']
-        ? parseInt(process.env['KOA_CHECKPOINT_TURNS'], 10)
-        : (fileConfig.autoCheckpointTurns ?? 5),
-      autoCheckpointMinutes: process.env['KOA_CHECKPOINT_MINUTES']
-        ? parseInt(process.env['KOA_CHECKPOINT_MINUTES'], 10)
-        : (fileConfig.autoCheckpointMinutes ?? 15),
-      webToken,
-      noCache: process.env['KOA_NO_CACHE'] === 'true' || (fileConfig.noCache ?? false),
-      autoChaining: fileConfig.autoChaining ?? false,
-      briefingEnabled: fileConfig.briefingEnabled ?? false,
-      briefingTime: fileConfig.briefingTime ?? '08:00',
-      ttsProvider:
-        (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | undefined) ??
-        fileConfig.ttsProvider ??
-        'say',
-      elevenLabsVoiceId: fileConfig.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
-      elevenLabsModel: fileConfig.elevenLabsModel ?? 'eleven_turbo_v2_5',
-      provider:
-        (process.env['KOA_PROVIDER'] as
-          | 'anthropic'
-          | 'ollama'
-          | 'claude-code'
-          | 'auto'
-          | undefined) ??
-        fileConfig.provider ??
-        'anthropic',
-      ollamaModel: process.env['KOA_OLLAMA_MODEL'] ?? fileConfig.ollamaModel ?? 'llama3.2',
-      ollamaBaseUrl:
-        process.env['KOA_OLLAMA_BASE_URL'] ??
-        fileConfig.ollamaBaseUrl ??
-        'http://localhost:11434',
-      claudeCodePath: (() => {
-        const raw = process.env['KOA_CLAUDE_CODE_PATH'] ?? fileConfig.claudeCodePath;
-        if (raw !== undefined) validateClaudeCodePath(raw);
-        return raw ?? 'claude';
-      })(),
-      quotaFallback:
-        process.env['KOA_QUOTA_FALLBACK'] !== undefined
-          ? process.env['KOA_QUOTA_FALLBACK'] !== 'false'
-          : (fileConfig.quotaFallback ?? true),
-      sandboxBackend:
-        (process.env['KOA_SANDBOX_BACKEND'] as 'local' | 'docker' | undefined) ??
-        fileConfig.sandboxBackend ??
-        'local',
-      sandboxTimeoutMs: process.env['KOA_SANDBOX_TIMEOUT_MS']
-        ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)
-        : (fileConfig.sandboxTimeoutMs ?? 10000),
-      browserEnabled: fileConfig.browserEnabled ?? false,
-      userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User',
-      toolTimeoutMs: process.env['KOA_TOOL_TIMEOUT_MS']
-        ? parseInt(process.env['KOA_TOOL_TIMEOUT_MS'], 10)
-        : fileConfig.toolTimeoutMs,
-    });
-  } catch (err) {
-    if (err instanceof z.ZodError) {
-      throw new Error(formatConfigError(err));
-    }
-    throw err;
-  }
-  validateConfig(parsed);
-  return parsed;
-}
-
-// Maps internal config field names to the env var users actually set, so error
-// messages point at KOA_* knobs instead of opaque schema paths.
-const FIELD_TO_ENV: Record<string, string> = {
-  maxTokens: 'KOA_MAX_TOKENS',
-  maxToolOutputChars: 'KOA_MAX_TOOL_OUTPUT',
-  autoCheckpointTurns: 'KOA_CHECKPOINT_TURNS',
-  autoCheckpointMinutes: 'KOA_CHECKPOINT_MINUTES',
-  sandboxTimeoutMs: 'KOA_SANDBOX_TIMEOUT_MS',
-  model: 'KOA_MODEL',
-  provider: 'KOA_PROVIDER',
-};
-
-function formatConfigError(err: z.ZodError): string {
-  const lines = err.issues.map((issue) => {
-    const field = String(issue.path[0] ?? '(root)');
-    const envName = FIELD_TO_ENV[field];
-    const where = envName ? `${envName} (config field "${field}")` : `config field "${field}"`;
-    return `  - ${where}: ${issue.message}`;
+  return ConfigSchema.parse({
+    model: resolvedModel,
+    maxTokens: process.env['KOA_MAX_TOKENS']
+      ? parseInt(process.env['KOA_MAX_TOKENS'], 10)
+      : (fileConfig.maxTokens ?? 8096),
+    projectPath: resolvedPath,
+    engramEnabled: process.env['KOA_ENGRAM'] !== undefined
+      ? process.env['KOA_ENGRAM'] !== 'false'
+      : (fileConfig.engramEnabled ?? true),
+    apiKey,
+    smartRouting: process.env['KOA_SMART_ROUTING'] !== undefined
+      ? process.env['KOA_SMART_ROUTING'] === 'true'
+      : (fileConfig.smartRouting ?? false),
+    maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
+      ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
+      : (fileConfig.maxToolOutputChars ?? 12000),
+    compactAfterTurns: process.env['KOA_COMPACT_TURNS']
+      ? parseInt(process.env['KOA_COMPACT_TURNS'], 10)
+      : (fileConfig.compactAfterTurns ?? 10),
+    spiderBrainBrain: process.env['SPIDERBRAIN_BRAIN'] ?? fileConfig.spiderBrainBrain,
+    autoCheckpointTurns: process.env['KOA_CHECKPOINT_TURNS']
+      ? parseInt(process.env['KOA_CHECKPOINT_TURNS'], 10)
+      : (fileConfig.autoCheckpointTurns ?? 5),
+    autoCheckpointMinutes: process.env['KOA_CHECKPOINT_MINUTES']
+      ? parseInt(process.env['KOA_CHECKPOINT_MINUTES'], 10)
+      : (fileConfig.autoCheckpointMinutes ?? 15),
+    webToken,
+    noCache: process.env['KOA_NO_CACHE'] === 'true' || (fileConfig.noCache ?? false),
+    autoChaining: fileConfig.autoChaining ?? false,
+    briefingEnabled: fileConfig.briefingEnabled ?? false,
+    briefingTime: fileConfig.briefingTime ?? '08:00',
+    ttsProvider: (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | undefined) ?? fileConfig.ttsProvider ?? 'say',
+    elevenLabsVoiceId: fileConfig.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
+    elevenLabsModel: fileConfig.elevenLabsModel ?? 'eleven_turbo_v2_5',
+    provider: (process.env['KOA_PROVIDER'] as 'anthropic' | 'ollama' | undefined) ?? fileConfig.provider ?? 'anthropic',
+    ollamaModel: process.env['KOA_OLLAMA_MODEL'] ?? fileConfig.ollamaModel ?? 'llama3.2',
+    ollamaBaseUrl: process.env['KOA_OLLAMA_BASE_URL'] ?? fileConfig.ollamaBaseUrl ?? 'http://localhost:11434',
+    sandboxBackend: (process.env['KOA_SANDBOX_BACKEND'] as 'local' | 'docker' | undefined) ?? fileConfig.sandboxBackend ?? 'local',
+    sandboxTimeoutMs: process.env['KOA_SANDBOX_TIMEOUT_MS']
+      ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)
+      : (fileConfig.sandboxTimeoutMs ?? 10000),
+    browserEnabled: fileConfig.browserEnabled ?? false,
+    userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User',
   });
   return (
     `Invalid Koa configuration:\n${lines.join('\n')}\n` +
