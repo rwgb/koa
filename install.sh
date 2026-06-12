@@ -65,46 +65,7 @@ elif python3 -c "import importlib.util; exit(0 if importlib.util.find_spec('engr
 else
   warn "Engram CLI not found — memory features will be unavailable"
   warn "See: https://github.com/koalalorenzo/engram"
-fi
-
-# ─── Environment setup ────────────────────────────────────────────────────────
-header "Environment setup"
-
-ENV_FILE="$SCRIPT_DIR/.env"
-
-if [[ -f "$ENV_FILE" ]]; then
-  # Check if key is actually set (non-empty)
-  if grep -qE '^ANTHROPIC_API_KEY=.+' "$ENV_FILE"; then
-    success ".env already configured"
-  else
-    warn ".env exists but ANTHROPIC_API_KEY is empty"
-    read -rp "  Enter your Anthropic API key: " API_KEY
-    # Replace or append the key
-    if grep -q '^ANTHROPIC_API_KEY=' "$ENV_FILE"; then
-      sed -i.bak "s|^ANTHROPIC_API_KEY=.*|ANTHROPIC_API_KEY=${API_KEY}|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-    else
-      echo "ANTHROPIC_API_KEY=${API_KEY}" >> "$ENV_FILE"
-    fi
-    success ".env updated"
-  fi
-else
-  info "Creating .env"
-  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" > "$ENV_FILE"
-    success ".env created from environment variable"
-  else
-    read -rp "  Enter your Anthropic API key (or press Enter to skip): " API_KEY
-    if [[ -n "$API_KEY" ]]; then
-      echo "ANTHROPIC_API_KEY=${API_KEY}" > "$ENV_FILE"
-      success ".env created"
-    else
-      cat > "$ENV_FILE" <<'EOF'
-# Required — get your key at https://console.anthropic.com
-ANTHROPIC_API_KEY=
-EOF
-      warn ".env created without API key — edit it before running koa"
-    fi
-  fi
+  warn "Or install the skill: ~/.claude/skills/engram/cli/engram.py"
 fi
 
 # ─── Install dependencies ─────────────────────────────────────────────────────
@@ -118,6 +79,8 @@ info "Web packages"
 npm install --prefix "$SCRIPT_DIR/web"
 success "Web packages installed"
 
+npm rebuild better-sqlite3 --prefix "$SCRIPT_DIR" 2>/dev/null || warn "could not rebuild better-sqlite3 (may need build tools; run manually if koa fails to start)"
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 if [[ "$SKIP_BUILD" == false ]]; then
   header "Building"
@@ -129,6 +92,30 @@ if [[ "$SKIP_BUILD" == false ]]; then
   info "Building web console"
   npm run build:web --prefix "$SCRIPT_DIR"
   success "Web console built → web/dist/"
+fi
+
+# ─── API key setup ────────────────────────────────────────────────────────────
+# Koa reads its key from the credentials store (~/.koa/credentials) via
+# `koa config set api-key`, NOT from a .env file. We persist through that path so
+# the key is actually used at runtime. This runs AFTER the build.
+header "API key setup"
+
+API_KEY="${ANTHROPIC_API_KEY:-}"
+
+if [[ -z "$API_KEY" && -t 0 ]]; then
+  read -rp "  Enter your Anthropic API key (or press Enter to skip): " API_KEY || API_KEY=""
+fi
+
+if [[ -n "$API_KEY" ]]; then
+  if node "$SCRIPT_DIR/dist/cli/index.js" config set api-key "$API_KEY" 2>/dev/null; then
+    success "API key saved to credentials store"
+  else
+    warn "Could not save key via 'koa config set' — run after install:"
+    warn "  koa config set api-key <your-key>"
+  fi
+else
+  warn "No API key provided. Set one before running koa:"
+  warn "  koa config set api-key <your-key>"
 fi
 
 # ─── Global CLI link ──────────────────────────────────────────────────────────
@@ -145,19 +132,21 @@ fi
 # ─── Git hooks ────────────────────────────────────────────────────────────────
 header "Installing git hooks"
 
-HOOKS_SRC="$SCRIPT_DIR/scripts/git-hooks"
 HOOKS_DST="$SCRIPT_DIR/.git/hooks"
 
-for hook in post-commit post-merge post-checkout; do
-  src="$HOOKS_SRC/$hook"
-  dst="$HOOKS_DST/$hook"
-  if [[ -L "$dst" ]] && [[ "$(readlink "$dst")" == "../../scripts/git-hooks/$hook" ]]; then
-    success "$hook already linked"
-  else
-    ln -sf "../../scripts/git-hooks/$hook" "$dst"
-    success "$hook → scripts/git-hooks/$hook"
-  fi
-done
+if [[ -d "$HOOKS_DST" ]]; then
+  for hook in post-commit post-merge post-checkout; do
+    dst="$HOOKS_DST/$hook"
+    if [[ -L "$dst" ]] && [[ "$(readlink "$dst")" == "../../scripts/git-hooks/$hook" ]]; then
+      success "$hook already linked"
+    else
+      ln -sf "../../scripts/git-hooks/$hook" "$dst"
+      success "$hook → scripts/git-hooks/$hook"
+    fi
+  done
+else
+  warn "No .git/hooks directory (not a git checkout) — skipping git hook install"
+fi
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 echo ""

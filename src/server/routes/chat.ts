@@ -42,9 +42,14 @@ function runChatStream(
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  // Tell Caddy/nginx not to buffer this response — required for SSE through a reverse proxy.
+  // Without this, Caddy's gzip encoder buffers the stream and the browser never receives events.
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 
-  req.on('close', () => {
+  // Use res 'close' (not req 'close') — on Node.js 20, req 'close' fires as soon as the
+  // POST body is consumed, before the async turn completes, making every res.write a no-op.
+  res.on('close', () => {
     disconnected = true;
     setIsBusy(false);
   });
@@ -112,6 +117,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       activeAgent: state.lastAgent ?? 'code-assistant',
       usage: state.usage,
       spiderBrain: state.spiderBrainContext ?? null,
+      conversationId: loop.getConversationId(),
     });
   });
 
@@ -123,9 +129,10 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
     loop
       .checkpoint()
       .then(() => res.json({ status: 'ok', message: 'Checkpoint saved.' }))
-      .catch((err: unknown) =>
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) }),
-      );
+      .catch((err: unknown) => {
+        console.error('[koa] checkpoint error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+      });
   });
 
   router.post('/chat', (req, res) => {

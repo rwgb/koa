@@ -34,8 +34,12 @@ rsync -az \
   package.json \
   "$KOA_HOST:$REMOTE_DIR/package.json"
 
+# --- Rebuild native modules for target platform ---
+log "Rebuilding native modules..."
+ssh "$KOA_HOST" "cd $REMOTE_DIR && npm rebuild better-sqlite3 --silent"
+
 # --- Restart ---
 log "Restarting koa service..."
-ssh "$KOA_HOST" "sudo systemctl restart koa && systemctl is-active --quiet koa && echo 'koa is running'"
+ssh "$KOA_HOST" "systemctl restart koa && systemctl is-active --quiet koa && echo 'koa is running'"
 
 log "Deploy complete."

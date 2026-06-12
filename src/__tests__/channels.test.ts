@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
-import { isQuietHours } from '../channels/router.js';
+import { isQuietHours, routeResponse } from '../channels/router.js';
 import { isDuplicate, markProcessed, contentHash } from '../channels/dedup.js';
 import { validateTwilioSignature, parseTwilioBody } from '../channels/sms.js';
 import { validateSlackSignature, parseSlackInbound } from '../channels/slack.js';
@@ -11,6 +11,7 @@ import { extractIntent } from '../channels/gmail.js';
 import { TelegramPoller } from '../channels/telegram.js';
 import { closeDb } from '../db/index.js';
 import type { AgentLoop } from '../agent/loop.js';
+import * as integrationsStore from '../integrations/store.js';
 
 // ── Anthropic mock ─────────────────────────────────────────────────────────────
 // Must be at module level so Vitest can hoist it correctly.
@@ -419,5 +420,62 @@ describe('TelegramPoller', () => {
     expect(sentMessages[0]!.text).toBe('Hello from Koa!');
 
     vi.unstubAllGlobals();
+  });
+});
+
+// ── D-8: routeResponse batching ───────────────────────────────────────────────
+
+describe('routeResponse batching (D-8)', () => {
+  let dispatchCalls: Array<{ title: string; body: string }>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    dispatchCalls = [];
+    // Stub sendNtfyNotification (the default channel when no rules are configured)
+    // to record calls without side effects.
+    vi.spyOn(integrationsStore, 'sendNtfyNotification').mockImplementation(
+      async (title: string, body: string) => {
+        dispatchCalls.push({ title, body });
+      },
+    );
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('single message + advance timer → dispatchToChannel called exactly once', async () => {
+    await routeResponse('d8-single-test', 'Title', 'msg1');
+
+    // The first message is dispatched immediately.
+    expect(dispatchCalls.length).toBe(1);
+    expect(dispatchCalls[0]!.body).toBe('msg1');
+
+    // Advance the batch window; the buffer started empty so flushBatch is a no-op.
+    await vi.runAllTimersAsync();
+
+    expect(dispatchCalls.length).toBe(1);
+  });
+
+  it('three messages within window → first immediate + one batch of messages 2 and 3', async () => {
+    // Message 1 dispatched immediately.
+    await routeResponse('d8-three-test', 'Title', 'msg1');
+    // Messages 2 and 3 accumulated in the buffer (buffer has 2 entries, below BATCH_THRESHOLD).
+    await routeResponse('d8-three-test', 'Title', 'msg2');
+    await routeResponse('d8-three-test', 'Title', 'msg3');
+
+    // Only the immediate dispatch has fired so far.
+    expect(dispatchCalls.length).toBe(1);
+    expect(dispatchCalls[0]!.body).toBe('msg1');
+
+    // Advance past the batch window so the timer fires and flushes the buffer.
+    await vi.runAllTimersAsync();
+
+    // Now the batch has fired: total = 2 (immediate + batch of msg2+msg3).
+    expect(dispatchCalls.length).toBe(2);
+    // Second call: the batched flush containing msg2 and msg3.
+    expect(dispatchCalls[1]!.body).toBe('msg2\nmsg3');
+    // The batch title reflects the number of buffered messages (2).
+    expect(dispatchCalls[1]!.title).toBe('Koa: 2 notifications');
   });
 });

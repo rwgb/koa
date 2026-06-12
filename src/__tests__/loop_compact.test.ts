@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
-import { compactMessages, groupIntoClusters } from '../agent/loop.js';
+import {
+  compactMessages,
+  groupIntoClusters,
+  MIN_PROMPT_BUDGET_TOKENS,
+  MIN_PROMPT_BUDGET_RATIO,
+  MODEL_CONTEXT_WINDOWS,
+} from '../agent/loop.js';
 
 // Helpers to build the message shapes Koa actually produces
 const userText = (text: string): Anthropic.MessageParam => ({ role: 'user', content: text });
@@ -234,5 +240,37 @@ describe('groupIntoClusters()', () => {
     expect(clusters).toHaveLength(2);
     expect(clusters[0]).toHaveLength(2);
     expect(clusters[1]![0]).toEqual(userText('follow up'));
+  });
+});
+
+describe('OC-1 token-budget compaction constants', () => {
+  it('MIN_PROMPT_BUDGET_TOKENS is 8000', () => {
+    expect(MIN_PROMPT_BUDGET_TOKENS).toBe(8_000);
+  });
+
+  it('MIN_PROMPT_BUDGET_RATIO is 0.5', () => {
+    expect(MIN_PROMPT_BUDGET_RATIO).toBe(0.5);
+  });
+
+  it('compressThreshold for a 200k model is 100_000', () => {
+    // contextWindow=200000, threshold = 200000 - max(8000, 200000*0.5) = 200000 - 100000 = 100000
+    const contextWindow = MODEL_CONTEXT_WINDOWS['claude-sonnet-4-6']!;
+    expect(contextWindow).toBe(200_000);
+    const threshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
+    expect(threshold).toBe(100_000);
+  });
+
+  it('unknown model falls back to 200k context window giving threshold 100_000', () => {
+    const contextWindow = MODEL_CONTEXT_WINDOWS['unknown-model-xyz'] ?? 200_000;
+    expect(contextWindow).toBe(200_000);
+    const threshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
+    expect(threshold).toBe(100_000);
+  });
+
+  it('hypothetical 32k model yields threshold 16_000', () => {
+    // contextWindow=32000, threshold = 32000 - max(8000, 32000*0.5) = 32000 - max(8000,16000) = 32000 - 16000 = 16000
+    const contextWindow = 32_000;
+    const threshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
+    expect(threshold).toBe(16_000);
   });
 });

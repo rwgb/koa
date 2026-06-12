@@ -1,18 +1,22 @@
 import Anthropic, { BadRequestError } from '@anthropic-ai/sdk';
+import path from 'path';
 import { createProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/index.js';
+import { ClaudeCodeProvider } from './providers/claude_code.js';
+import { OllamaProvider } from './providers/ollama.js';
 import crypto from 'crypto';
-import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent, ContextStats } from '../types/index.js';
+import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent, ContextStats, AgentConfig } from '../types/index.js';
+import { MODEL_MAP } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
 import type { KoaConfig } from '../config/index.js';
-import { selectModel } from './router.js';
+import { selectModel, classifyMessage } from './router.js';
 import type { UsageTracker } from './usage.js';
 import { loadMemories, buildMemoryPromptInjection } from '../memory/store.js';
 import type { MemoryEntry } from '../memory/store.js';
 import { selectAgent, isCodeQuery, hasBacklogSignals } from './select-agent.js';
-import { AGENT_SPECS } from './specialists.js';
+import { buildAgentSpecs } from './specialists.js';
 import { buildCalendarSummary } from '../calendar/conflicts.js';
 import { isCalendarConfigured } from '../calendar/oauth.js';
 import { buildWeeklyReport, buildWeeklyReportSummary } from '../analytics/streaks.js';
@@ -27,11 +31,31 @@ import {
   extractAndMergePreferences,
 } from '../engram/preferences.js';
 import type { Preference } from '../engram/preferences.js';
+import { readRecentSignals } from '../engram/signals.js';
+import type { SignalType } from '../engram/signals.js';
 
-const CONTEXT_COMPRESS_THRESHOLD = 150_000; // ~75% of 200k context
+const MIN_PROMPT_BUDGET_TOKENS = 8_000;
+const MIN_PROMPT_BUDGET_RATIO = 0.5;
+const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-haiku-4-5-20251001': 200_000,
+  'claude-sonnet-4-6': 200_000,
+  'claude-opus-4-8': 200_000,
+  'claude-fable-5': 200_000,
+};
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
 
+/**
+ * Resolves an AgentConfig model tier ('fast' | 'standard' | 'powerful') to a
+ * concrete model id. Full model ids pass through untouched; an omitted value
+ * defaults to the 'standard' tier (Sonnet).
+ */
+export function resolveModelTier(model: AgentConfig['model'] | string | undefined): string {
+  if (!model) return MODEL_MAP.standard;
+  return model in MODEL_MAP ? MODEL_MAP[model as keyof typeof MODEL_MAP] : model;
+}
+
 export { isCodeQuery, hasBacklogSignals };
+export { MIN_PROMPT_BUDGET_TOKENS, MIN_PROMPT_BUDGET_RATIO, MODEL_CONTEXT_WINDOWS };
 import {
   ensureProjectMemoryDir,
   readMarkdownFile,
@@ -45,6 +69,9 @@ import {
   closeConversation,
   getConversationTurns,
   updateConversationTitle,
+  getProjectBySlug,
+  getProjectBudget,
+  getProjectCumulativeCost,
 } from '../db/index.js';
 import { routeResponse } from '../channels/router.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
@@ -78,7 +105,12 @@ const PRICING: Record<string, { input: number; cacheWrite: number; cacheRead: nu
   opus: { input: 0.000015, cacheWrite: 0.00001875, cacheRead: 0.0000015, output: 0.000075 },
 };
 
+const FREE_PRICING = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+
 function pricingFor(model: string) {
+  // claude-code (subscription) and Ollama (local) incur no per-token API cost —
+  // billing them at Sonnet rates produces phantom costs in the budget guard.
+  if (model === 'claude-code' || !model.startsWith('claude-')) return FREE_PRICING;
   if (model.includes('haiku')) return PRICING['haiku']!;
   if (model.includes('opus')) return PRICING['opus']!;
   return PRICING['sonnet']!;
@@ -120,6 +152,28 @@ export function groupIntoClusters(messages: Anthropic.MessageParam[]): MessageCl
   return clusters;
 }
 
+/**
+ * Marks the last block of the last message in the conversation history with
+ * `cache_control: ephemeral` so the API can cache the history up to that point.
+ * This is a prerequisite for prompt caching of multi-turn conversations.
+ * Operates in-place; safe to call before every stream() invocation.
+ */
+function markMessageHistoryCache(messages: Anthropic.MessageParam[]): void {
+  if (messages.length === 0) return;
+  // Strip markers left by previous calls first — the API allows at most 4
+  // cache_control breakpoints per request, so stale ones accumulate into a 400.
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      delete (block as unknown as Record<string, unknown>)['cache_control'];
+    }
+  }
+  const last = messages[messages.length - 1]!;
+  if (!Array.isArray(last.content) || last.content.length === 0) return;
+  const lastBlock = last.content[last.content.length - 1] as unknown as Record<string, unknown>;
+  lastBlock['cache_control'] = { type: 'ephemeral' };
+}
+
 function isContextLengthError(err: unknown): boolean {
   if (!(err instanceof BadRequestError)) return false;
   const msg = err.message.toLowerCase();
@@ -158,6 +212,8 @@ function logUsage(
 
 export class AgentLoop {
   private provider: LlmProvider;
+  private claudeCodeProvider?: LlmProvider;
+  private ollamaProvider?: LlmProvider;
   // Kept for Anthropic-specific background tasks (preference extraction, selectModel classifier)
   private anthropicClient: Anthropic | null;
   private registry: ToolRegistry;
@@ -173,8 +229,17 @@ export class AgentLoop {
   private _checkpointInProgress = false;
   private _checkpointTimer: ReturnType<typeof setInterval> | undefined = undefined;
   private _conversationId?: string;
+  /** Project id resolved in initialize(); used for lazy conversation creation on first turn. */
+  private _projectId?: string;
+  /** In-flight title generation started after turn 1; awaited (with timeout) in finalize(). */
+  private _titleGeneration?: Promise<void>;
   private lastCompactionAt: string | null = null;
   private _busy = false;
+  private agentSpecs: ReturnType<typeof buildAgentSpecs>;
+  private projectBudget: number | null = null;
+  private sessionCostUsd = 0;
+  /** Cost already recorded for this project in prior sessions (cumulative budget enforcement). */
+  private priorProjectCostUsd = 0;
 
   constructor(
     config: KoaConfig,
@@ -183,12 +248,22 @@ export class AgentLoop {
     usage: UsageTracker,
     sb: SpiderBrainClient,
   ) {
+    // Tier aliases (e.g. `koa chat --model fast`) resolve to concrete model ids
+    // before any provider or router sees them.
+    config.model = resolveModelTier(config.model);
     this.config = config;
     this.registry = registry;
     this.engram = engram;
     this.sb = sb;
     this.usage = usage;
+    this.agentSpecs = buildAgentSpecs(config.userName ?? 'User');
     this.provider = createProvider(config);
+    if (config.provider === 'auto') {
+      this.claudeCodeProvider = new ClaudeCodeProvider(config.claudeCodePath ?? 'claude');
+      if (config.ollamaBaseUrl) {
+        this.ollamaProvider = new OllamaProvider(config.ollamaBaseUrl);
+      }
+    }
     this.anthropicClient = config.apiKey ? new Anthropic({ apiKey: config.apiKey }) : null;
     this.state = {
       messages: [],
@@ -202,7 +277,7 @@ export class AgentLoop {
     this.config.apiKey = key;
     this.anthropicClient = new Anthropic({ apiKey: key });
     // If currently using Anthropic provider, recreate it with the new key
-    if (this.config.provider !== 'ollama') {
+    if (this.config.provider !== 'ollama' && this.config.provider !== 'claude-code') {
       this.provider = createProvider(this.config);
     }
   }
@@ -260,12 +335,24 @@ export class AgentLoop {
 
     this.memories = loadMemories();
 
-    // Start conversation record
+    // Resolve project so the conversation record is linked to it and the
+    // budget can be enforced cumulatively across sessions, not just per-session.
+    // The conversation row itself is created lazily on the first turn so a
+    // server boot that never receives a message leaves no 0-turn rows.
     try {
-      const conv = createConversation();
-      this._conversationId = conv.id;
+      const projectSlug = this.config.projectPath
+        ? path.basename(this.config.projectPath)
+        : null;
+      if (projectSlug) {
+        const project = getProjectBySlug(projectSlug);
+        if (project?.id) {
+          this._projectId = project.id;
+          this.projectBudget = getProjectBudget(project.id);
+          this.priorProjectCostUsd = getProjectCumulativeCost(project.id);
+        }
+      }
     } catch {
-      // non-fatal — conversation persistence is best-effort
+      // non-fatal — budget enforcement is best-effort
     }
 
     if (this.config.autoCheckpointMinutes > 0) {
@@ -433,13 +520,6 @@ export class AgentLoop {
     }
   }
 
-  private maybeCompact(): void {
-    this.state.messages = compactMessages(
-      this.state.messages,
-      this.config.compactAfterTurns * 2,
-    );
-  }
-
   private buildConversationSummary(): string {
     const lines: string[] = [];
     for (const msg of this.state.messages) {
@@ -523,8 +603,15 @@ export class AgentLoop {
     }
   }
 
-  private async maybeCompressContext(inputTokens: number): Promise<void> {
-    if (inputTokens < CONTEXT_COMPRESS_THRESHOLD) return;
+  /**
+   * `inputTokens` must be the input size of the LAST request (uncached + cache-read),
+   * not a per-turn accumulated sum — the trigger compares against the context window
+   * of the model the turn was actually routed to.
+   */
+  private async maybeCompressContext(inputTokens: number, model: string): Promise<void> {
+    const contextWindow = MODEL_CONTEXT_WINDOWS[model] ?? 200_000;
+    const compressThreshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
+    if (inputTokens < compressThreshold) return;
     if (!this.config.apiKey) return;
     process.stderr.write(`[koa] context at ${inputTokens} tokens — compressing\n`);
     await this.semanticCompact();
@@ -544,7 +631,7 @@ export class AgentLoop {
     // Agent routing: determine specialist first; its model overrides complexity routing.
     // @tier: prefix still punches through (selectModel checks override before config.model).
     const agentName = selectAgent(userMessage);
-    const agentSpec = AGENT_SPECS[agentName];
+    const agentSpec = this.agentSpecs[agentName];
 
     // When smartRouting is off, honour config.model directly.
     // When smartRouting is on, use the specialist's model as the tier-routing base.
@@ -560,6 +647,35 @@ export class AgentLoop {
       selectedModel = this.config.ollamaModel;
       tier = 'custom';
       cleanMessage = userMessage;
+    } else if (this.config.provider === 'claude-code') {
+      selectedModel = 'claude-code';
+      tier = 'claude-code';
+      cleanMessage = userMessage;
+    } else if (this.config.provider === 'auto') {
+      if (isCodeQuery(userMessage) && this.claudeCodeProvider) {
+        selectedModel = 'claude-code';
+        tier = 'claude-code';
+        cleanMessage = userMessage;
+      } else if (classifyMessage(userMessage) === 'simple' && this.ollamaProvider) {
+        selectedModel = this.config.ollamaModel;
+        tier = 'custom';
+        cleanMessage = userMessage;
+      } else {
+        const baseModel = this.config.smartRouting ? agentSpec.model : this.config.model;
+        if (this.config.smartRouting) callbacks?.onClassifying?.();
+        const result = await selectModel(
+          userMessage,
+          this.state.messages.filter((m) => m.role === 'assistant').length,
+          { model: baseModel, smartRouting: this.config.smartRouting },
+          this.anthropicClient!,
+        );
+        selectedModel = result.model;
+        tier = result.tier;
+        cleanMessage = result.cleanMessage;
+        classifierLatencyMs = result.classifierLatencyMs;
+        classifierUsage = result.classifierUsage;
+        if (this.config.smartRouting) callbacks?.onClassified?.(tier);
+      }
     } else {
       const baseModel = this.config.smartRouting ? agentSpec.model : this.config.model;
       if (this.config.smartRouting) callbacks?.onClassifying?.();
@@ -579,6 +695,15 @@ export class AgentLoop {
 
     this.state.messages.push({ role: 'user', content: cleanMessage });
     this.state.turnCount++;
+
+    // Lazy conversation creation — deferred from initialize() so only
+    // conversations with at least one turn get a row.
+    if (!this._conversationId) {
+      try {
+        const conv = createConversation(this._projectId);
+        this._conversationId = conv.id;
+      } catch { /* non-fatal — conversation persistence is best-effort */ }
+    }
 
     if (this._conversationId) {
       try {
@@ -605,9 +730,11 @@ export class AgentLoop {
       const forecastBlock = this.buildForecastBlock();
       if (forecastBlock) extraBlocks.push(forecastBlock);
     }
+    // agentBlock has no cache_control and must come AFTER all cached blocks so
+    // the static cache breakpoints (block1, block2) are not displaced.
     const system = extraBlocks.length > 0
-      ? [agentBlock, ...blocks, ...extraBlocks]
-      : [agentBlock, ...blocks];
+      ? [...blocks, agentBlock, ...extraBlocks]
+      : [...blocks, agentBlock];
 
     const tools = this.registry.toAnthropicTools();
     if (tools.length > 0) {
@@ -617,10 +744,13 @@ export class AgentLoop {
       };
     }
 
-    // Phase 4: check response cache (skip if noCache flag set)
+    // Phase 4: check response cache (skip if noCache flag set, or if mid-conversation).
+    // The cache is only eligible for turn-1 messages (no prior history) — mid-conversation turns
+    // have prior messages that change the semantic meaning of the same message text.
+    const isTurn1 = this.state.messages.length === 1; // only the current user message
     const systemHash = crypto.createHash('sha256').update(blocks[0]!.text).digest('hex').slice(0, 16);
     const cacheKey = ResponseCache.key(systemHash, cleanMessage);
-    if (!this.config.noCache) {
+    if (!this.config.noCache && isTurn1) {
       const cached = this.responseCache.get(cacheKey);
       if (cached) {
         process.stderr.write(`[koa] cache HIT\n`);
@@ -640,17 +770,48 @@ export class AgentLoop {
     }
 
     const acc = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+    let lastRequestInputTokens = 0;
 
+    const activeProvider: LlmProvider =
+      tier === 'claude-code' && this.claudeCodeProvider ? this.claudeCodeProvider :
+      tier === 'custom' && this.ollamaProvider ? this.ollamaProvider :
+      this.provider;
+
+    const MAX_TOOL_ITERATIONS = 25;
     const toolUses: ToolUse[] = [];
     let finalContent = '';
     let stopReason = 'end_turn';
 
     let continueLoop = true;
     let compressionRetried = false;
+    let iterationCount = 0;
     while (continueLoop) {
+      // Max-iteration guard: stop before entering an infinite tool-use loop
+      if (iterationCount >= MAX_TOOL_ITERATIONS) {
+        const budgetMsg = '[tool-iteration budget exhausted — stopping to prevent infinite loop]';
+        callbacks?.onTextDelta?.(budgetMsg);
+        finalContent = budgetMsg;
+        stopReason = 'max_iterations';
+        break;
+      }
+      iterationCount++;
+
+      // Per-project budget guard: cumulative across sessions (prior recorded turn
+      // costs + this session) — block new API calls once the budget is exhausted.
+      const projectCostUsd = this.priorProjectCostUsd + this.sessionCostUsd;
+      if (this.projectBudget !== null && projectCostUsd >= this.projectBudget) {
+        throw new Error(
+          `Project budget exceeded: cumulative cost $${projectCostUsd.toFixed(4)} >= budget $${this.projectBudget.toFixed(2)}`,
+        );
+      }
+
+      // Mark the last block of the last message with cache_control before each stream call
+      // so the API can cache the conversation history up to this point.
+      markMessageHistoryCache(this.state.messages);
+
       let response: Anthropic.Message;
       try {
-        const stream = this.provider.stream({
+        const stream = activeProvider.stream({
           model: selectedModel,
           max_tokens: this.config.maxTokens,
           system,
@@ -673,13 +834,58 @@ export class AgentLoop {
       acc.outputTokens += response.usage.output_tokens;
       acc.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
       acc.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+      lastRequestInputTokens =
+        response.usage.input_tokens + (response.usage.cache_read_input_tokens ?? 0);
+
+      // Quota-fallback attribution: a turn served by the ClaudeCode fallback
+      // carries model 'claude-code' on the response even though an Anthropic
+      // model was requested. Re-attribute so usage/done events and logUsage
+      // report the real model and tier instead of phantom Sonnet usage.
+      if (response.model === 'claude-code' && selectedModel !== 'claude-code') {
+        selectedModel = 'claude-code';
+        tier = 'claude-code';
+      }
+
+      // Accumulate session cost for per-project budget enforcement. Price by
+      // the model that actually served this response (response.model), not the
+      // requested model — quota fallback can swap providers mid-turn.
+      const p = pricingFor(response.model);
+      this.sessionCostUsd +=
+        response.usage.input_tokens * p.input +
+        (response.usage.cache_creation_input_tokens ?? 0) * p.cacheWrite +
+        (response.usage.cache_read_input_tokens ?? 0) * p.cacheRead +
+        response.usage.output_tokens * p.output;
 
       stopReason = response.stop_reason ?? 'end_turn';
 
       const assistantContent: Anthropic.MessageParam['content'] = response.content;
       this.state.messages.push({ role: 'assistant', content: assistantContent });
 
-      if (stopReason === 'tool_use') {
+      if (stopReason === 'max_tokens') {
+        // A truncated response: collect text so far and inject a truncation marker.
+        // If there are also tool_use blocks, do NOT execute them — the inputs may be incomplete.
+        finalContent = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .map((b) => b.text)
+          .join('');
+        const truncationMarker = '[response truncated at max_tokens]';
+        finalContent += truncationMarker;
+        callbacks?.onTextDelta?.(truncationMarker);
+
+        // Insert placeholder tool_results for any unexecuted tool_use blocks
+        const toolUseBlocks = response.content.filter(
+          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+        );
+        if (toolUseBlocks.length > 0) {
+          const placeholders: Anthropic.ToolResultBlockParam[] = toolUseBlocks.map((b) => ({
+            type: 'tool_result',
+            tool_use_id: b.id,
+            content: 'skipped — response truncated at max_tokens',
+          }));
+          this.state.messages.push({ role: 'user', content: placeholders });
+        }
+        continueLoop = false;
+      } else if (stopReason === 'tool_use') {
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
         for (const block of response.content) {
@@ -694,7 +900,13 @@ export class AgentLoop {
           } else {
             callbacks?.onToolCall?.(block.name, toolInput);
             try {
-              result = await tool.execute(toolInput);
+              const timeoutMs = this.config.toolTimeoutMs ?? 30_000;
+              result = await Promise.race([
+                tool.execute(toolInput),
+                new Promise<never>((_, reject) =>
+                  setTimeout(() => reject(new Error(`tool timed out after ${timeoutMs}ms`)), timeoutMs),
+                ),
+              ]);
             } catch (err) {
               result = `Error: ${err instanceof Error ? err.message : String(err)}`;
             }
@@ -731,7 +943,7 @@ export class AgentLoop {
     this.state.lastModel = selectedModel;
     this.state.lastTier = tier;
     this.state.lastAgent = agentName;
-    await this.maybeCompressContext(acc.inputTokens);
+    await this.maybeCompressContext(lastRequestInputTokens, selectedModel);
 
     logUsage(acc, selectedModel, {
       spiderBrain: injectedSpiderBrain,
@@ -740,8 +952,9 @@ export class AgentLoop {
       handoff: hasHandoff,
     });
 
-    // Store in response cache only when no tool calls occurred (tool results are side-effectful)
-    if (!this.config.noCache && toolUses.length === 0 && finalContent) {
+    // Store in response cache only on turn 1 (no prior history) and with no tool calls
+    // (tool results are side-effectful and should not be cached).
+    if (!this.config.noCache && isTurn1 && toolUses.length === 0 && finalContent) {
       this.responseCache.set(cacheKey, finalContent);
     }
 
@@ -757,19 +970,74 @@ export class AgentLoop {
       try {
         callbacks?.onChainStart?.('project-manager');
         const pmPrompt = buildPmFollowUpPrompt(finalContent);
-        const pmSpec = AGENT_SPECS['project-manager'];
+        const pmSpec = this.agentSpecs['project-manager'];
         const pmModel = this.config.provider === 'ollama' ? this.config.ollamaModel : pmSpec.model;
-        const pmResponse = await this.provider.create({
-          model: pmModel,
-          max_tokens: 512,
-          system: [{ type: 'text', text: pmSpec.systemAddition }],
-          messages: [{ role: 'user', content: pmPrompt }],
-          tools,
-        });
-        const pmText = pmResponse.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('');
+        // Agentic mini-loop: execute PM tool calls and feed tool_result blocks back
+        // (assistant → tool_result pattern) so chained tool use is not silently dropped.
+        const pmMessages: Anthropic.MessageParam[] = [{ role: 'user', content: pmPrompt }];
+        let pmText = '';
+        const MAX_PM_ROUNDS = 5;
+        for (let round = 0; round < MAX_PM_ROUNDS; round++) {
+          // Per-project budget guard — PM rounds incur API spend like main-loop calls.
+          const pmProjectCostUsd = this.priorProjectCostUsd + this.sessionCostUsd;
+          if (this.projectBudget !== null && pmProjectCostUsd >= this.projectBudget) {
+            break;
+          }
+          const pmResponse = await this.provider.create({
+            model: pmModel,
+            max_tokens: 512,
+            system: [{ type: 'text', text: pmSpec.systemAddition }],
+            messages: pmMessages,
+            tools,
+          });
+          // Accrue PM usage into session cost so budget enforcement sees it.
+          const pmPricing = pricingFor(pmResponse.model);
+          this.sessionCostUsd +=
+            pmResponse.usage.input_tokens * pmPricing.input +
+            (pmResponse.usage.cache_creation_input_tokens ?? 0) * pmPricing.cacheWrite +
+            (pmResponse.usage.cache_read_input_tokens ?? 0) * pmPricing.cacheRead +
+            pmResponse.usage.output_tokens * pmPricing.output;
+          pmText += pmResponse.content
+            .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+          if (pmResponse.stop_reason !== 'tool_use') break;
+
+          pmMessages.push({ role: 'assistant', content: pmResponse.content });
+          const pmToolResults: Anthropic.ToolResultBlockParam[] = [];
+          for (const block of pmResponse.content) {
+            if (block.type !== 'tool_use') continue;
+            const tool = this.registry.get(block.name);
+            const toolInput = block.input as Record<string, unknown>;
+            let result: ToolResultContent;
+            if (!tool) {
+              result = `Error: unknown tool "${block.name}"`;
+            } else {
+              callbacks?.onToolCall?.(block.name, toolInput);
+              try {
+                const timeoutMs = this.config.toolTimeoutMs ?? 30_000;
+                result = await Promise.race([
+                  tool.execute(toolInput),
+                  new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error(`tool timed out after ${timeoutMs}ms`)), timeoutMs),
+                  ),
+                ]);
+              } catch (err) {
+                result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+              }
+              const displayResult =
+                typeof result === 'string' ? result : `[${block.name} returned binary content]`;
+              callbacks?.onToolResult?.(block.name, displayResult);
+            }
+            if (typeof result === 'string' && result.length > this.config.maxToolOutputChars) {
+              result =
+                result.slice(0, this.config.maxToolOutputChars) +
+                `\n[truncated — ${result.length} total chars]`;
+            }
+            pmToolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+          }
+          pmMessages.push({ role: 'user', content: pmToolResults });
+        }
         if (pmText) {
           const sep = '\n\n---\n**PM:** ';
           callbacks?.onTextDelta?.(sep + pmText);
@@ -795,6 +1063,15 @@ export class AgentLoop {
           toolUses: toolUses.map((t) => ({ id: t.id, name: t.name })),
         });
       } catch { /* non-fatal */ }
+
+      // Auto-title after the first exchange — non-blocking so it adds no turn
+      // latency. Must run after addConversationTurn above because the title
+      // generator reads turns back from the DB. _generateConversationTitle
+      // never rejects, and _titleGeneration doubles as a run-once guard that
+      // finalize() can await.
+      if (this.state.turnCount === 1 && !this._titleGeneration && this.config.apiKey) {
+        this._titleGeneration = this._generateConversationTitle(this._conversationId);
+      }
     }
 
     // Background preference extraction — Anthropic-only, non-blocking, non-fatal
@@ -860,7 +1137,12 @@ export class AgentLoop {
         closeConversation(this._conversationId, this.state.turnCount);
       } catch { /* non-fatal */ }
       if (this.config.apiKey) {
-        void this._generateConversationTitle(this._conversationId);
+        // Await title generation (best-effort, 5s cap) so short CLI sessions
+        // don't lose the title to process.exit() racing the request.
+        await Promise.race([
+          this._titleGeneration ?? this._generateConversationTitle(this._conversationId),
+          new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+        ]);
       }
     }
 
@@ -893,6 +1175,45 @@ export class AgentLoop {
         ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)
         : Promise.resolve(),
     ]);
+
+    this._appendEngramSignalsToHandoff(paths.handoffMd);
+  }
+
+  private _appendEngramSignalsToHandoff(handoffMd: string): void {
+    const SIGNAL_DESCRIPTIONS: Record<SignalType, string> = {
+      'thin-context': 'getContext returned no goal or session summary — Engram brain may be empty',
+      'empty-query': 'query() returned empty string — index may be stale or missing',
+      'failed-call': 'rememberSession() threw an exception — session not persisted to Engram',
+      'slow-sync': 'sync() took >15s — filesystem scan may be too large',
+      'poor-recall': 'recall quality flagged as poor by the agent',
+    };
+
+    try {
+      const signals = readRecentSignals(20);
+      if (signals.length === 0) return;
+
+      const counts = new Map<SignalType, number>();
+      for (const s of signals) {
+        counts.set(s.type, (counts.get(s.type) ?? 0) + 1);
+      }
+
+      const flagged = Array.from(counts.entries()).filter(([, count]) => count >= 3);
+      if (flagged.length === 0) return;
+
+      const lines = ['', '## Pending Engram Work', ''];
+      for (const [type, count] of flagged) {
+        lines.push(`- **${type}** (${count}x): ${SIGNAL_DESCRIPTIONS[type]}`);
+      }
+      lines.push('');
+
+      const existing = readMarkdownFile(handoffMd) ?? '';
+      // Idempotent: strip any previous ## Pending Engram Work section before appending
+      // so calling this function twice does not produce duplicate sections.
+      const stripped = existing.replace(/\n*## Pending Engram Work[\s\S]*?(?=\n## |\n*$)/g, '');
+      writeMarkdownFile(handoffMd, stripped.trimEnd() + lines.join('\n'));
+    } catch {
+      // non-fatal — HANDOFF.md append is best-effort
+    }
   }
 
   private async _generateConversationTitle(conversationId: string): Promise<void> {
@@ -928,6 +1249,11 @@ export class AgentLoop {
 
   getState(): Readonly<AgentState> {
     return this.state;
+  }
+
+  /** Current conversation row id, or null before the first turn (lazy creation). */
+  getConversationId(): string | null {
+    return this._conversationId ?? null;
   }
 
   getTools(): Array<{ name: string; description: string }> {

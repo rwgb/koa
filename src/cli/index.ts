@@ -9,7 +9,7 @@ import { bashTool } from '../agent/tools/bash.js';
 import { createFileTools } from '../agent/tools/files.js';
 import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
-import { rememberTool, forgetTool } from '../agent/tools/memory_tool.js';
+import { createRememberTool, forgetTool } from '../agent/tools/memory_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
 import { webFetchTool } from '../agent/tools/web_fetch.js';
 import { webSearchTool } from '../agent/tools/web_search.js';
@@ -19,6 +19,7 @@ import { githubTools } from '../agent/tools/github.js';
 import { createCustomSkillTool } from '../agent/tools/custom_skill_tool.js';
 import { createExecuteCodeTool } from '../agent/tools/execute_code.js';
 import { browserTools } from '../agent/tools/browser.js';
+import { crossRepoTools } from '../agent/tools/cross_repo.js';
 import { loadCustomSkills } from '../skills/store.js';
 import { loadPlugins } from '../plugins/loader.js';
 import { createPluginTool } from '../plugins/bridge.js';
@@ -48,11 +49,12 @@ function buildRegistry(
   for (const tool of githubTools) registry.register(tool);
   for (const tool of createFileTools(projectRoot)) registry.register(tool);
   registry.register(createEngramTool(engram));
-  registry.register(rememberTool);
+  registry.register(createRememberTool(config.userName ?? 'User'));
   registry.register(forgetTool);
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
   registry.register(createExecuteCodeTool(createRunner(config), config));
   for (const tool of browserTools) registry.register(tool);
+  for (const tool of crossRepoTools) registry.register(tool);
   for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
   for (const plugin of loadPlugins()) {
     registry.registerMany(plugin.tools.map(createPluginTool));
@@ -109,12 +111,19 @@ program
 
     const engramContext = loop.getState().engramContext;
 
+    // Suppress stderr writes while Ink is running. Every process.stderr.write call
+    // in loop.ts / engram / spiderbrain moves the terminal cursor, causing Ink to
+    // lose its render position and re-print the entire layout below itself on each turn.
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: () => boolean }).write = () => true;
+
     const { waitUntilExit } = render(
       React.createElement(App, { loop, config, engramContext }),
       { exitOnCtrlC: false },
     );
 
     await waitUntilExit();
+    process.stderr.write = origStderrWrite;
     // finalize() already ran inside App.tsx quit() before exit() was called.
     // process.exit() is required here because the Anthropic SDK's HTTP keep-alive
     // connections hold the Node event loop open indefinitely after Ink exits.
@@ -320,9 +329,14 @@ configCmd
   .command('unset <key>')
   .description('Remove a persisted configuration value')
   .action((key: string) => {
-    const credKey = key === 'api-key' ? 'ANTHROPIC_API_KEY' : key;
-    deleteCredential(credKey);
-    console.log(`Removed ${key} from ${getCredentialsPath()}`);
+    const credKey =
+      key === 'api-key' ? 'ANTHROPIC_API_KEY' : key === 'web-token' ? 'KOA_WEB_TOKEN' : key;
+    if (deleteCredential(credKey)) {
+      console.log(`Removed ${key} from ${getCredentialsPath()}`);
+    } else {
+      console.error(`Error: "${key}" not found in ${getCredentialsPath()} — nothing removed`);
+      process.exit(1);
+    }
   });
 
 configCmd
@@ -343,6 +357,106 @@ configCmd
 
     console.log(`ANTHROPIC_API_KEY  ${masked}  [${source}]`);
     console.log(`Credentials file   ${getCredentialsPath()}`);
+  });
+
+program
+  .command('setup')
+  .description('Interactive first-run setup wizard')
+  .option('--reset', 'Re-prompt for all values even if already set')
+  .option('--headless', 'Validate T1 credentials only; exit 1 if missing (for Docker/CI)')
+  .action(async (opts: { reset?: boolean; headless?: boolean }) => {
+    const { runSetupWizard } = await import('./setup.js');
+    await runSetupWizard(opts);
+  });
+
+program
+  .command('doctor')
+  .description('Diagnose and optionally fix stale ~/.koa/config.json entries')
+  .option('--fix', 'Back up config and rewrite to canonical format')
+  .action(async (opts: { fix?: boolean }) => {
+    const os = await import('node:os');
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+
+    // KOA_HOME redirects the config dir (Docker/systemd) — same convention as credentials.ts.
+    const configPath = path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'config.json');
+    if (!fs.existsSync(configPath)) {
+      console.log('No config file found at', configPath);
+      return;
+    }
+
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch {
+      console.error('Could not parse config.json — file may be corrupt.');
+      process.exit(1);
+    }
+
+    const issues: Array<{ field: string; description: string; fix: (cfg: Record<string, unknown>) => void }> = [];
+
+    if ('smartRouting' in raw) {
+      issues.push({
+        field: 'smartRouting',
+        description: raw['smartRouting'] === true
+          ? 'smartRouting: true — migrate to provider: "auto"'
+          : 'smartRouting field is obsolete — removing',
+        fix: (cfg) => {
+          if (cfg['smartRouting'] === true && !('provider' in cfg)) cfg['provider'] = 'auto';
+          delete cfg['smartRouting'];
+        },
+      });
+    }
+    if ('compactAfterTurns' in raw) {
+      issues.push({
+        field: 'compactAfterTurns',
+        description: 'compactAfterTurns is a dead config field — removing',
+        fix: (cfg) => { delete cfg['compactAfterTurns']; },
+      });
+    }
+
+    if (issues.length === 0) {
+      console.log('Config looks clean. No issues found.');
+      return;
+    }
+
+    console.log(`Found ${issues.length} issue(s):`);
+    for (const issue of issues) console.log(`  • ${issue.description}`);
+
+    if (!opts.fix) {
+      console.log("\nRun 'koa doctor --fix' to automatically apply these fixes.");
+      return;
+    }
+
+    // --fix path: backup + atomic write
+    const backup = configPath + '.bak';
+    fs.copyFileSync(configPath, backup);
+    const updated = { ...raw };
+    for (const issue of issues) issue.fix(updated);
+    const tmp = configPath + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(tmp, configPath);
+    console.log(`Fixed ${issues.length} issue(s). Backup saved to ${backup}`);
+  });
+
+program
+  .command('update')
+  .description('Update Koa: git pull + rebuild, with automatic rollback if the build or tests fail')
+  .option('--check', 'Report whether an update is available without applying it')
+  .option('--no-test', 'Skip the vitest verification step after building')
+  .option('--force', 'Proceed even if guards (e.g. dirty worktree) would normally block')
+  .action(async (opts: { check?: boolean; test: boolean; force?: boolean }) => {
+    const { runUpdate } = await import('../updater/index.js');
+    const result = await runUpdate({
+      check: opts.check ?? false,
+      test: opts.test,
+      force: opts.force ?? false,
+      log: (msg) => console.log(msg),
+    });
+    console.log(result.message);
+    if (result.status === 'blocked' || result.status === 'rolled-back' || result.status === 'error') {
+      process.exit(1);
+    }
   });
 
 program.parse(process.argv);

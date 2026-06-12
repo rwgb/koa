@@ -1,5 +1,841 @@
 # Koa — DevLog
 
+## [2026-06-11] — Hotfix: chat transcript survives navigation/refresh
+
+### Completed
+- **Root cause of "replies show in Activity but not the chat window"**: the chat transcript
+  and the in-flight SSE stream lived entirely inside the `ChatPage` route component. Any
+  navigation unmounted the route, which (a) aborted the in-flight stream and (b) destroyed
+  the ephemeral transcript state. There was no rehydration from the DB on load, so a refresh
+  or route change wiped the conversation view even though turns persisted server-side.
+  Surfaced by quota-fallback turn latency (20–40s per turn) — users navigated away mid-turn
+  far more often, hitting the unmount path on nearly every exchange.
+- **Fix**: lifted transcript + stream lifecycle out of the route component into a shared
+  context (`web/src/context/ChatContext.tsx`) mounted at the layout level
+  (`web/src/layouts/RootLayout.tsx`), so navigation no longer aborts the SSE stream or
+  drops messages; transcript now hydrates from `GET /api/conversations/:id/turns` on load
+  (`src/server/routes/chat.ts`, `web/src/pages/ChatPage.tsx`, `web/src/types.ts`)
+- Supporting changes in `src/agent/loop.ts`; tests updated in
+  `src/__tests__/server_routes.test.ts` and `src/__tests__/loop_turn.test.ts`
+- Security review on the diff: no HIGH/MEDIUM findings
+
+### Decisions
+- Stream lifecycle is owned by a context provider above the router, not the route — route
+  components must stay disposable; anything that must survive navigation belongs in context
+- Transcript is server-authoritative: the DB turns endpoint is the source of truth on mount,
+  with the live stream layered on top
+
+### Issues Found
+- None new beyond the root cause above
+
+### Next Session
+- [ ] Rebuild + restart the running server to pick up the hotfix
+- [ ] Commit and fold into the CP20/CP21 PR
+
+### Learnings
+- State scoped to a route component dies with the route — long-lived async work (SSE
+  streams) must be owned above the router
+- High turn latency turns rare unmount races into the common path; latency changes can
+  expose lifecycle bugs that were always there
+
+## [2026-06-11] — Session 5: CP21 — quota fallback attribution, conversation auto-titling, version badge
+
+### Completed
+- **Quota-fallback model/cost attribution fix**: fallback turns are now attributed to
+  `claude-code` at $0 instead of billing the configured Anthropic model
+  (`src/agent/providers/quota_fallback.ts`, `src/agent/loop.ts`, `src/agent/usage.ts`)
+- **Conversation auto-titling**: conversations are created lazily on first turn and titled
+  automatically after the first exchange — previously title generation only ran at CLI
+  shutdown and lost a race with `process.exit`, leaving everything "Untitled — 0 turns"
+  (`src/agent/loop.ts`, `src/__tests__/loop_turn.test.ts`)
+- **Web console version badge**: sources the real version from `package.json` instead of a
+  hardcoded `'0.2.0'` (`web/src/components/TopNav.tsx`, `src/server/routes/db.ts`)
+- Security review findings fixed: PM mini-loop now uses the same tool-execution timeout
+  guard as the main loop; PM mini-loop no longer bypasses the per-project budget guard and
+  session cost accounting
+
+### Decisions
+- Fallback turns cost $0 by definition (ClaudeCode CLI is subscription-billed), so usage
+  records attribute them to `claude-code` rather than approximating Anthropic API rates
+- Title generation moved into the turn path (after first exchange) rather than trying to
+  win the shutdown race — shutdown-time work is inherently unreliable under `process.exit`
+
+### Issues Found
+- **Root cause discovery**: the Anthropic API key is over its monthly usage limit until
+  2026-07-01 — every turn currently falls back to the ClaudeCode CLI. This is why the
+  attribution bug was visible on every conversation.
+- **Action required**: the user's running server needs a rebuild + restart to pick up the
+  fallback attribution fix — until then it keeps misattributing turns.
+
+### Next Session
+- [ ] Rebuild + restart the running server to pick up CP21 fixes
+- [ ] Commit the CP20+CP21 working-tree changes, open PR
+- [ ] Tag v1.0.0
+
+### Learnings
+- Shutdown hooks racing `process.exit` silently lose — do finalization work inline in the
+  request/turn path instead
+- When a provider fallback changes the effective model, usage/cost attribution must follow
+  the actual provider, not the configured one
+
+---
+
+## [2026-06-11] — Session 4: CP20 complete — audit fixes + cost-opt + smart-routing
+
+### Completed
+- Fixed 11 audit findings:
+  - HIGH: cache_control breakpoint cap (loop.ts), CP16 quota fallback (providers)
+  - MEDIUM: compaction metric, budget phantom costs, config unset web-token,
+    koa doctor KOA_HOME, updater merge-base, PM auto-chain, ClaudeCodeProvider history,
+    Express error handler, Gmail send scope
+- Fixed 3 LOW carry-ins: checkpoint.sh grep -Po portability, updater git error handling,
+  README phantom commands
+- Implemented api-cost-optimization phases 1-3 (prompt caching, model tiering, selective context)
+- Implemented smart-routing hybrid Haiku pre-classifier
+- All QA gates (tsc + vitest) passed after each phase
+- CHANGELOG "Fixed" claims verified accurate
+
+### Decisions
+- Parallel audit fix groups partitioned by file area (loop-tokens, providers, cli-config, pm-server-integrations)
+- api-cost-opt phases done sequentially per spec ordering
+- smart-routing Phase 1 (core) before Phase 2 (integration) per spec pipeline instructions
+
+---
+
+## [2026-06-11] — Session 3: CP20 stabilization workflow launched
+
+- Workflow `cp20-stabilize` running on Fable: 11 HIGH/MEDIUM audit fixes + 3 LOW carry-ins → api-cost-opt p1–3 → smart-routing → security → CP20 seal
+- Run ID: `wf_af2c40ca-a21` | Script: `.claude/cp20-workflow.js` (resume with `resumeFromRunId` if it dies)
+- ~/.claude/CLAUDE.md §19 updated with model-tier rule (haiku for gates/research; impl/security inherit session model)
+
+---
+
+## [2026-06-11] — Session 2: Context recovery + plan for next session
+
+### Completed
+- Recovered session context after stale HANDOFF.md (was pointing at CP17; actually at CP19 + v1.0.0 scope)
+- Updated HANDOFF.md to reflect true current state: v1.0.0, CP17–CP19 merged, two task specs queued
+- Confirmed the 2026-06-11 audit HIGH/MEDIUM findings are NOT fixed — CHANGELOG claim was aspirational; commit message explicitly says fix phase was killed by session limit
+- Agreed on next-session plan: fix 11 audit findings first, then api-cost-optimization, then smart-routing-hybrid-classifier
+- Agreed to update global CLAUDE.md §19 with workflow model-tier rule (haiku for gates/research, sonnet for impl/security) at start of next session before launching workflow
+- Goal: koa stable (no iOS/watchOS) before 2026-06-29 (new job start)
+
+### Decisions
+- Audit fixes take priority over new features — the CHANGELOG "Fixed" claim must become true before v1.0.0 is tagged
+- Workflow model-tier rule to be baked into §19 of ~/.claude/CLAUDE.md so it applies globally going forward
+
+### Next Session
+- [ ] Update ~/.claude/CLAUDE.md §19 with model-tier rule (haiku/sonnet/opus split for workflow agents)
+- [ ] Launch workflow: fix 11 HIGH/MEDIUM audit findings → gate → api-cost-optimization (phases 1–3) → gate → smart-routing-hybrid-classifier → security-review → CP20 checkpoint
+- [ ] Verify CHANGELOG.md "Fixed" claim is accurate after fixes land
+
+---
+
+## [2026-06-11] — Full v1 Audit (session limit hit; findings recorded, fixes queued)
+
+### Completed
+- 14-area E2E audit fanned out; 117 findings surfaced; 11 confirmed HIGH/MEDIUM (0 refuted), verified before session limit
+- Fix + gate phases killed by session-limit 429s; no source changes made yet — all findings are queue items only
+- CHANGELOG.md created; TASKS.md archived to docs/archive/TASKS-v6-cp10.md; feature/cp18-updater, chore/deps-compat, feature/cp19-github-multi all merged
+
+### Confirmed Findings (must fix before v1.0.0)
+- **[HIGH] cache_control breakpoints accumulate** — loop.ts markMessageHistoryCache never strips prior markers; 5th breakpoint on turn 2 → guaranteed 400 from Anthropic on multi-tool conversations
+- **[HIGH] CP16 quota fallback absent from release branch** — the feature/cp16-claude-fallback commit never merged; isQuotaError/fallbackToClaudeCode do not exist on HEAD; needs reimplementation against current provider API
+- **[MEDIUM] `config unset web-token` silent failure** — deleteCredential('web-token') no-ops; token remains valid; CLI falsely reports "Removed"
+- **[MEDIUM] `koa doctor` ignores KOA_HOME** — uses os.homedir() directly; breaks Docker/systemd deployments per docs/DEPLOYMENT.md
+- **[MEDIUM] Updater misreports local-ahead as update-available** — simple SHA comparison instead of merge-base --is-ancestor; false downgrade prompt on dev installs
+- **[MEDIUM] Compaction trigger uses wrong token metric** — accumulated per-turn sum, not last-request size; excludes cached tokens; keys off config.model not routed model
+- **[MEDIUM] Budget guard phantom costs for free providers** — pricingFor falls through to Sonnet rates for claude-code/ollama; per-session-only enforcement of per-project budget
+- **[MEDIUM] PM auto-chain tool calls silently dropped** — chain call uses provider.create() with no tool loop; tool_use blocks discarded
+- **[MEDIUM] ClaudeCodeProvider drops conversation history and system prompt** — buildPrompt serializes only last message; params.system and params.tools ignored
+- **[MEDIUM] No global Express error handler** — unhandled throws return HTML stack traces with absolute filesystem paths
+- **[MEDIUM] Gmail send scope permanently broken** — Re-authorize flow uses readonly scope only; scopes key never stored in config; send_email tool silently fails
+
+### Carry-in LOWs (also fix before v1.0.0)
+- checkpoint.sh grep -Po is GNU-only (macOS silently skips ntfy ping)
+- Updater uncaught git failures leak stack traces
+- README documents non-existent CLI commands (koa migrate/backup/health)
+
+### Next
+- [ ] Resume audit-fix workflow (session resets 01:20 CT) — fix all HIGH/MEDIUM + carry-in LOWs, gate, commit, PR
+- [ ] Release prep: CHANGELOG review, ntfy topic rotation, PR #12 (actions/checkout) if workflow-scope grant
+- [ ] v1.0.0 release
+
+---
+
+## [2026-06-10] — CP19: Multi-instance GitHub integration
+
+### Completed
+- **CP19**: Multiple GitHub integration instances — each instance carries its own token and `defaultRepo`, so Koa can operate across personal and org accounts simultaneously
+- Per-instance config: token + defaultRepo stored per instance instead of a single global GitHub credential
+- Repo-owner-based token resolution in agent tools — GitHub tools resolve which instance's token to use from the owner of the target repo, falling back sensibly when no instance matches
+- Web console: "Add another" flow on the GitHub integration card to register additional instances
+- Tests: 819 passing (`npx vitest run`, includes CP19 multi-instance tests)
+
+### Decisions
+- Token resolution keys off repo owner rather than requiring the caller to name an instance — tool call surface stays unchanged, existing prompts keep working
+- Resolution order: prefer the instance whose `defaultRepo` owner matches the target repo's owner (connected instances win among matches); zero matches fall back to first connected instance; no target repo keeps legacy behavior (first instance)
+- No schema migration needed — `~/.koa/integrations.json` already stores an array, so existing single GitHub entries just become the first instance
+- `defaultRepo` stays per-instance so unqualified repo references resolve against the matching account's default
+
+### Next
+- [ ] PR feature/cp19 → feature/web-console-and-hardening
+- [ ] Decide CP20 scope
+
+---
+
+## [2026-06-10] — CP18: koa update with automatic rollback
+
+### Completed
+- **CP18**: `koa update` command — `git pull --ff-only` from the current branch's configured upstream (`@{u}`, not hardcoded origin/main) + `npm run build`, with automatic rollback on failure
+- Rollback mechanism: `dist/` snapshotted to `dist.bak/` before build; restored automatically if build (tsc) or test (vitest) verification fails
+- CLI flags: `--check` (report available updates without applying), `--no-test` (skip vitest verification step), `--force` (proceed past dirty-worktree / no-upstream-changes guards; diverged history is never forced — the pull is `--ff-only` and errors out)
+- New module: `src/updater/index.ts` encapsulates git pull, build, snapshot/restore logic
+- ntfy notification fires on both successful update and rollback
+- Tests: 811 passing (`npx vitest run`, includes CP18 updater tests)
+
+### Decisions
+- Update source is repo-local (`git pull` + rebuild), not a separate release channel — matches self-hosted deployment model
+- Rollback restores the `dist/` snapshot rather than `git reset` — source tree stays at the new commit so the failure can be inspected, while the running build remains the last-known-good
+- `--no-test` skips only vitest; tsc build success is always required before the snapshot is discarded
+- ntfy pings on rollback as well as success so a failed unattended update is never silent
+
+### Next
+- [ ] PR feature/cp18-updater → feature/web-console-and-hardening
+- [ ] Decide CP19 scope
+
+---
+
+## [2026-06-10] — CP18 Scope: koa update with automatic rollback
+
+### Completed
+- Confirmed no auto-update/rollback feature exists in the codebase
+- Scoped CP18 as `koa update` command with git-pull-based upgrade and automatic dist/ rollback
+
+### Decisions
+- Update source: `git pull origin/main + npm run build` (repo-local, no separate release channel)
+- Rollback target: snapshot `dist/` → `dist.bak/` before build; restore on tsc or vitest failure
+- CLI surface: `koa update`, `koa update --check`, `koa update --no-test`, `koa update --force`
+- New module: `src/updater/index.ts` encapsulates git pull, build, backup/restore logic
+- ntfy ping on both success and rollback
+
+### Next
+- [ ] Implement CP18 via Workflow with pipeline gates
+
+---
+
+## [2026-06-10] — CP17: Token-budget compaction, koa doctor, per-project budgets
+
+### Completed
+- **OC-1**: Token-budget compaction — replaced hardcoded CONTEXT_COMPRESS_THRESHOLD=150000 with dynamic threshold: contextWindow - max(MIN_PROMPT_BUDGET_TOKENS=8000, contextWindow * MIN_PROMPT_BUDGET_RATIO=0.5). For 200k models: compresses at 100k tokens (50% of window).
+- **OC-2**: koa doctor --fix — new CLI subcommand that detects stale config fields (smartRouting→provider, compactAfterTurns removal) and migrates them with atomic backup-and-write.
+- **R-3**: Per-project spending budgets — budget_usd column on projects (migration 10); AgentLoop tracks session cost and blocks turns when budget exceeded.
+- 799 tests passing, tsc clean, security review clean.
+
+### Decisions
+- OC-1: dynamic threshold fires earlier (100k vs old 150k) for 200k models — more proactive compaction is correct; MODEL_CONTEXT_WINDOWS map is authoritative, unknown models fall back to 200k.
+- OC-2: --fix is idempotent; always backs up before writing; atomic via tmp+rename.
+- R-3: budget check is session-scoped (not cumulative historical), sufficient to guard against runaway loops within a session.
+
+### Next
+- [ ] PR feature/cp17 → feature/web-console-and-hardening
+- [ ] CP18: decide scope (context engine interface extraction, webhook-triggered delegations, ambient dashboard)
+
+---
+
+## [2026-06-10] — Obsidian Pro Theme + Housekeeping Sprint
+
+### Completed
+- **Obsidian Pro theme** applied to web console (`938b183`) — `web/src/index.css`, `index.html`, `ActivityPage.tsx`, `IntegrationsPage.tsx` updated to winning design palette (zinc-based darks, indigo accent `#6366F1`)
+- **H-1**: `AbortSignal.timeout(30s)` added to tool dispatch in `loop.ts` — prevents hung `web_fetch` blocking entire turn
+- **H-2**: `escapeFts()` helper added to `db/index.ts` — FTS5 queries no longer throw 500 on bare `"`
+- **H-3**: Internal helpers unexported in `select-agent.ts` (`isCodeQuery`, `hasBacklogSignals`, `hasLifeSignals`)
+- **H-4**: Duplicate `HAIKU_MODEL` constant consolidated — `router.ts` now imports from `config/index.ts`
+- **H-5**: `bash_tool.test.ts` coverage improved — allowed commands, blocked commands, stdout truncation, exit codes
+- **H-6**: `server/index.ts` trimmed to <200 lines — middleware extracted
+- **H-7**: `any` casts replaced with `unknown + instanceof Error` in `web_fetch.ts` and `web_search.ts`
+- **H-8**: `src/__tests__/security/invariants.test.ts` created — path traversal, SSRF guard, bash blocked commands, SSE error safety
+- **EL-1**: `scripts/engram-impact.js` created — detects koa→Engram interface changes in git diff
+- **EL-2**: `.github/workflows/engram-impact.yml` created — triggers on `src/engram/client.ts` changes, comments on PR if interface shifted
+- **iOS-1**: `NSAllowsArbitraryLoads` scoped to `.ts.net` + `localhost` only in `ios/project.yml`
+- 783 tests passing, tsc clean, committed `b08dc75`
+
+### Decisions
+- Theme update kept existing CSS variable names, updated values only — zero component renames needed
+- Security test suite is a skeleton (5 invariants); H-8 / OC-4 full suite (80+ assertions) is a separate future CP
+
+### Next
+- [x] ~~**CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env`~~ — done 2026-06-10
+- [ ] PR feature/cp15-engram-loops → feature/web-console-and-hardening
+- [ ] Decide CP17 scope
+
+---
+
+## [2026-06-10] — Fable Audit Remediation
+
+### Completed
+- ~30 fixes from FABLE_AUDIT_FIXES.md across §A/§B/§C/§D
+- **C-2**: `validateSafeUrl` made async with DNS resolution; untrusted wrapper, arg injection guard, webpush origin check, cross_repo path safety
+- **A**: max-iteration guard in agent loop, `max_tokens` handling, null-safety, cache fixes, HANDOFF dedup
+- **D-6 + D-1.2**: specialist persona moved to `CODE_SYSTEM`, `SYSTEM_BASE` trimmed + security sentence added
+- **B**: fail-closed auth middleware, loopback-only bind, OAuth CSRF state param, SSE abort signal wiring
+- **D**: ESM playwright import, memory corruption guard, atomic writes, migration backup, `selectAgent` word-boundary regex, router tier labels, notification batch dedup, config validation, `maxTokens=8192`
+
+### Decisions
+- B-6: inline `?token=` check retained (simpler than middleware for SSE handshake)
+- D-8: threshold unchanged (existing heuristic is acceptable)
+- D-9: auto gate kept as-is
+- `compactAfterTurns` / `KOA_COMPACT_TURNS` removed — dead config (maybeCompact was never called; replaced by `semanticCompact` / `maybeCompressContext`)
+
+### Next
+- [ ] **CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env` (key may be exposed)
+- [ ] PR `feature/audit-fixes` → `develop`
+- [ ] Then CP17
+
+---
+
+## [2026-06-10] — CP16: ClaudeCode fallback on quota exhaustion
+
+### Completed
+- `src/agent/loop.ts`: catches 429/quota/overloaded errors, retries with ClaudeCodeProvider when `fallbackToClaudeCode=true`
+- `src/config/index.ts`: `fallbackToClaudeCode` config field + `KOA_FALLBACK_TO_CLAUDE_CODE` env var
+- `src/__tests__/cp16_fallback.test.ts`: ≥5 tests covering all fallback branches
+
+### Decisions
+- Fallback is transparent (debug log only, not surfaced to user) — better UX
+- Re-throws original error if fallback also fails — no silent data loss
+
+### Next
+- [ ] Merge CP16 PR → develop
+- [ ] iOS real-device test via Tailscale
+
+---
+
+## [2026-06-08] — CP10a + CP15: iOS Project Init + Engram Loop 2
+
+### Completed
+
+- **CP10a verified**: all iOS Keychain migration, Siri fix, gmail scope already implemented in prior arcs (CP10f/CP11d)
+- **iOS project initialized**: `ios/project.yml` (xcodegen) → `Koa.xcodeproj` with iOS + watchOS targets
+- **Build errors fixed**: `roundedBorder` unavailable on watchOS → `.plain`; `super.init` ordering in `WatchSession`; bundle ID mismatch between iOS and watchOS targets
+- **Bundle ID**: `com.brynard.koa` / `com.brynard.koa.watch`
+- **App running in Simulator** (iPhone 17 Pro, iOS 26.3) — Connect to Koa auth screen confirmed
+- **Tailscale on LXC**: installed + joined tailnet at `100.101.19.77` (hostname: `koa`); userspace networking mode for unprivileged LXC; persistent via `/etc/default/tailscaled FLAGS=--tun=userspace-networking`
+- **CP15 Loop 2**: `src/engram/signals.ts` (signal collector → `~/.koa/signals/engram.jsonl`), `src/agent/loop.ts` (HANDOFF.md Pending Engram Work section), `src/agent/tools/cross_repo.ts` (allowlisted read/write/test tools); 651 tests passing, tsc clean; committed `a0cad9a` on `feature/cp15-engram-loops`
+
+### Decisions
+
+- Tailscale userspace networking required on unprivileged LXC (kernel TUN unavailable); `FLAGS` in `/etc/default/tailscaled` is the clean override path
+- Tailscale TLS certs require paid plan — HTTP over Tailscale (WireGuard-encrypted) is sufficient for homelab use
+- iOS Simulator reaches local dev server via Mac LAN IP (`192.168.1.17:3000`), not `localhost`
+
+### Issues Found
+
+- Tailscale `tailscale cert` requires paid plan — no `.ts.net` TLS certs on free tier
+- `NSAllowsArbitraryLoads: true` still in `project.yml` — should be scoped to `.ts.net` only (low priority)
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] PR: `feature/cp15-engram-loops` → `develop`
+- [ ] Security review on CP15 branch diff
+- [ ] Test iOS app connecting to LXC via Tailscale IP (`http://100.101.19.77:3000`) on real device
+
+---
+
+## [2026-06-08] — CP14 Smart Provider Routing + ClaudeCodeProvider
+
+### Completed
+
+- **PR #5 merged** (`feature/cp13-clone-ready` → `develop`)
+- **PR #6 opened** (`develop` → `main`, v0.3.0 release)
+- **`ClaudeCodeProvider`** (`src/agent/providers/claude_code.ts`): spawns `claude -p --output-format json` subprocess; fits `LlmProvider` interface; uses EventEmitter stream pattern matching OllamaProvider
+- **Config additions**: `provider` enum extended to `'anthropic' | 'ollama' | 'claude-code' | 'auto'`; `claudeCodePath` field added (env: `KOA_CLAUDE_CODE_PATH`, default: `'claude'`)
+- **Auto routing** (`loop.ts`): when `provider === 'auto'`, routes code queries to claude-code, simple queries to ollama (if configured), complex to Anthropic; `activeProvider` local var per-turn so tool-use continuation stays on the same provider
+- **ntfy topic validation** (`PUT /integrations/:id`): rejects topics not matching `/^[a-zA-Z0-9_-]{1,64}$/` with HTTP 400; `NTFY_TOPIC_RE` exported for testing
+- **Tests**: 643 passing (added `claude_code_provider.test.ts` + `ntfy_topic_validation.test.ts`); tsc clean
+
+### Decisions
+
+- `'auto'` routing in loop.ts (not in a `RoutingProvider` wrapper) — keeps routing colocated with turn logic where agent context is available
+- `ClaudeCodeProvider` does not pass `--system-prompt` to claude CLI — let it use its own context rather than injecting koa's full system blocks
+- `NTFY_TOPIC_RE` exported constant to keep validation testable without a server
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [x] Confirm Packer + terraform for Ollama VM 201 → CP14c sealed
+- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 from TASKS.md)
+
+## [2026-06-08] — CP14c: terraform apply + Ollama VM deploy
+
+### Completed
+
+- Terraform applied: VM 201 cloned from Packer template 9001 (`ollama-debian13`) in 54s
+- VM came up at 192.168.1.36 (DHCP, not static .201 — tfvars updated)
+- `ollama.service` patched: `OLLAMA_HOST=0.0.0.0` so LXC at .200 can reach it
+- `qwen2.5:7b` (4.7GB) pre-baked in template — no pull needed
+- Koa env on LXC: `KOA_OLLAMA_BASE_URL=http://192.168.1.36:11434`, `KOA_OLLAMA_MODEL=qwen2.5:7b`
+- `KOA_PROVIDER` left unset — koa auto-routes to Claude by default; Ollama available on demand
+
+### Decisions
+
+- CPU-only Ollama inference on `qwen2.5:7b` is too slow for interactive use (~30–90s/response); Ollama wiring kept intact for future GPU addition or batch tasks
+- Did not set `KOA_PROVIDER=ollama` in production env; smart-routing default (Claude) is better UX
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] CP15: Engram quality signal collector + cross-repo tools
+
+## [2026-06-08] — CP13 End-of-Arc + version bump to 0.3.0
+
+### Completed
+
+- **CP13 end-of-arc gates all green**: tsc clean, 627 tests passing, security review clean
+- **Security review finding patched**: `admin.ts:755` unencoded ntfy topic in `/notifications/test` — applied `encodeURIComponent(topic)` (MEDIUM, pre-existing, surfaced by CP13 review)
+- **`koa setup --headless` e2e verified**: exits 1 with clear error when `ANTHROPIC_API_KEY` missing; exits 0 with `KOA_NTFY_TOPIC=test` and a valid key set
+- **Version bumped to 0.3.0** in `package.json`
+- **Claude Code wrapper** — CP14 will add a `claude-code` provider type that spawns the `claude` CLI as a subprocess (--output-format=json --print mode) for agentic file/code tasks, alongside smart routing between Anthropic/Ollama/claude-code
+
+### Decisions
+
+- Security fix for `admin.ts:755` included in CP13 end-of-arc commit (one-line patch, no new tests needed — existing test suite covers the endpoint path)
+
+### Next
+
+- [ ] Confirm Packer build status → terraform apply → verify VM 201 + `ollama list`
+- [ ] PR: `feature/cp13-clone-ready` → `develop` → `main`, release v0.3.0
+- [ ] CP14: Smart model routing (Ollama lightweight / Anthropic reasoning / Claude Code agentic) + admin.ts `/integrations/:id` topic field validation
+
+---
+
+## [2026-06-08] — Server deployment + Packer pivot to proxmox-clone
+
+### Completed
+
+- **Packer rewritten to use `proxmox-clone`** — existing Debian 13 template (VMID 100, `debian:debian`) was already on the host; replaced full ISO netinstall (~40 min) with a clone + provision (~5 min). Removed `disk` block (template already has 60 GB), switched SSH to `debian:debian`, added `execute_command` sudo wrapper to all shell provisioners.
+- **Koa web console deployed to LXC 200** — first production deploy:
+  - Bootstrap confirmed clean (Node 20, Caddy, koa user, service file all present)
+  - Pushed `ANTHROPIC_API_KEY` + generated `KOA_WEB_TOKEN` to `/etc/koa/env`; token also saved to `~/.koa/credentials`
+  - Fixed `deploy.sh`: removed spurious `sudo` (connecting as root), added `npm rebuild better-sqlite3` step (native module cross-platform mismatch)
+  - Fixed `koa.service`: removed `PrivateTmp` + `ProtectSystem=strict` (mount namespace not available in unprivileged LXC)
+  - Installed `rsync` on LXC (was missing)
+  - **Web console live at http://192.168.1.200:3000** ✅
+- **Packer build in progress** — `proxmox-clone` build running; will produce `ollama-debian13` template at VMID 9001 for `terraform apply`
+
+### Decisions
+
+- **proxmox-clone over proxmox-iso**: existing Debian 13 template makes the full netinstall unnecessary. Clone + provision is faster and more reliable.
+- **KOA_WEB_TOKEN generated fresh**: no prior token existed; 64-char hex generated with `openssl rand -hex 32`.
+
+### Issues Found
+
+- `better-sqlite3` native module must be rebuilt on the server after every deploy (macOS → Linux ABI mismatch). Fixed in `deploy.sh` permanently.
+- `PrivateTmp`/`ProtectSystem` systemd hardening incompatible with unprivileged LXC — stripped from service file.
+
+### Next
+
+- [ ] Confirm Packer build succeeded → `terraform apply` → verify 192.168.1.201 + `ollama list`
+- [ ] CP13 End-of-Arc: `koa setup` e2e test, version bump to 0.3.0, PR to develop → main
+- [ ] CP14: Smart model routing (Ollama for lightweight tasks, Anthropic for reasoning/tool use)
+
+---
+
+## [2026-06-08] — Infra recovery: Ollama VM reprovisioning (in-progress)
+
+### Completed
+
+- **Discovered VM 201 (Ollama) destroyed** — not in Terraform state; confirmed ping timeout on 192.168.1.201
+- **Confirmed Proxmox (192.168.1.161) reachable** via API; Koa LXC (200) healthy
+- **Packer template (VMID 9001) also gone** — `terraform apply` failed with "unable to find configuration file for VM 9001"
+- **Diagnosed and fixed 3 Packer build failures:**
+  1. ISO URL stale — `debian-12.11.0` URL 404'd; `/current/` now points to Debian 13 (13.5.0)
+  2. Debian CDN redirects (302) — Proxmox API doesn't follow redirects; switched to direct mirror URL; then discovered ISO already on `local` storage → switched to `iso_file = "local:iso/debian-13.5.0-amd64-netinst.iso"`
+  3. QEMU guest agent not enabled on first boot — added `in-target systemctl enable qemu-guest-agent` to preseed `late_command`; Packer relies on guest agent to get VM IP for SSH
+- **Packer build now running** (bg task b2jp0m6pl) with all three fixes applied
+
+### In Progress
+
+- Packer build: Debian 13 install + Ollama pull (~20 min remaining)
+- After Packer: `terraform apply -target=proxmox_virtual_environment_vm.ollama` to clone VM 201
+- After Terraform: smoke test `ssh root@192.168.1.201 "ollama list"`
+
+### Next Session (if interrupted)
+
+- [ ] Check Packer build result; if failed, read output at `/private/tmp/.../b2jp0m6pl.output`
+- [ ] If Packer succeeded, run `terraform apply -target=proxmox_virtual_environment_vm.ollama`
+- [ ] Verify 192.168.1.201 responds and `ollama list` shows qwen2.5:7b
+- [ ] Continue CP13 end-of-arc: tsc + tests, `koa setup` e2e test, version bump to 0.3.0, PR
+
+---
+
+## [2026-06-08] — Hotfix: SSE chat responses not displaying in web console
+
+### Completed
+
+- **Diagnosed and fixed chat UI "infinite thinking" bug** — responses saved to DB but never appeared in the browser chat UI; the thinking indicator ran indefinitely until page refresh
+- **Root cause**: `req.on('close', ...)` in `runChatStream()` fires prematurely on Node.js 20 when `express.json()` consumes the POST body — Node destroys the IncomingMessage stream as an optimisation, triggering `disconnected = true` before the Anthropic API call completes, making every `res.write()` a no-op
+- **Fix** (`src/server/routes/chat.ts`): switched disconnect listener from `req.on('close')` to `res.on('close')` — the response stream closes only when the actual HTTP connection closes
+- **Added** `X-Accel-Buffering: no` header (prevents reverse-proxy gzip buffering of SSE)
+- **Added** `flush_interval -1` to `deploy/Caddyfile` (Caddy SSE streaming, belt-and-suspenders)
+- **Deployed + verified** — curl from Mac to LXC 200 (192.168.1.200:3000) POST returned full `content` + `usage` + `done` SSE stream; exit 0
+
+### Decisions
+
+- `res.on('close')` is the correct SSE disconnect guard in Express on Node.js 20+; `req.on('close')` is unreliable when a body-parser middleware has already consumed the request stream
+- `X-Accel-Buffering: no` is harmless on direct connections and essential when Caddy/nginx is in the path
+
+---
+
+## [2026-06-08] — CP14c: Packer pivot — VM 201 destroyed, IaC rewritten, Packer build blocked
+
+### Completed
+
+- **VM 201 (Ollama) destroyed** — `terraform destroy -target=proxmox_virtual_environment_vm.ollama` succeeded after 61 minutes (QEMU agent was not running; Proxmox had to force-stop before deleting the 60GB disk)
+- **Terraform rewritten for Packer-first approach**:
+  - `infra/terraform/vm-ollama.tf` — replaced cloud-init + disk import with `clone { vm_id = var.ollama_template_vm_id }` (no null_resource, no cloud-init)
+  - `infra/terraform/templates.tf` — removed `proxmox_download_file.debian12_cloud` and `proxmox_virtual_environment_file.ollama_cloud_init`
+  - `infra/terraform/variables.tf` — added `ollama_template_vm_id` (default 9001)
+  - `infra/terraform/outputs.tf` — removed cloud-init references in next_steps
+  - `infra/terraform/terraform.tfvars.example` — updated for new variables
+  - `terraform validate` clean; `terraform plan` shows 1 to add (ollama VM)
+- **Stale state cleaned** — `terraform state rm proxmox_download_file.debian12_cloud proxmox_virtual_environment_file.ollama_cloud_init`
+- **null_resource.koa_bootstrap untainted** — LXC 200 is already bootstrapped; re-running would risk Tailscale re-join with a spent authkey
+- **Packer HCL authored** — `infra/packer/ollama-vm.pkr.hcl` using `boot_iso {}` + `iso_download_pve = true` pattern (matches Ludus Debian 13 template structure); `infra/packer/http/preseed.cfg` (root-only, single-root-no-swap, qemu-guest-agent); `.gitignore` updated for `*.pkrvars.hcl`
+
+### Issues Found
+
+- **Packer build failed: ISO download error** — `packer build` failed immediately with "failed to download ISO with all the provided URLs, attempted: https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso". Root cause unknown — possible causes: (a) Proxmox cannot reach the Debian CDN (firewall/DNS), (b) `iso_download_pve = true` + `iso_checksum = "none"` combination not supported by this Packer Proxmox plugin version, (c) the URL redirects in a way the plugin doesn't follow. Investigate before next build attempt.
+
+### Decisions
+
+- **Packer over cloud-init**: confirmed. cloud-init + null_resource is one-shot and not truly idempotent. Packer produces a known-good template; Terraform clones + sets IP/SSH key only.
+- **qwen2.5:7b as default pull**: small enough to fit in RAM on skull (16GB dedicated), capable enough for basic assistant tasks. llama3.2:3b is an alternative if qwen2.5:7b is too slow.
+
+### Next Session
+
+- [ ] **Diagnose Packer ISO download failure** — SSH into skull and test: `curl -I https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.11.0-amd64-netinst.iso`; try a test Proxmox API call to verify ISO download works; check if ISO already cached on `local` storage
+- [ ] If URL is reachable, try `packer build` again (may need to specify correct Debian 12 version or use `iso_storage_pool` pointing to an already-downloaded ISO)
+- [ ] Once Packer template (VMID 9001) exists: `terraform apply` → provision VM 201 → smoke test `ssh root@192.168.1.201 "ollama list"`
+- [ ] Verify Engram CI green on GitHub (`gh run list --repo rwgb/engram`)
+- [ ] Merge `feature/context-compression` → develop
+
+---
+
+## [2026-06-07] — CP14c: terraform apply + deploy (in-progress, Packer pivot)
+
+### Completed
+
+- `terraform apply` ran successfully for most resources:
+  - LXC 200 (koa, 192.168.1.200): created ✅
+  - VM 201 (ollama, 192.168.1.201): created ✅ (20m30s — disk import from qcow2)
+  - Debian 12 LXC template + cloud image downloaded to Proxmox `local` storage ✅
+  - cloud-init snippet uploaded to Proxmox snippets ✅
+- Fixed during apply: LXC template URL was `12.7-1` → corrected to `12.12-1` (404)
+- Fixed during apply: `import` content type not enabled on `local` storage → enabled via API
+- Fixed during apply: `ssh_public_key` was placeholder in tfvars → patched to real ECDSA key
+- LXC bootstrap (manual recovery after null_resource exit 127): Node.js 20, Caddy 2.11.4, koa service enabled, KOA_OLLAMA_BASE_URL set ✅
+- `infra/terraform/lxc-koa.tf` updated: install curl before bootstrap, upload koa.service alongside bootstrap.sh
+
+### Issues Found
+
+- **null_resource exit 127**: Debian 12 standard LXC template ships without `curl` CLI (only libcurl). bootstrap.sh calls curl immediately. Fixed in lxc-koa.tf (install curl first).
+- **koa.service missing**: bootstrap.sh uses `$SCRIPT_DIR/koa.service` but null_resource only uploaded `bootstrap.sh`. Fixed in lxc-koa.tf (added second `file` provisioner for koa.service).
+- **rsync missing on LXC**: deploy.sh uses rsync but it's not in the base template. Fixed: `apt-get install -y rsync` added to null_resource inline commands.
+- **Ollama VM unreachable**: VM 201 running (42+ min uptime) but QEMU guest agent not running, no IP reported by Proxmox, 192.168.1.201 not responding to ping. Root cause: cloud-init runs once on first boot — if it stalls (Ollama install is slow), the VM is a black box.
+- **Fundamental idempotency gap**: `cloud-init` is one-shot. `null_resource` only re-runs on trigger change. Neither is safe to re-run after partial failure. Manual intervention required.
+
+### Decision: Pivot to Packer
+
+Current cloud-init + null_resource approach is not truly idempotent. Agreed to rebuild using the pattern proven in CP12g:
+
+- **Packer**: Build Debian 12 LXC template with Node.js + Caddy + koa user pre-baked. Build Debian 12 VM image with Ollama pre-installed.
+- **Terraform**: Clone from Packer images. Set static IPs, inject SSH keys. No null_resource, no cloud-init scripts.
+- **Runtime config**: Terraform `file` provisioner drops `/etc/koa/env` (env vars + Tailscale). Small, fast, idempotent.
+
+### Next Session
+
+- [ ] Decide: destroy LXC 200 + VM 201 and rebuild both with Packer, or keep LXC 200 (working) and only redo VM 201?
+- [ ] Write `infra/packer/koa-lxc.pkr.hcl` — Debian 12 LXC template with Node.js 20, Caddy, koa user
+- [ ] Write `infra/packer/ollama-vm.pkr.hcl` — Debian 12 VM with Ollama pre-installed
+- [ ] Update `infra/terraform/` to clone from Packer images instead of cloud-init provisioning
+- [ ] Re-run `terraform apply` cleanly
+
+---
+
+## [2026-06-07] — Memory re-arch planning + Engram repo bootstrap
+
+### Completed
+
+- **Memory system re-architecture designed** — identified core problem: stale `project_koa.md` + `reference_engram.md` in Claude memory, too many overlapping layers. Proposed: delete stale files, rename `STATE.md` → `HANDOFF.md` (single always-fresh session handoff doc), add project `CLAUDE.md`. Added to TASKS.md.
+- **Koa ↔ Engram feedback loops designed** — two loops: (1) Reactive: `engram-impact.yml` GitHub Action fires when `src/engram/client.ts` changes, calls Claude API to detect interface drift, opens PR on Engram repo if needed; (2) Proactive: `signals.ts` collects quality signals during sessions, `cross_repo.ts` allows main agent loop to patch Engram directly. Added specced task blocks to TASKS.md.
+- **Engram repo relocated** — moved from `~/Code/engram` to `~/active projects/engram` (alongside koa and koa-spiderbrain). Created symlink `~/.claude/skills/engram → ~/active projects/engram` — global hooks and koa's `ENGRAM_CLI` constant work without any code changes.
+- **Engram pytest suite added** — 9 tests across `test_db.py`, `test_search.py`, `test_session.py`. `conftest.py` autouse fixture redirects `BRAINS_DIR` to `tmp_path` (no `~/.engram` pollution). All 9 pass locally.
+- **Engram CI added** — `.github/workflows/ci.yml` runs pytest on push/PR to main/develop. Uses `PYTHONPATH=.` — no tree-sitter compilation needed in CI. `pyproject.toml` added with dev extras.
+- **Pushed to github.com/rwgb/engram** — commit `6b8eee2`. CI running.
+
+### Decisions
+
+- Engram stays a separate repo (not merged into koa) — it serves three projects (`koa`, `sandfly-soc-demo`, `tools`) and powers global Claude Code hooks. Merging kills that value.
+- Symlink over code change — `~/.claude/skills/engram` is now a symlink to the real repo. This means edits to `~/active projects/engram` are immediately live with zero sync step.
+- CI skips `requirements.txt` (tree-sitter, fastmcp) — the DB/session/search modules have no tree-sitter dependency, so CI stays fast and simple.
+
+### Next Session
+
+- [ ] Engram Prerequisite complete — verify CI green on GitHub
+- [ ] Loop 1: `scripts/engram-impact.js` + `.github/workflows/engram-impact.yml` in koa
+- [ ] Loop 2: `src/engram/signals.ts` + `src/agent/tools/cross_repo.ts`
+- [ ] Memory re-arch: delete stale memory files, restructure STATE.md → HANDOFF.md
+
+---
+
+## [2026-06-07] — CP14a + CP14b: LXC + Ollama VM deployment (IaC)
+
+### Completed
+
+- **CP14a — SSRF fix**: Extracted `isOllamaUrl(url)` into `src/utils/ollama_url.ts`. Allows loopback + RFC1918 private ranges (`10.x`, `192.168.x`, `172.16-31.x`). Replaced two hardcoded localhost-only regexes in `src/server/routes/admin.ts` (lines 479 + 569 — PUT /config validation and GET /ollama/models guard). `src/utils/ssrf.ts` unchanged (guards external integrations; must stay strict). New test file `src/__tests__/ollama_url.test.ts` — 8 cases. 627/627 tests passing, tsc clean.
+- **CP14b — IaC**: Created `infra/terraform/` (providers, variables, templates, lxc-koa, vm-ollama, outputs, tfvars.example) + `infra/cloud-init/` (koa-lxc.yml, ollama-vm.yml). `terraform validate` passes clean. Updated `.gitignore` (Terraform state + secrets excluded), `deploy/bootstrap.sh` (comment + `KOA_OLLAMA_BASE_URL` placeholder in env skeleton), `docs/DEPLOYMENT.md` (new Proxmox LXC + Ollama VM section).
+
+### Architecture
+
+```
+Proxmox skull (192.168.1.161)
+├── LXC 200: koa   [Debian 12]  192.168.1.200
+│   ├── Koa app (Node.js, systemd, Caddy)
+│   ├── KOA_OLLAMA_BASE_URL=http://192.168.1.201:11434
+│   └── Tailscale
+└── VM  201: ollama [Debian 12]  192.168.1.201
+    ├── Ollama (CPU-only — skull has Intel Iris Pro 580, not usable for inference)
+    ├── OLLAMA_HOST=0.0.0.0:11434
+    └── ufw: 11434 from 192.168.1.0/24 only
+```
+
+### Decisions
+
+- **TUI over SSH**: TUI calls `AgentLoop.turn()` directly in-process — not HTTP. SSH into LXC and run `koa` there (`alias koa='ssh -t root@192.168.1.200 koa'`). Remote thin-client TUI deferred (marginal gain over SSH).
+- **LXC uses null_resource + remote-exec**: Standard Proxmox LXC templates don't run cloud-init natively. Terraform SSHes in post-create and runs `deploy/bootstrap.sh`.
+- **VM uses cloud-init**: Debian 12 cloud image (`debian-12-generic-amd64.qcow2`) supports cloud-init natively. Ollama install, ufw, and Tailscale handled in `infra/cloud-init/ollama-vm.yml`.
+- **bpg/proxmox provider ~> 0.66**: Used `proxmox_download_file` (not deprecated `proxmox_virtual_environment_download_file`), `proxmox_virtual_environment_container`, `proxmox_virtual_environment_vm`.
+- **No GPU passthrough**: skull GPU is Intel Iris Pro 580 (integrated, no CUDA/ROCm). CPU-only Ollama.
+- **IPs confirmed available**: 192.168.1.200 and 192.168.1.201 pinged dead before assignment.
+
+### Issues Found
+
+- `proxmox_virtual_environment_download_file` deprecated in bpg/proxmox → renamed to `proxmox_download_file` (fixed immediately during `terraform validate`).
+- Terraform `templatefile()` processes YAML comments — bash `${var%.*}` syntax in a comment would have caused a parse error (caught and fixed before commit).
+
+### Next Session
+
+- [ ] CP14c: Enable Snippets on Proxmox `local` storage → `terraform apply` → deploy app → pull `llama3.2:3b` → smoke test TUI + web UI Ollama connection
+
+---
+
+## [2026-06-07] — TUI rendering fix + CI review
+
+### Completed
+
+- **TUI stacking bug fixed** (`src/cli/index.ts`): Every `process.stderr.write` in loop.ts, engram, and spiderbrain was moving the terminal cursor during a turn, causing Ink to lose its render position and re-print the entire layout below itself on each message. Fix: no-op `process.stderr.write` while Ink holds the terminal, restore after `waitUntilExit()`. 3-line change, tsc clean.
+- **CI 406 screengrab triaged**: The "Failed to fetch diff: 406" failure was a stale run from before the `/files` endpoint fix (`e5513e7`). No action needed — current `ai-review.js` already uses the paginated `/files` endpoint.
+
+### Decisions
+
+- Suppressed at `cli/index.ts` level rather than threading a `quiet` flag through AgentLoop/Engram/SpiderBrain — surgical, zero risk of breaking other codepaths (voice, web, mcp don't use Ink).
+
+### Next Session
+
+- [ ] Rebuild and deploy to VM 101 (192.168.1.105) — pick up TUI fix
+- [ ] Tailscale on koa VM for remote access
+- [ ] Static IP for koa VM (currently DHCP 192.168.1.105)
+- [ ] Merge `feature/context-compression` → develop
+
+---
+
+## [2026-06-05] — CP12g: Homelab VM deployment (Proxmox + Debian 13)
+
+### Completed
+
+- Packer build: Debian 13 template (VMID 100) on Proxmox 8.4 node `skull` (192.168.1.161). Build time: 5m45s. ISO downloaded directly to PVE node via `iso_download_pve`.
+- VM clone: template 100 → VM 101 (`koa`), full clone to `local-lvm`, DHCP assigned 192.168.1.105.
+- Bootstrap: Node.js 20.20.2 (NodeSource), Caddy 2.11.4, `koa` system user, `/etc/koa/env`, systemd service — all installed via `deploy/bootstrap.sh`.
+- Native addon fix: `better-sqlite3` rebuilt on VM after rsync (Mac→Linux Mach-O→ELF mismatch).
+- Koa deployed: `dist/`, `web/dist/`, `node_modules/` rsynced; 9 DB migrations applied on first start.
+- Caddy configured with HTTP-only Caddyfile (`:80` reverse proxy to `localhost:3000`).
+- Service verified: `koa.service` active, port 3000 bound, HTTP 200 through Caddy at `http://192.168.1.105`.
+
+### Decisions
+
+- VM over LXC: pivoted from documented LXC target to full VM for better isolation and kernel control.
+- Debian 13 (Trixie): used Ludus `debian13` Packer template; bootstrap.sh works unchanged.
+- HTTP-only Caddy for now: LAN-only access, no TLS cert needed. Tailscale + domain can be layered on later.
+- `KOA_WEB_TOKEN` generated with `openssl rand -hex 32`; stored in `/etc/koa/env` (mode 640, root:koa).
+- Native rebuild on VM: rather than cross-compiling, installed `build-essential` + `python3` on VM and ran `npm rebuild better-sqlite3`.
+
+### Known Issues / Next Steps
+
+- [ ] Set up Tailscale on the VM for remote access outside the LAN
+- [ ] Set `KOA_NTFY_TOPIC` in `/etc/koa/env` once ntfy topic confirmed
+- [ ] Consider setting a static IP (currently DHCP 192.168.1.105)
+- [ ] Update `deploy/bootstrap.sh` comment from "Debian 12 LXC" to "Debian 12/13 VM/LXC"
+- [ ] TASKS.md CP12g — mark complete
+
+---
+
+## [2026-06-04] — CP13d: Repo sanitisation & template files
+
+### Completed
+
+- `.gitignore` — added `.claude/settings.json`; ran `git rm --cached` to untrack the file (it was previously committed).
+- `.claude/settings.example.json` — created with `<PROJECT_ROOT>` placeholder and cloner instructions; hardcoded `cd` path removed from hook command.
+- `config.example.json` — created at repo root; documents all 24 `KoaConfigFile` fields with sensible defaults.
+- `README.md` — replaced `rwgb` clone URL with `<your-username>` placeholder; replaced personal bio line with generic `KOA_USER_NAME` note.
+- `CONTRIBUTING.md` — replaced clone URL; added `ANTHROPIC_API_KEY` fork-secret note.
+- `docs/PERSONA.md` — added cloner note at top; replaced inline "Ralph" first-name reference with `${KOA_USER_NAME}` marker; removed specific personal references.
+- `docs/DEPLOYMENT.md`, `docs/ADMIN-UI-SPEC.md`, `docs/TOOLS.md` — sanitised remaining `rwgb`/`/Users/ralph` hits.
+- `DEVLOG.md` — sanitised 7 historical entries (PR URLs, ntfy topic, project path, bug description, GitHub repo URLs).
+- `TASKS.md` — sanitised completed task items; updated CP13d gate grep to add `--exclude=TASKS.md`.
+- `src/__tests__/config.test.ts` — replaced `/Users/ralph/` test fixture paths with `/home/user/`.
+- Gate grep: zero hits. tsc clean. 619 tests passing. Security review: clean.
+
+### Decisions
+
+- `settings.json` hook's hardcoded `cd "/Users/ralph.brynard/active projects/koa"` removed — hooks run from the project root already; the `cd` was redundant. The example file keeps the `<PROJECT_ROOT>` form to guide cloners who need it.
+- Gate grep updated to `--exclude=TASKS.md` — TASKS.md necessarily contains the grep patterns in historical task descriptions and the gate check definition itself. Excluding it is the correct approach since task tracker content is not shipped code.
+
+### Next Session
+
+- [ ] CP13 End-of-Arc: full QA pass, `koa setup` end-to-end test on clean `KOA_HOME`, arc security review, ntfy CP13 seal
+
+---
+
+## [2026-06-04] — CP13c: `koa setup` wizard + IPv6 SSRF fix
+
+### Completed
+
+- CP13c: `src/cli/setup.ts` — interactive 5-step first-run wizard (Anthropic API key, web token,
+  userName, ntfy topic/URL, default project path). `--headless` flag validates T1 credentials
+  for Docker/CI, exits 1 with clear error if missing. `--reset` re-prompts all values.
+  Idempotent: skips already-set values without `--reset`.
+  10 unit tests in `src/__tests__/setup.test.ts`.
+- Security fix: `validateSafeUrl` IPv6 bracket bypass — Node.js wraps IPv6 in brackets
+  (`[::1]` not `::1`) so all three bare-form IPv6 checks were bypassed. Added `bareHost`
+  stripping and updated regex. Also widened fc00::/7 range to `f[cd][0-9a-f]{2}:` (was
+  only `^fc00:`). 7 new IPv6 test cases added to `ssrf.test.ts`.
+- 619 tests passing, tsc clean.
+
+### Decisions
+
+- Wizard logic extracted to `src/cli/setup.ts` (not inlined in index.ts) for testability.
+- IPv6 fix kept surgical: only bracket-stripping and bareHost substitution; no other SSRF
+  logic changed.
+
+### Issues Found
+
+- IPv6 SSRF bypass in `validateSafeUrl` (HIGH, new): `[::1]`, `[fc00::1]`, `[fe80::1]` all
+  passed validation. Fixed in same session.
+
+### Next Session
+
+- [ ] Implement CP13d (repo sanitisation) → checkpoint
+
+---
+
+## [2026-06-04] — CP13a + CP13b: userName plumbing + ntfy parameterisation
+
+### Completed
+
+- CP13a: Added `userName` field to `KoaConfig` (env `KOA_USER_NAME`, default `'User'`).
+  Converted `AGENT_SPECS` → `buildAgentSpecs(userName)` factory so life-manager system
+  prompt addresses user by name; `createRememberTool(userName)` personalises tool description.
+  Backward-compat exports maintained. 3 regression tests in `specialists.test.ts`.
+- CP13b: `scripts/checkpoint.sh` reads `NTFY_TOPIC`/`NTFY_BASE_URL` from `~/.koa/credentials`
+  (or env vars) instead of hardcoded topic. Skips silently if unconfigured.
+  New `POST /api/admin/ntfy/test` endpoint: validates base URL via `validateSafeUrl`,
+  returns 400 if NTFY_TOPIC not set.
+  `.env.example` T2 section added: `KOA_USER_NAME`, `KOA_NTFY_TOPIC`, `KOA_NTFY_BASE_URL`.
+- Security review: clean. All findings filtered as false positives (operator-controlled
+  credentials file is same trust tier as env vars; no cross-trust-boundary SSRF path).
+- QA: tsc clean, 602 tests passing.
+
+### Decisions
+
+- `buildAgentSpecs` called at `AgentLoop` construction time, not per-turn, so userName is
+  set once from config — no per-request injection risk.
+- `/ntfy/test` reads from credentials file, not request body, so topic/URL are always
+  operator-controlled.
+
+### Next Session
+
+- [ ] Implement CP13d (repo sanitisation) → checkpoint
+
+---
+
+## [2026-06-05] — Pre-CP13: PR #4 merged, CP13 arc opened
+
+### Completed
+
+- Merged PR #4 (docs sync: DEVLOG, STATE, TASKS) to main — AI review found 1 CRITICAL
+  (`.env` never committed, resolved), 3 HIGH, 3 MEDIUM in TASKS.md spec; all fixed in-spec
+- Resolved all AI review blocking findings in TASKS.md before merge:
+  - CRITICAL: marked `.env` credential check verified (never committed)
+  - HIGH: added safe `grep -Po` credential parsing spec to CP13b
+  - HIGH: added ntfy topic `[a-zA-Z0-9_-]` validation requirement to CP13b
+  - HIGH: documented API key liveness not checked at setup time in CP13c
+  - MEDIUM: fixed `$(git rev-parse...)` → `<PROJECT_ROOT>` in CP13d settings example spec
+  - MEDIUM: fixed checkpoint grep to use `--exclude-dir` flags
+  - LOW: added `buildAgentSpecs('Alice')` regression test to CP13a gate
+- Cut `feature/cp13-clone-ready` from develop
+- Architecture/plan pass complete for CP13a + CP13b (Plan agent output reviewed)
+
+### Decisions
+
+- CP13a and CP13b run sequentially with independent checkpoints (not batched)
+- Backward-compat exports (`AGENT_SPECS`, `rememberTool`) kept during CP13a so no test changes needed
+- ntfy credential path uses `grep -Po` whitelist pattern, not shell sourcing (injection safety)
+- `.env.example` documents `KOA_NTFY_TOPIC` (env var); credentials file uses `NTFY_TOPIC` (no prefix)
+
+### Next Session
+
+- [ ] Implement CP13a (userName plumbing) → checkpoint
+- [ ] Implement CP13b (ntfy parameterisation) → checkpoint
+- [ ] Implement CP13c (koa setup wizard) → checkpoint
+- [ ] Implement CP13d (repo sanitisation) → checkpoint
+
+---
+
+
+## [2026-06-04] — Roadmap: CP13 Clone-Ready + Engram Cross-Project Coordination
+
+### Completed
+
+- Spawned architect agent to spec clone-ready security for Koa (public fork UX)
+- Added CP13 to TASKS.md: 4 sub-checkpoints covering userName plumbing, ntfy
+  parameterisation, `koa setup` wizard, and repo sanitisation
+- Discussed Engram cross-project coordination: lightweight requirements file in Koa
+  (ENGRAM_NEEDS.md) + GitHub Actions repository dispatch → Engram CI runs Claude headlessly
+  and opens a PR. Agreed on approach; not yet added to roadmap.
+
+### Decisions
+
+- CP13 split into 4 sub-checkpoints (a–d) so each is independently mergeable
+- Critical pre-work: rotate ANTHROPIC_API_KEY before CP13 implementation starts (live key
+  in .env working tree — git history check required)
+- Engram automation: requirement spec format (CLI contract + test cases) must be agreed
+  before roadmap entries are written — format is load-bearing for autonomous CI quality
+- Engram CI will use headless Claude Code (`claude --print` or API); Engram's small
+  blast radius (pure Python, no external services) makes autonomous operation low-risk
+- Product Radar heading updated from CP13+ to CP14+ now that CP13 is claimed
+
+### Next Session
+
+- [ ] Agree on Engram requirement spec format, then add CP14 to Koa TASKS.md and
+      matching entry to Engram TASKS.md (option 4 deferred — other session was active)
+- [ ] Bump package.json version to 0.3.0
+- [ ] Plan remaining CP14+ items from Product Radar
+
+---
+
 ## [2026-06-05] — PR #3 Merged: CI/CD Hardening + Security Fixes
 
 ### Completed
@@ -54,7 +890,7 @@
 - Committed CP13 doc pass: README, API.md, DEPLOYMENT.md, CONTRIBUTING.md updated; PLUGINS.md and TOOLS.md added
 - Merged `feature/context-compression` → `develop` (18 commits, CP7–CP13 full arc)
 - Pushed `develop` and `main` to origin
-- Opened PR #3: https://github.com/rwgb/koa/pull/3 (`develop` → `main`)
+- Opened PR #3: https://github.com/<your-username>/koa/pull/3 (`develop` → `main`)
 - Deleted 11 stale `worktree-agent-*` branches
 
 ---
@@ -1147,7 +1983,7 @@ Memory persistence across sessions was unreliable. After a personal chat session
 ### Completed
 - **`defaultProjectPath` in config** — `KoaConfigFile` gets `defaultProjectPath`; `loadConfig()` uses it as fallback before `process.cwd()`. Bare `koa` from any directory now loads the same Engram brain and project memory.
 - **Auto-save on `--project`** — passing `--project /path` saves it as `defaultProjectPath` for all future invocations; no flag needed after first use.
-- **Pre-seeded** — `defaultProjectPath` set to `/Users/ralph.brynard/active projects/koa` in `~/.koa/config.json` immediately.
+- **Pre-seeded** — `defaultProjectPath` set to the local project root in `~/.koa/config.json` immediately.
 - **CWD SpiderBrain overlay** — `SpiderBrainClient` accepts an optional `cwd` arg (defaults to `projectPath` for test stability). CLI chat command passes `process.cwd()` so running `koa` from inside any code project with a sibling `*-spiderbrain/` dir activates that code graph while keeping personal context from `defaultProjectPath`.
 - **`autoMolt` CWD-aware** — auto-molt runs against CWD when CWD is a code project, not the fixed projectPath.
 - **Settings page** — "Default project path" editable row added; "Active path" shows resolved path.
@@ -1460,7 +2296,7 @@ Memory persistence across sessions was unreliable. After a personal chat session
 ## [2026-05-31] — Config: Input-Required ntfy Hook
 
 ### Completed
-- **Global `Notification` hook** — Added `input_required` matcher to `~/.claude/settings.json`; fires `curl` to `ntfy.sh/undaunting_underpants` (Title: "Input Required", tag: bell) async whenever Claude Code stops and waits for user input. HTTP 200 confirmed.
+- **Global `Notification` hook** — Added `input_required` matcher to `~/.claude/settings.json`; fires `curl` to the configured ntfy topic (Title: "Input Required", tag: bell) async whenever Claude Code stops and waits for user input. HTTP 200 confirmed.
 
 ### Decisions
 - Used `Notification` event (not `Stop`) — `Stop` already routes to `notify-agent.sh` which skips non-pipeline sessions; `Notification/input_required` is the precise event for "waiting on you".
@@ -1812,7 +2648,7 @@ Memory persistence across sessions was unreliable. After a personal chat session
 ## [2026-05-31] — Bug fixes + backlog planning
 
 ### Completed
-- **SpiderBrain auto-molt path bug** — `koa` run from `~` was trying to mkdir `/Users/ralph.brynard-spiderbrain` (home dir as projectPath → wrong sibling path). Fixed by adding `isProjectDir()` guard: skips auto-molt when `brainDir` is null and cwd has no project markers (`.git`, `package.json`, etc.)
+- **SpiderBrain auto-molt path bug** — `koa` run from `~` was trying to mkdir `<homedir>-spiderbrain` (home dir as projectPath → wrong sibling path). Fixed by adding `isProjectDir()` guard: skips auto-molt when `brainDir` is null and cwd has no project markers (`.git`, `package.json`, etc.)
 - **Image analysis support** — Added `analyze_image` tool to `src/agent/tools/files.ts`: reads any image by absolute path, returns base64 `image` content block. Widened `Tool.execute` return type to `ToolResultContent = string | Array<TextBlockParam | ImageBlockParam>`. Updated loop to handle non-string results cleanly. Updated `SYSTEM_BASE` to mention the capability. Rebuilt + reinstalled binary.
 - **Backlog review** — Full inventory of pending work; established burn order
 
@@ -2021,7 +2857,7 @@ Memory persistence across sessions was unreliable. After a personal chat session
 ### Decisions
 - Auth for admin UI: session cookie login page (not passphrase, not open). Decided before Phase 1 starts.
 - Integration config persistence: `~/.koa/integrations.json` — separate from credentials file.
-- ntfy.sh topic wired: `https://ntfy.sh/undaunting_underpants` — checkpoint notifications will fire at each pipeline stage.
+- ntfy.sh topic wired via `KOA_NTFY_TOPIC` — checkpoint notifications will fire at each pipeline stage.
 
 ### Next Session
 - [ ] Start Admin UI Phase 1 (CP1): React Router v7, nav rail shell, Settings page, status pill
@@ -2281,7 +3117,7 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
   - `koa config unset api-key` — removes key
   - `koa config show` — prints masked key + source (env / file path / not set)
   - 11 new tests covering read/write/delete/fallback/precedence
-- **GitHub repo**: https://github.com/rwgb/koa (private); `develop` + `feature/web-console-and-hardening` pushed
+- **GitHub repo**: private; `develop` + `feature/web-console-and-hardening` pushed
 - **Full documentation suite**:
   - `README.md` — vision, features, install, all CLI commands, all env vars, MCP wiring, Engram, token dashboard, dev workflow, project tree
   - `ARCHITECTURE.md` — ASCII system diagram, agent loop, smart routing, UsageTracker, MCP design rationale, SSE event union, Engram injection, security model, web frontend
@@ -2328,7 +3164,7 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
   - TUI `StatusBar`: inline `$0.0023 | 82% cache` segment
   - `GET /api/context` now includes session usage for hydration on connect
   - 22 new usage tests
-- **GitHub repo**: private repo created at https://github.com/rwgb/koa; both `develop` and `feature/web-console-and-hardening` pushed
+- **GitHub repo**: private repo created; both `develop` and `feature/web-console-and-hardening` pushed
 - **Total test suite**: 84 tests, 7 test files, 0 typecheck errors, 0 lint errors
 
 ### Decisions
@@ -2585,3 +3421,7 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 ### Learnings
 - Engram brains live at `~/.engram/brains/<slug>/brain.db`
 - Engram hooks gracefully exit when no brain exists — safe to enable globally
+
+<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+
+<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->

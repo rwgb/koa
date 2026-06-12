@@ -77,6 +77,8 @@ export interface AgentStatus {
   usage?: SessionUsageStats;
   spiderBrain?: SpiderBrainContext | null;
   projectPath?: string;
+  /** Active conversation row id; null before the first turn (lazy creation). */
+  conversationId?: string | null;
 }
 
 export interface AdminConfig {

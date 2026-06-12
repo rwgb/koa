@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadConfig, getEngramBrainPath } from '../config/index.js';
+import { loadConfig, getEngramBrainPath, validateClaudeCodePath } from '../config/index.js';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
@@ -13,6 +13,8 @@ describe('loadConfig', () => {
     // Point KOA_HOME at a fresh empty dir so tests never read the real ~/.koa/config.json
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-cfg-test-'));
     process.env['KOA_HOME'] = tmpDir;
+    // validateConfig requires an API key when provider=anthropic (the default)
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
   });
 
   afterEach(() => {
@@ -27,7 +29,7 @@ describe('loadConfig', () => {
 
     const config = loadConfig('/tmp/project');
     expect(config.model).toBe('claude-haiku-4-5-20251001');
-    expect(config.maxTokens).toBe(8096);
+    expect(config.maxTokens).toBe(8192);
     expect(config.engramEnabled).toBe(true);
     expect(config.projectPath).toBe('/tmp/project');
   });
@@ -77,14 +79,45 @@ describe('loadConfig', () => {
     expect(loadConfig('/tmp').maxToolOutputChars).toBe(5000);
   });
 
-  it('compactAfterTurns defaults to 10', () => {
-    delete process.env['KOA_COMPACT_TURNS'];
-    expect(loadConfig('/tmp').compactAfterTurns).toBe(10);
+});
+describe('validateConfig via loadConfig', () => {
+  const originalEnv = process.env;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-cfg-validate-'));
+    process.env['KOA_HOME'] = tmpDir;
+    delete process.env['ANTHROPIC_API_KEY'];
+    delete process.env['KOA_PROVIDER'];
+    delete process.env['KOA_MAX_TOKENS'];
   });
 
-  it('respects KOA_COMPACT_TURNS override', () => {
-    process.env['KOA_COMPACT_TURNS'] = '20';
-    expect(loadConfig('/tmp').compactAfterTurns).toBe(20);
+  afterEach(() => {
+    process.env = originalEnv;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('anthropic provider with no API key throws with koa config set hint', () => {
+    process.env['KOA_PROVIDER'] = 'anthropic';
+    expect(() => loadConfig('/tmp')).toThrow(/koa config set api-key/);
+  });
+
+  it('ollama provider with no API key does not throw', () => {
+    process.env['KOA_PROVIDER'] = 'ollama';
+    expect(() => loadConfig('/tmp')).not.toThrow();
+  });
+
+  it('KOA_MAX_TOKENS=abc throws mentioning KOA_MAX_TOKENS', () => {
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
+    process.env['KOA_MAX_TOKENS'] = 'abc';
+    expect(() => loadConfig('/tmp')).toThrow(/KOA_MAX_TOKENS/);
+  });
+
+  it('no config/env -> maxTokens defaults to 8192', () => {
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
+    const config = loadConfig('/tmp');
+    expect(config.maxTokens).toBe(8192);
   });
 });
 
@@ -98,6 +131,8 @@ describe('auto-checkpoint config', () => {
     process.env['KOA_HOME'] = tmpDir;
     delete process.env['KOA_CHECKPOINT_TURNS'];
     delete process.env['KOA_CHECKPOINT_MINUTES'];
+    // validateConfig requires an API key when provider=anthropic (the default)
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
   });
 
   afterEach(() => {
@@ -150,9 +185,71 @@ describe('auto-checkpoint config', () => {
   });
 });
 
+describe('validateClaudeCodePath', () => {
+  it('rejects /etc/passwd — not a claude binary', () => {
+    expect(() => validateClaudeCodePath('/etc/passwd')).toThrow(/KOA_CLAUDE_CODE_PATH/);
+  });
+
+  it('rejects a relative path', () => {
+    expect(() => validateClaudeCodePath('relative/path')).toThrow(/KOA_CLAUDE_CODE_PATH/);
+  });
+
+  it('rejects a path with shell metacharacters', () => {
+    expect(() => validateClaudeCodePath('/usr/local/bin/claude;rm -rf /')).toThrow(
+      /KOA_CLAUDE_CODE_PATH/,
+    );
+  });
+
+  it('accepts /usr/local/bin/claude', () => {
+    expect(() => validateClaudeCodePath('/usr/local/bin/claude')).not.toThrow();
+  });
+
+  it('accepts /usr/local/bin/claude-code', () => {
+    expect(() => validateClaudeCodePath('/usr/local/bin/claude-code')).not.toThrow();
+  });
+});
+
+describe('KOA_CLAUDE_CODE_PATH validation in loadConfig', () => {
+  const originalEnv = process.env;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-cfg-claudepath-'));
+    process.env['KOA_HOME'] = tmpDir;
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
+    process.env['KOA_PROVIDER'] = 'claude-code';
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('KOA_CLAUDE_CODE_PATH=/etc/passwd throws mentioning KOA_CLAUDE_CODE_PATH', () => {
+    process.env['KOA_CLAUDE_CODE_PATH'] = '/etc/passwd';
+    expect(() => loadConfig('/tmp')).toThrow(/KOA_CLAUDE_CODE_PATH/);
+  });
+
+  it('KOA_CLAUDE_CODE_PATH=relative/path throws mentioning KOA_CLAUDE_CODE_PATH', () => {
+    process.env['KOA_CLAUDE_CODE_PATH'] = 'relative/path';
+    expect(() => loadConfig('/tmp')).toThrow(/KOA_CLAUDE_CODE_PATH/);
+  });
+
+  it('KOA_CLAUDE_CODE_PATH=/usr/local/bin/claude does not throw', () => {
+    process.env['KOA_CLAUDE_CODE_PATH'] = '/usr/local/bin/claude';
+    expect(() => loadConfig('/tmp')).not.toThrow();
+  });
+
+  it('KOA_CLAUDE_CODE_PATH=/usr/local/bin/claude-code does not throw', () => {
+    process.env['KOA_CLAUDE_CODE_PATH'] = '/usr/local/bin/claude-code';
+    expect(() => loadConfig('/tmp')).not.toThrow();
+  });
+});
+
 describe('getEngramBrainPath', () => {
   it('uses only the project basename as the slug (matches Engram Python logic)', () => {
-    const result = getEngramBrainPath('/Users/ralph/projects/koa');
+    const result = getEngramBrainPath('/home/user/projects/koa');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 
@@ -162,7 +259,7 @@ describe('getEngramBrainPath', () => {
   });
 
   it('replaces spaces in basename with hyphens', () => {
-    const result = getEngramBrainPath('/Users/ralph/active projects/koa');
+    const result = getEngramBrainPath('/home/user/active projects/koa');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'koa', 'brain.db'));
   });
 

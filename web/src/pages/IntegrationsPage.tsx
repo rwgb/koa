@@ -91,16 +91,6 @@ const CATALOG: IntegrationDef[] = [
     ],
   },
   {
-    type: 'eset',
-    name: 'ESET Web Analyzer',
-    icon: 'shield',
-    description: 'URL and file analysis via ESET Web Analyzer API.',
-    fields: [
-      { key: 'apiKey', label: 'API Key', secret: true, placeholder: '' },
-      { key: 'baseUrl', label: 'Base URL', secret: false, placeholder: 'https://www.virustotal.com/api' },
-    ],
-  },
-  {
     type: 'custom_http',
     name: 'Custom HTTP',
     icon: 'link',
@@ -159,6 +149,10 @@ const CATALOG: IntegrationDef[] = [
 
 const CATALOG_MAP = new Map(CATALOG.map(d => [d.type, d]));
 
+// Types that may be configured multiple times (e.g. work + personal GitHub accounts).
+// Each new instance gets a unique id and a user-editable display name.
+const MULTI_INSTANCE_TYPES = new Set<IntegrationType>(['github']);
+
 function statusBadge(status: string) {
   const cls =
     status === 'connected' ? 'intg-badge intg-badge--connected' :
@@ -195,9 +189,14 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
   const [oauthing, setOauthing] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState(integration?.name ?? def.name);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const id = integration?.id ?? def.type;
+  // Multi-instance types get a unique id per new instance; existing ids
+  // (including the legacy plain "github" id) are never changed.
+  const [id] = useState(() =>
+    integration?.id ?? (MULTI_INSTANCE_TYPES.has(def.type) ? `${def.type}-${crypto.randomUUID()}` : def.type)
+  );
 
   async function handleGmailOAuth() {
     setOauthing(true);
@@ -229,7 +228,8 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
     setSaving(true);
     setError(null);
     try {
-      const saved = await saveIntegration(id, { type: def.type, name: def.name, config: values });
+      const name = MULTI_INSTANCE_TYPES.has(def.type) ? (displayName.trim() || def.name) : def.name;
+      const saved = await saveIntegration(id, { type: def.type, name, config: values });
       onSaved(saved);
     } catch (err) {
       setError((err as Error).message);
@@ -316,6 +316,21 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
           )}
 
           <div className="slide-over__fields">
+            {MULTI_INSTANCE_TYPES.has(def.type) && (
+              <label className="intg-field">
+                <span className="intg-field__label">Display name</span>
+                <div className="intg-field__input-wrap">
+                  <input
+                    type="text"
+                    className="intg-field__input"
+                    value={displayName}
+                    placeholder="e.g. Work, Personal"
+                    onChange={e => setDisplayName(e.target.value)}
+                  />
+                </div>
+                <span className="intg-field__hint">Tells multiple {def.name} accounts apart on the integrations grid</span>
+              </label>
+            )}
             {def.fields.map(field => (
               <label key={field.key} className="intg-field">
                 <span className="intg-field__label">{field.label}</span>
@@ -417,7 +432,8 @@ function TypePicker({
   onPick: (type: IntegrationType) => void;
   onClose: () => void;
 }) {
-  const available = CATALOG.filter(d => !existingTypes.has(d.type));
+  // Multi-instance types stay available so another account can be added
+  const available = CATALOG.filter(d => MULTI_INSTANCE_TYPES.has(d.type) || !existingTypes.has(d.type));
   return (
     <>
       <div className="slide-over-backdrop" onClick={onClose} />
@@ -434,7 +450,10 @@ function TypePicker({
             <button key={d.type} className="type-picker__item" onClick={() => onPick(d.type)}>
               <Icon name={d.icon} size={18} className="type-picker__icon" aria-hidden />
               <div className="type-picker__info">
-                <span className="type-picker__name">{d.name}</span>
+                <span className="type-picker__name">
+                  {d.name}
+                  {existingTypes.has(d.type) && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> — add another</span>}
+                </span>
                 <span className="type-picker__desc">{d.description}</span>
               </div>
             </button>
@@ -669,7 +688,7 @@ export default function IntegrationsPage() {
               <span className="intg-card__name">Brave Search</span>
               <span className="intg-card__summary">Web search via Brave Search API — powers web_search tool</span>
             </div>
-            {braveSaved && <span className="intg-card__edit" style={{ color: 'var(--color-success, #22c55e)', cursor: 'default' }}>Saved ✓</span>}
+            {braveSaved && <span className="intg-card__edit" style={{ color: 'var(--success)', cursor: 'default' }}>Saved ✓</span>}
           </div>
           <div className="intg-card__bottom">
             {statusBadge(braveKeySet ? 'connected' : 'unconfigured')}
@@ -707,7 +726,7 @@ export default function IntegrationsPage() {
               <span className="intg-card__name">Telegram Bot</span>
               <span className="intg-card__summary">Bidirectional chat via Telegram bot — send and receive messages</span>
             </div>
-            {telegramSaved && <span className="intg-card__edit" style={{ color: 'var(--color-success, #22c55e)', cursor: 'default' }}>Saved ✓</span>}
+            {telegramSaved && <span className="intg-card__edit" style={{ color: 'var(--success)', cursor: 'default' }}>Saved ✓</span>}
           </div>
           <div className="intg-card__bottom">
             {statusBadge(telegramStatus.polling ? 'connected' : telegramStatus.configured ? 'connected' : 'unconfigured')}

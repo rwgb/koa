@@ -144,6 +144,20 @@ describe('writeMarkdownFile()', () => {
     writeMarkdownFile(file, 'second');
     expect(fs.readFileSync(file, 'utf8')).toBe('second');
   });
+
+  it('20 concurrent writers: final content is one complete payload and no .tmp files remain', async () => {
+    const file = path.join(tmpDir, 'concurrent.md');
+    const payload = 'concurrent-payload-content';
+
+    await Promise.all(
+      Array.from({ length: 20 }, () => Promise.resolve(writeMarkdownFile(file, payload))),
+    );
+
+    expect(fs.readFileSync(file, 'utf8')).toBe(payload);
+
+    const leftover = fs.readdirSync(tmpDir).filter((f) => f.includes('.tmp'));
+    expect(leftover).toHaveLength(0);
+  });
 });
 
 describe('appendJournalEntry()', () => {

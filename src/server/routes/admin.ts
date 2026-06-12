@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
 import { readKoaConfigFile, writeKoaConfigFile, setApiKey } from '../../config/index.js';
@@ -10,6 +11,7 @@ import { projectMemoryPaths } from '../../project-memory/paths.js';
 import { readMarkdownFile, writeMarkdownFile } from '../../project-memory/store.js';
 import { loadMemories, addMemory, removeMemory } from '../../memory/store.js';
 import { validateSafeUrl } from '../../utils/ssrf.js';
+import { isOllamaUrl } from '../../utils/ollama_url.js';
 import {
   loadIntegrations,
   saveIntegration,
@@ -50,12 +52,109 @@ import {
   deleteDelegation,
 } from '../../db/index.js';
 import type { Delegation } from '../../db/index.js';
+import { createRequire } from "node:module";
+const require = createRequire(import.meta.url);
+
+// Map from nonce (64-char hex) → creation timestamp (ms since epoch).
+// Nonces are consumed on first use (CSRF protection for OAuth callbacks).
+export type OAuthStateMap = Map<string, number>;
 
 export interface AdminRouterDeps {
   loop: AgentLoop;
   config: KoaConfig;
   getTelegramPoller: () => TelegramPoller | null;
   setTelegramPollerRef: (p: TelegramPoller | null) => void;
+  oauthState: OAuthStateMap;
+}
+
+/**
+ * Standalone router for OAuth callback endpoints.
+ * Must be mounted BEFORE requireAuth so Google can redirect back without a bearer token.
+ */
+export function createOAuthCallbackRouter(
+  config: KoaConfig,
+  oauthState: OAuthStateMap,
+): Router {
+  const router = Router();
+
+  router.get('/oauth/gmail/callback', (req, res) => {
+    const { code, error, state } = req.query as { code?: string; error?: string; state?: string };
+    if (error || !code) {
+      res.redirect(`/integrations?error=oauth_failed`);
+      return;
+    }
+    // Validate CSRF nonce
+    if (!state || !oauthState.has(state)) {
+      res.redirect(`/integrations?error=oauth_failed`);
+      return;
+    }
+    // Consume the nonce (one-time use)
+    oauthState.delete(state);
+
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
+    exchangeCodeForTokens(code, redirectUri)
+      .then(tokens => {
+        const integrations = loadIntegrations();
+        const existing = integrations.find(i => i.type === 'gmail');
+        saveIntegration({
+          id: existing?.id ?? 'gmail',
+          type: 'gmail',
+          name: 'Gmail',
+          status: 'connected',
+          config: {
+            ...(existing?.config ?? {}),
+            refreshToken: tokens.refresh_token,
+            scopes: tokens.scope,
+          },
+        });
+        if (config.apiKey) gmailPoller.start(config.apiKey);
+        res.redirect('/integrations?connected=gmail');
+      })
+      .catch(e => {
+        console.error('[oauth/gmail/callback]', e);
+        res.redirect(`/integrations?error=oauth_failed`);
+      });
+  });
+
+  router.get('/oauth/calendar/callback', (req, res) => {
+    const { code, error, state } = req.query as { code?: string; error?: string; state?: string };
+    if (error || !code) {
+      res.redirect(`/integrations?error=oauth_failed`);
+      return;
+    }
+    // Validate CSRF nonce (calendar uses the same oauthState map)
+    if (!state || !oauthState.has(state)) {
+      res.redirect(`/integrations?error=oauth_failed`);
+      return;
+    }
+    oauthState.delete(state);
+
+    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
+    exchangeCalendarCode(code, redirectUri)
+      .then(tokens => {
+        const integrations = loadIntegrations();
+        const existing = integrations.find(i => i.type === 'google-calendar');
+        saveIntegration({
+          id: existing?.id ?? 'google-calendar',
+          type: 'google-calendar',
+          name: 'Google Calendar',
+          status: 'connected',
+          config: {
+            ...(existing?.config ?? {}),
+            refreshToken: tokens.refresh_token,
+          },
+        });
+        calendarSync.start();
+        void calendarSync.syncNow();
+        res.redirect('/integrations?connected=google-calendar');
+      })
+      .catch(e => {
+        console.error('[oauth/calendar/callback]', e);
+        res.redirect(`/integrations?error=oauth_failed`);
+      });
+  });
+
+  return router;
 }
 
 const PM_FILES = ['PROJECT', 'STATE', 'BACKLOG', 'HANDOFF'] as const;
@@ -85,109 +184,43 @@ const MARKETPLACE: MarketplaceEntry[] = [
   { name: 'eset_scan', description: 'Trigger ESET on-demand scans and read alerts', icon: '🛡', requires: ['eset'] },
 ];
 
+export const NTFY_TOPIC_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 export function createAdminRouter(deps: AdminRouterDeps): Router {
   const router = Router();
-  const { loop, config, getTelegramPoller, setTelegramPollerRef } = deps;
+  const { loop, config, getTelegramPoller, setTelegramPollerRef, oauthState } = deps;
 
-  // ── Gmail OAuth ──────────────────────────────────────────────────────────────
-  // Inline auth check: these OAuth redirect endpoints are mounted before the
-  // generic /api/ auth guard, so they enforce the token themselves.
+  // ── Gmail OAuth URL builder (protected — requires auth) ─────────────────────
 
   router.get('/oauth/gmail', (req, res) => {
-    if (config.webToken) {
-      const header = req.headers['authorization'];
-      const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
-      if (!token || !tokenEqual(token, config.webToken)) {
-        res.status(401).json({ error: 'Authorization required' }); return;
-      }
-    }
+    // Generate CSRF nonce: 32 random bytes = 64 hex chars
+    const nonce = crypto.randomBytes(32).toString('hex');
+    oauthState.set(nonce, Date.now());
+
     const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
     try {
-      const url = generateOAuthUrl(redirectUri);
+      const url = generateOAuthUrl(redirectUri, nonce);
       res.json({ url });
     } catch (e) {
+      oauthState.delete(nonce);
       res.status(500).json({ error: (e as Error).message });
     }
   });
 
-  router.get('/oauth/gmail/callback', (req, res) => {
-    const { code, error } = req.query as { code?: string; error?: string };
-    if (error || !code) {
-      res.redirect(`/integrations?error=${encodeURIComponent(error ?? 'missing_code')}`);
-      return;
-    }
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
-    exchangeCodeForTokens(code, redirectUri)
-      .then(tokens => {
-        const integrations = loadIntegrations();
-        const existing = integrations.find(i => i.type === 'gmail');
-        saveIntegration({
-          id: existing?.id ?? 'gmail',
-          type: 'gmail',
-          name: 'Gmail',
-          status: 'connected',
-          config: {
-            ...(existing?.config ?? {}),
-            refreshToken: tokens.refresh_token,
-          },
-        });
-        if (config.apiKey) gmailPoller.start(config.apiKey);
-        res.redirect('/integrations?connected=gmail');
-      })
-      .catch(e => {
-        console.error('[oauth/gmail/callback]', e);
-        res.redirect(`/integrations?error=${encodeURIComponent((e as Error).message)}`);
-      });
-  });
-
-  // ── Google Calendar OAuth ────────────────────────────────────────────────────
+  // ── Google Calendar OAuth URL builder (protected — requires auth) ────────────
 
   router.get('/oauth/calendar', (req, res) => {
-    if (config.webToken) {
-      const header = req.headers['authorization'];
-      const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
-      if (!token || !tokenEqual(token, config.webToken)) {
-        res.status(401).json({ error: 'Authorization required' }); return;
-      }
-    }
+    const nonce = crypto.randomBytes(32).toString('hex');
+    oauthState.set(nonce, Date.now());
+
     const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
     try {
-      const url = generateCalendarOAuthUrl(redirectUri);
+      const url = generateCalendarOAuthUrl(redirectUri, nonce);
       res.json({ url });
     } catch (e) {
+      oauthState.delete(nonce);
       res.status(500).json({ error: (e as Error).message });
     }
-  });
-
-  router.get('/oauth/calendar/callback', (req, res) => {
-    const { code, error } = req.query as { code?: string; error?: string };
-    if (error || !code) {
-      res.redirect(`/integrations?error=${encodeURIComponent(error ?? 'missing_code')}`);
-      return;
-    }
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
-    exchangeCalendarCode(code, redirectUri)
-      .then(tokens => {
-        const integrations = loadIntegrations();
-        const existing = integrations.find(i => i.type === 'google-calendar');
-        saveIntegration({
-          id: existing?.id ?? 'google-calendar',
-          type: 'google-calendar',
-          name: 'Google Calendar',
-          status: 'connected',
-          config: {
-            ...(existing?.config ?? {}),
-            refreshToken: tokens.refresh_token,
-          },
-        });
-        calendarSync.start();
-        void calendarSync.syncNow();
-        res.redirect('/integrations?connected=google-calendar');
-      })
-      .catch(e => {
-        console.error('[oauth/calendar/callback]', e);
-        res.redirect(`/integrations?error=${encodeURIComponent((e as Error).message)}`);
-      });
   });
 
   // ── Memory ───────────────────────────────────────────────────────────────────
@@ -258,9 +291,10 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     loop
       .rebuildBrain()
       .then((output) => res.json({ status: 'ok', output }))
-      .catch((err: unknown) =>
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) }),
-      );
+      .catch((err: unknown) => {
+        console.error('[koa] brain rebuild error:', err);
+        res.status(500).json({ error: 'Internal server error' });
+      });
   });
 
   router.get('/activity/sessions', (_req, res) => {
@@ -296,7 +330,6 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       engramEnabled: config.engramEnabled,
       smartRouting: config.smartRouting,
       maxToolOutputChars: config.maxToolOutputChars,
-      compactAfterTurns: config.compactAfterTurns,
       spiderBrainBrain: config.spiderBrainBrain ?? null,
       spiderBrainAvailable: sbAvailable,
       autoCheckpointTurns: config.autoCheckpointTurns,
@@ -327,7 +360,6 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       autoCheckpointTurns?: unknown;
       autoCheckpointMinutes?: unknown;
       smartRouting?: unknown;
-      compactAfterTurns?: unknown;
       spiderBrainBrain?: unknown;
       defaultProjectPath?: unknown;
       apiKey?: unknown;
@@ -378,10 +410,6 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     if (typeof body.autoChaining === 'boolean') {
       updates['autoChaining'] = body.autoChaining;
       config.autoChaining = body.autoChaining;
-    }
-    if (typeof body.compactAfterTurns === 'number') {
-      updates['compactAfterTurns'] = body.compactAfterTurns;
-      config.compactAfterTurns = body.compactAfterTurns;
     }
     if (typeof body.spiderBrainBrain === 'string') {
       const val = body.spiderBrainBrain.trim() || undefined;
@@ -476,8 +504,8 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     }
     if (typeof body.ollamaBaseUrl === 'string' && body.ollamaBaseUrl.trim()) {
       const url = body.ollamaBaseUrl.trim();
-      if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url)) {
-        return res.status(400).json({ error: 'ollamaBaseUrl must be a local URL (localhost or 127.0.0.1)' });
+      if (!isOllamaUrl(url)) {
+        return res.status(400).json({ error: 'ollamaBaseUrl must be a private/local address' });
       }
       updates['ollamaBaseUrl'] = url;
       config.ollamaBaseUrl = url;
@@ -566,8 +594,8 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
   router.get('/ollama/models', async (_req, res: Response) => {
     const baseUrl = config.ollamaBaseUrl ?? 'http://localhost:11434';
     // SSRF guard: only fetch from already-validated localhost URL stored in config
-    if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(baseUrl)) {
-      return res.status(400).json({ error: 'ollamaBaseUrl is not a local URL' });
+    if (!isOllamaUrl(baseUrl)) {
+      return res.status(400).json({ error: 'ollamaBaseUrl is not a private/local address' });
     }
     try {
       const response = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(5000) });
@@ -604,9 +632,16 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       res.status(400).json({ error: 'config object is required' });
       return;
     }
+    const submittedRaw = body.config as Record<string, unknown>;
+    if (body.type === 'ntfy' && submittedRaw['topic'] !== undefined) {
+      const topic = submittedRaw['topic'];
+      if (typeof topic !== 'string' || !NTFY_TOPIC_RE.test(topic)) {
+        res.status(400).json({ error: 'ntfy topic must be 1–64 alphanumeric, hyphen, or underscore characters' });
+        return;
+      }
+    }
     const existing = loadIntegrations().find(i => i.id === id);
-    const submittedConfig = body.config as Record<string, string>;
-    const mergedConfig = mergeConfig(existing?.config ?? {}, submittedConfig, body.type);
+    const mergedConfig = mergeConfig(existing?.config ?? {}, submittedRaw as Record<string, string>, body.type);
     const hasValues = Object.values(mergedConfig).some(v => v && v !== '***');
     const integration = {
       id,
@@ -751,7 +786,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       try { validateSafeUrl(baseUrl); } catch (e) {
         res.json({ ok: false, message: (e as Error).message }); return;
       }
-      fetch(`${baseUrl}/${topic}`, {
+      fetch(`${baseUrl}/${encodeURIComponent(topic)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: 'Koa notification test ✓',
@@ -772,6 +807,32 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     saveEscalationSettings({ enabled: body.enabled });
     escalationScheduler.updateConfig({ enabled: body.enabled });
     res.json({ status: 'ok' });
+  });
+
+  router.post('/ntfy/test', (_req, res) => {
+    const creds = readCredentials();
+    const topic = creds['NTFY_TOPIC'];
+    const baseUrl = creds['NTFY_BASE_URL'] ?? 'https://ntfy.sh';
+
+    if (!topic) {
+      res.status(400).json({ error: 'NTFY_TOPIC not set in credentials' });
+      return;
+    }
+
+    try {
+      validateSafeUrl(baseUrl);
+    } catch (e) {
+      res.status(400).json({ error: (e as Error).message });
+      return;
+    }
+
+    fetch(`${baseUrl}/${encodeURIComponent(topic)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: 'Koa ntfy test ✓',
+    })
+      .then((r) => res.json({ ok: r.ok, message: r.ok ? 'Test notification sent' : `HTTP ${r.status}` }))
+      .catch((err: unknown) => res.json({ ok: false, message: err instanceof Error ? err.message : String(err) }));
   });
 
   // ── Skills ────────────────────────────────────────────────────────────────────
@@ -929,6 +990,22 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     if (!d) { res.status(404).json({ error: 'Not found' }); return; }
     deleteDelegation(req.params['id']!);
     res.status(204).send();
+  });
+
+  // ── Software update ───────────────────────────────────────────────────────────
+
+  router.get('/update/check', async (_req, res: Response) => {
+    const { runUpdate } = await import('../../updater/index.js');
+    const result = await runUpdate({ check: true });
+    res.json(result);
+  });
+
+  router.post('/update', async (req, res: Response) => {
+    const body = req.body as { test?: unknown };
+    const runTests = body.test !== false; // default true
+    const { runUpdate } = await import('../../updater/index.js');
+    const result = await runUpdate({ test: runTests, log: (msg) => process.stdout.write(`[koa/update] ${msg}\n`) });
+    res.json(result);
   });
 
   return router;

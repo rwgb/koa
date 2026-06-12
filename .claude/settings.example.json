@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy this file to .claude/settings.json and replace <PROJECT_ROOT> with your absolute project path. Alternatively, run `koa setup` to generate settings.json automatically.",
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "(jq -r '.tool_input.file_path // empty' | grep -qE '\\.tsx?$') && cd \"<PROJECT_ROOT>\" && npm run build 2>&1 || true",
+            "statusMessage": "Building Koa..."
+          }
+        ]
+      }
+    ]
+  }
+}

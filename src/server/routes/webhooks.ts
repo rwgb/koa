@@ -186,7 +186,8 @@ export function createVoiceRouter(deps: Pick<WebhooksRouterDeps, 'rawBodyMap'>):
       if (err instanceof Error && err.message.includes('Whisper API returned an error')) {
         res.status(502).json({ error: err.message });
       } else {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        console.error('[koa] transcribe error:', err);
+        res.status(500).json({ error: 'Internal server error' });
       }
     }
   });

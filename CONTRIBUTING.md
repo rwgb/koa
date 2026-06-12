@@ -7,12 +7,14 @@ Koa is a personal project. This document describes the development workflow and 
 ## Setup
 
 ```bash
-git clone git@github.com:rwgb/koa.git
+git clone git@github.com:<your-username>/koa.git
 cd koa
 ./install.sh
 ```
 
 The install script installs all dependencies, compiles TypeScript, builds the Vite web console, links the `koa` binary globally, and wires git hooks. See `README.md` for install flags.
+
+> **Note for forks**: The `ai-review.yml` GitHub Actions workflow requires an `ANTHROPIC_API_KEY` secret set in your fork's repository settings (Settings → Secrets and variables → Actions).
 
 ---
 

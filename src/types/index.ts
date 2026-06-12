@@ -1,6 +1,28 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { AgentName } from '../agent/specialists.js';
 
+/**
+ * Model tiers for cost-aware model selection (API Cost Optimization, Phase 2).
+ * - fast:     internal/non-user-facing calls (classification, doc generation, summaries)
+ * - standard: default user-facing agent turns
+ * - powerful: explicit user escalation only
+ */
+export type ModelTier = 'fast' | 'standard' | 'powerful';
+
+export const MODEL_MAP: Record<ModelTier, string> = {
+  fast: 'claude-haiku-4-5-20251001',
+  standard: 'claude-sonnet-4-6',
+  powerful: 'claude-opus-4-7',
+};
+
+/**
+ * Per-agent configuration. `model` selects the tier used for user-facing
+ * turns; when omitted, defaults to 'standard' (Sonnet).
+ */
+export interface AgentConfig {
+  model?: ModelTier;
+}
+
 export interface TurnUsage {
   inputTokens: number;
   outputTokens: number;

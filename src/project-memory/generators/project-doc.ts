@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SpiderBrainContext } from '../../types/index.js';
-import { MODELS } from '../../agent/router.js';
+import { MODEL_MAP } from '../../types/index.js';
 
 export async function generateProjectDoc(
   projectPath: string,
@@ -37,7 +37,8 @@ Include these sections:
 Target: 300–500 words.`;
 
   const response = await client.messages.create({
-    model: MODELS.haiku,
+    // tier: fast — PROJECT.md generation (internal, non-user-facing)
+    model: MODEL_MAP.fast,
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }],
   });
