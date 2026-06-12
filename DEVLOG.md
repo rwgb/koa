@@ -1,5 +1,136 @@
 # Koa — DevLog
 
+## [2026-06-11] — Hotfix: chat transcript survives navigation/refresh
+
+### Completed
+- **Root cause of "replies show in Activity but not the chat window"**: the chat transcript
+  and the in-flight SSE stream lived entirely inside the `ChatPage` route component. Any
+  navigation unmounted the route, which (a) aborted the in-flight stream and (b) destroyed
+  the ephemeral transcript state. There was no rehydration from the DB on load, so a refresh
+  or route change wiped the conversation view even though turns persisted server-side.
+  Surfaced by quota-fallback turn latency (20–40s per turn) — users navigated away mid-turn
+  far more often, hitting the unmount path on nearly every exchange.
+- **Fix**: lifted transcript + stream lifecycle out of the route component into a shared
+  context (`web/src/context/ChatContext.tsx`) mounted at the layout level
+  (`web/src/layouts/RootLayout.tsx`), so navigation no longer aborts the SSE stream or
+  drops messages; transcript now hydrates from `GET /api/conversations/:id/turns` on load
+  (`src/server/routes/chat.ts`, `web/src/pages/ChatPage.tsx`, `web/src/types.ts`)
+- Supporting changes in `src/agent/loop.ts`; tests updated in
+  `src/__tests__/server_routes.test.ts` and `src/__tests__/loop_turn.test.ts`
+- Security review on the diff: no HIGH/MEDIUM findings
+
+### Decisions
+- Stream lifecycle is owned by a context provider above the router, not the route — route
+  components must stay disposable; anything that must survive navigation belongs in context
+- Transcript is server-authoritative: the DB turns endpoint is the source of truth on mount,
+  with the live stream layered on top
+
+### Issues Found
+- None new beyond the root cause above
+
+### Next Session
+- [ ] Rebuild + restart the running server to pick up the hotfix
+- [ ] Commit and fold into the CP20/CP21 PR
+
+### Learnings
+- State scoped to a route component dies with the route — long-lived async work (SSE
+  streams) must be owned above the router
+- High turn latency turns rare unmount races into the common path; latency changes can
+  expose lifecycle bugs that were always there
+
+## [2026-06-11] — Session 5: CP21 — quota fallback attribution, conversation auto-titling, version badge
+
+### Completed
+- **Quota-fallback model/cost attribution fix**: fallback turns are now attributed to
+  `claude-code` at $0 instead of billing the configured Anthropic model
+  (`src/agent/providers/quota_fallback.ts`, `src/agent/loop.ts`, `src/agent/usage.ts`)
+- **Conversation auto-titling**: conversations are created lazily on first turn and titled
+  automatically after the first exchange — previously title generation only ran at CLI
+  shutdown and lost a race with `process.exit`, leaving everything "Untitled — 0 turns"
+  (`src/agent/loop.ts`, `src/__tests__/loop_turn.test.ts`)
+- **Web console version badge**: sources the real version from `package.json` instead of a
+  hardcoded `'0.2.0'` (`web/src/components/TopNav.tsx`, `src/server/routes/db.ts`)
+- Security review findings fixed: PM mini-loop now uses the same tool-execution timeout
+  guard as the main loop; PM mini-loop no longer bypasses the per-project budget guard and
+  session cost accounting
+
+### Decisions
+- Fallback turns cost $0 by definition (ClaudeCode CLI is subscription-billed), so usage
+  records attribute them to `claude-code` rather than approximating Anthropic API rates
+- Title generation moved into the turn path (after first exchange) rather than trying to
+  win the shutdown race — shutdown-time work is inherently unreliable under `process.exit`
+
+### Issues Found
+- **Root cause discovery**: the Anthropic API key is over its monthly usage limit until
+  2026-07-01 — every turn currently falls back to the ClaudeCode CLI. This is why the
+  attribution bug was visible on every conversation.
+- **Action required**: the user's running server needs a rebuild + restart to pick up the
+  fallback attribution fix — until then it keeps misattributing turns.
+
+### Next Session
+- [ ] Rebuild + restart the running server to pick up CP21 fixes
+- [ ] Commit the CP20+CP21 working-tree changes, open PR
+- [ ] Tag v1.0.0
+
+### Learnings
+- Shutdown hooks racing `process.exit` silently lose — do finalization work inline in the
+  request/turn path instead
+- When a provider fallback changes the effective model, usage/cost attribution must follow
+  the actual provider, not the configured one
+
+---
+
+## [2026-06-11] — Session 4: CP20 complete — audit fixes + cost-opt + smart-routing
+
+### Completed
+- Fixed 11 audit findings:
+  - HIGH: cache_control breakpoint cap (loop.ts), CP16 quota fallback (providers)
+  - MEDIUM: compaction metric, budget phantom costs, config unset web-token,
+    koa doctor KOA_HOME, updater merge-base, PM auto-chain, ClaudeCodeProvider history,
+    Express error handler, Gmail send scope
+- Fixed 3 LOW carry-ins: checkpoint.sh grep -Po portability, updater git error handling,
+  README phantom commands
+- Implemented api-cost-optimization phases 1-3 (prompt caching, model tiering, selective context)
+- Implemented smart-routing hybrid Haiku pre-classifier
+- All QA gates (tsc + vitest) passed after each phase
+- CHANGELOG "Fixed" claims verified accurate
+
+### Decisions
+- Parallel audit fix groups partitioned by file area (loop-tokens, providers, cli-config, pm-server-integrations)
+- api-cost-opt phases done sequentially per spec ordering
+- smart-routing Phase 1 (core) before Phase 2 (integration) per spec pipeline instructions
+
+---
+
+## [2026-06-11] — Session 3: CP20 stabilization workflow launched
+
+- Workflow `cp20-stabilize` running on Fable: 11 HIGH/MEDIUM audit fixes + 3 LOW carry-ins → api-cost-opt p1–3 → smart-routing → security → CP20 seal
+- Run ID: `wf_af2c40ca-a21` | Script: `.claude/cp20-workflow.js` (resume with `resumeFromRunId` if it dies)
+- ~/.claude/CLAUDE.md §19 updated with model-tier rule (haiku for gates/research; impl/security inherit session model)
+
+---
+
+## [2026-06-11] — Session 2: Context recovery + plan for next session
+
+### Completed
+- Recovered session context after stale HANDOFF.md (was pointing at CP17; actually at CP19 + v1.0.0 scope)
+- Updated HANDOFF.md to reflect true current state: v1.0.0, CP17–CP19 merged, two task specs queued
+- Confirmed the 2026-06-11 audit HIGH/MEDIUM findings are NOT fixed — CHANGELOG claim was aspirational; commit message explicitly says fix phase was killed by session limit
+- Agreed on next-session plan: fix 11 audit findings first, then api-cost-optimization, then smart-routing-hybrid-classifier
+- Agreed to update global CLAUDE.md §19 with workflow model-tier rule (haiku for gates/research, sonnet for impl/security) at start of next session before launching workflow
+- Goal: koa stable (no iOS/watchOS) before 2026-06-29 (new job start)
+
+### Decisions
+- Audit fixes take priority over new features — the CHANGELOG "Fixed" claim must become true before v1.0.0 is tagged
+- Workflow model-tier rule to be baked into §19 of ~/.claude/CLAUDE.md so it applies globally going forward
+
+### Next Session
+- [ ] Update ~/.claude/CLAUDE.md §19 with model-tier rule (haiku/sonnet/opus split for workflow agents)
+- [ ] Launch workflow: fix 11 HIGH/MEDIUM audit findings → gate → api-cost-optimization (phases 1–3) → gate → smart-routing-hybrid-classifier → security-review → CP20 checkpoint
+- [ ] Verify CHANGELOG.md "Fixed" claim is accurate after fixes land
+
+---
+
 ## [2026-06-11] — Full v1 Audit (session limit hit; findings recorded, fixes queued)
 
 ### Completed
@@ -3290,3 +3421,7 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 ### Learnings
 - Engram brains live at `~/.engram/brains/<slug>/brain.db`
 - Engram hooks gracefully exit when no brain exists — safe to enable globally
+
+<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+
+<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->

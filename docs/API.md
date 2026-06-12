@@ -87,7 +87,7 @@ Each event is a line beginning with `data: ` followed by a JSON object. Events a
 | `content` | `text: string` | Text delta from the assistant |
 | `chain_start` | `agent: string` | Auto-chaining dispatched to a sub-agent |
 | `usage` | `turn: TurnUsage`, `session: SessionUsageStats`, `contextStats: object` | After content, before done |
-| `done` | `turnCount: number`, `model: string`, `tier: string`, `agent: string` | All events for this turn are complete |
+| `done` | `turnCount: number`, `model: string`, `tier: string`, `agent: string`, `classifierLatencyMs?: number` | All events for this turn are complete. `classifierLatencyMs` is present only when the Haiku pre-classifier ran for this turn; `model` always reflects the final routed model, never the classifier |
 | `error` | `message: string` | Agent error (sanitised — no paths or stack traces) |
 
 **Error responses:**

@@ -221,6 +221,18 @@ export function getProjectBudget(projectId: string): number | null {
   return (row as { budget_usd: number | null } | undefined)?.budget_usd ?? null;
 }
 
+/** Sum of recorded turn costs across all conversations linked to the project. */
+export function getProjectCumulativeCost(projectId: string): number {
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(t.cost_usd), 0) AS total
+       FROM conversation_turns t
+       JOIN conversations c ON c.id = t.conversation_id
+      WHERE c.project_id = ?`,
+  ).get(projectId);
+  return (row as { total: number } | undefined)?.total ?? 0;
+}
+
 // ── Tasks ──────────────────────────────────────────────────────────────────
 
 export function createTask(

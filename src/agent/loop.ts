@@ -5,7 +5,8 @@ import type { LlmProvider } from './providers/index.js';
 import { ClaudeCodeProvider } from './providers/claude_code.js';
 import { OllamaProvider } from './providers/ollama.js';
 import crypto from 'crypto';
-import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent, ContextStats } from '../types/index.js';
+import type { AgentState, TurnResult, ToolUse, ToolInput, ToolResultContent, ContextStats, AgentConfig } from '../types/index.js';
+import { MODEL_MAP } from '../types/index.js';
 import type { ToolRegistry } from './tools/registry.js';
 import type { EngramClient } from '../engram/client.js';
 import type { SpiderBrainClient } from '../spiderbrain/client.js';
@@ -43,6 +44,16 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
 };
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
 
+/**
+ * Resolves an AgentConfig model tier ('fast' | 'standard' | 'powerful') to a
+ * concrete model id. Full model ids pass through untouched; an omitted value
+ * defaults to the 'standard' tier (Sonnet).
+ */
+export function resolveModelTier(model: AgentConfig['model'] | string | undefined): string {
+  if (!model) return MODEL_MAP.standard;
+  return model in MODEL_MAP ? MODEL_MAP[model as keyof typeof MODEL_MAP] : model;
+}
+
 export { isCodeQuery, hasBacklogSignals };
 export { MIN_PROMPT_BUDGET_TOKENS, MIN_PROMPT_BUDGET_RATIO, MODEL_CONTEXT_WINDOWS };
 import {
@@ -60,6 +71,7 @@ import {
   updateConversationTitle,
   getProjectBySlug,
   getProjectBudget,
+  getProjectCumulativeCost,
 } from '../db/index.js';
 import { routeResponse } from '../channels/router.js';
 import { projectMemoryPaths } from '../project-memory/paths.js';
@@ -93,7 +105,12 @@ const PRICING: Record<string, { input: number; cacheWrite: number; cacheRead: nu
   opus: { input: 0.000015, cacheWrite: 0.00001875, cacheRead: 0.0000015, output: 0.000075 },
 };
 
+const FREE_PRICING = { input: 0, cacheWrite: 0, cacheRead: 0, output: 0 };
+
 function pricingFor(model: string) {
+  // claude-code (subscription) and Ollama (local) incur no per-token API cost —
+  // billing them at Sonnet rates produces phantom costs in the budget guard.
+  if (model === 'claude-code' || !model.startsWith('claude-')) return FREE_PRICING;
   if (model.includes('haiku')) return PRICING['haiku']!;
   if (model.includes('opus')) return PRICING['opus']!;
   return PRICING['sonnet']!;
@@ -143,6 +160,14 @@ export function groupIntoClusters(messages: Anthropic.MessageParam[]): MessageCl
  */
 function markMessageHistoryCache(messages: Anthropic.MessageParam[]): void {
   if (messages.length === 0) return;
+  // Strip markers left by previous calls first — the API allows at most 4
+  // cache_control breakpoints per request, so stale ones accumulate into a 400.
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const block of msg.content) {
+      delete (block as unknown as Record<string, unknown>)['cache_control'];
+    }
+  }
   const last = messages[messages.length - 1]!;
   if (!Array.isArray(last.content) || last.content.length === 0) return;
   const lastBlock = last.content[last.content.length - 1] as unknown as Record<string, unknown>;
@@ -204,11 +229,17 @@ export class AgentLoop {
   private _checkpointInProgress = false;
   private _checkpointTimer: ReturnType<typeof setInterval> | undefined = undefined;
   private _conversationId?: string;
+  /** Project id resolved in initialize(); used for lazy conversation creation on first turn. */
+  private _projectId?: string;
+  /** In-flight title generation started after turn 1; awaited (with timeout) in finalize(). */
+  private _titleGeneration?: Promise<void>;
   private lastCompactionAt: string | null = null;
   private _busy = false;
   private agentSpecs: ReturnType<typeof buildAgentSpecs>;
   private projectBudget: number | null = null;
   private sessionCostUsd = 0;
+  /** Cost already recorded for this project in prior sessions (cumulative budget enforcement). */
+  private priorProjectCostUsd = 0;
 
   constructor(
     config: KoaConfig,
@@ -217,6 +248,9 @@ export class AgentLoop {
     usage: UsageTracker,
     sb: SpiderBrainClient,
   ) {
+    // Tier aliases (e.g. `koa chat --model fast`) resolve to concrete model ids
+    // before any provider or router sees them.
+    config.model = resolveModelTier(config.model);
     this.config = config;
     this.registry = registry;
     this.engram = engram;
@@ -301,15 +335,10 @@ export class AgentLoop {
 
     this.memories = loadMemories();
 
-    // Start conversation record
-    try {
-      const conv = createConversation();
-      this._conversationId = conv.id;
-    } catch {
-      // non-fatal — conversation persistence is best-effort
-    }
-
-    // Load per-project spending budget (null = no limit)
+    // Resolve project so the conversation record is linked to it and the
+    // budget can be enforced cumulatively across sessions, not just per-session.
+    // The conversation row itself is created lazily on the first turn so a
+    // server boot that never receives a message leaves no 0-turn rows.
     try {
       const projectSlug = this.config.projectPath
         ? path.basename(this.config.projectPath)
@@ -317,7 +346,9 @@ export class AgentLoop {
       if (projectSlug) {
         const project = getProjectBySlug(projectSlug);
         if (project?.id) {
+          this._projectId = project.id;
           this.projectBudget = getProjectBudget(project.id);
+          this.priorProjectCostUsd = getProjectCumulativeCost(project.id);
         }
       }
     } catch {
@@ -572,8 +603,13 @@ export class AgentLoop {
     }
   }
 
-  private async maybeCompressContext(inputTokens: number): Promise<void> {
-    const contextWindow = MODEL_CONTEXT_WINDOWS[this.config.model] ?? 200_000;
+  /**
+   * `inputTokens` must be the input size of the LAST request (uncached + cache-read),
+   * not a per-turn accumulated sum — the trigger compares against the context window
+   * of the model the turn was actually routed to.
+   */
+  private async maybeCompressContext(inputTokens: number, model: string): Promise<void> {
+    const contextWindow = MODEL_CONTEXT_WINDOWS[model] ?? 200_000;
     const compressThreshold = contextWindow - Math.max(MIN_PROMPT_BUDGET_TOKENS, contextWindow * MIN_PROMPT_BUDGET_RATIO);
     if (inputTokens < compressThreshold) return;
     if (!this.config.apiKey) return;
@@ -660,6 +696,15 @@ export class AgentLoop {
     this.state.messages.push({ role: 'user', content: cleanMessage });
     this.state.turnCount++;
 
+    // Lazy conversation creation — deferred from initialize() so only
+    // conversations with at least one turn get a row.
+    if (!this._conversationId) {
+      try {
+        const conv = createConversation(this._projectId);
+        this._conversationId = conv.id;
+      } catch { /* non-fatal — conversation persistence is best-effort */ }
+    }
+
     if (this._conversationId) {
       try {
         addConversationTurn(this._conversationId, 'user', cleanMessage);
@@ -725,6 +770,7 @@ export class AgentLoop {
     }
 
     const acc = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
+    let lastRequestInputTokens = 0;
 
     const activeProvider: LlmProvider =
       tier === 'claude-code' && this.claudeCodeProvider ? this.claudeCodeProvider :
@@ -750,10 +796,12 @@ export class AgentLoop {
       }
       iterationCount++;
 
-      // Per-project budget guard: block new API calls if session cost exceeds the budget
-      if (this.projectBudget !== null && this.sessionCostUsd >= this.projectBudget) {
+      // Per-project budget guard: cumulative across sessions (prior recorded turn
+      // costs + this session) — block new API calls once the budget is exhausted.
+      const projectCostUsd = this.priorProjectCostUsd + this.sessionCostUsd;
+      if (this.projectBudget !== null && projectCostUsd >= this.projectBudget) {
         throw new Error(
-          `Project budget exceeded: session cost $${this.sessionCostUsd.toFixed(4)} >= budget $${this.projectBudget.toFixed(2)}`,
+          `Project budget exceeded: cumulative cost $${projectCostUsd.toFixed(4)} >= budget $${this.projectBudget.toFixed(2)}`,
         );
       }
 
@@ -786,9 +834,22 @@ export class AgentLoop {
       acc.outputTokens += response.usage.output_tokens;
       acc.cacheWriteTokens += response.usage.cache_creation_input_tokens ?? 0;
       acc.cacheReadTokens += response.usage.cache_read_input_tokens ?? 0;
+      lastRequestInputTokens =
+        response.usage.input_tokens + (response.usage.cache_read_input_tokens ?? 0);
 
-      // Accumulate session cost for per-project budget enforcement
-      const p = pricingFor(selectedModel);
+      // Quota-fallback attribution: a turn served by the ClaudeCode fallback
+      // carries model 'claude-code' on the response even though an Anthropic
+      // model was requested. Re-attribute so usage/done events and logUsage
+      // report the real model and tier instead of phantom Sonnet usage.
+      if (response.model === 'claude-code' && selectedModel !== 'claude-code') {
+        selectedModel = 'claude-code';
+        tier = 'claude-code';
+      }
+
+      // Accumulate session cost for per-project budget enforcement. Price by
+      // the model that actually served this response (response.model), not the
+      // requested model — quota fallback can swap providers mid-turn.
+      const p = pricingFor(response.model);
       this.sessionCostUsd +=
         response.usage.input_tokens * p.input +
         (response.usage.cache_creation_input_tokens ?? 0) * p.cacheWrite +
@@ -882,7 +943,7 @@ export class AgentLoop {
     this.state.lastModel = selectedModel;
     this.state.lastTier = tier;
     this.state.lastAgent = agentName;
-    await this.maybeCompressContext(acc.inputTokens);
+    await this.maybeCompressContext(lastRequestInputTokens, selectedModel);
 
     logUsage(acc, selectedModel, {
       spiderBrain: injectedSpiderBrain,
@@ -911,17 +972,72 @@ export class AgentLoop {
         const pmPrompt = buildPmFollowUpPrompt(finalContent);
         const pmSpec = this.agentSpecs['project-manager'];
         const pmModel = this.config.provider === 'ollama' ? this.config.ollamaModel : pmSpec.model;
-        const pmResponse = await this.provider.create({
-          model: pmModel,
-          max_tokens: 512,
-          system: [{ type: 'text', text: pmSpec.systemAddition }],
-          messages: [{ role: 'user', content: pmPrompt }],
-          tools,
-        });
-        const pmText = pmResponse.content
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-          .map((b) => b.text)
-          .join('');
+        // Agentic mini-loop: execute PM tool calls and feed tool_result blocks back
+        // (assistant → tool_result pattern) so chained tool use is not silently dropped.
+        const pmMessages: Anthropic.MessageParam[] = [{ role: 'user', content: pmPrompt }];
+        let pmText = '';
+        const MAX_PM_ROUNDS = 5;
+        for (let round = 0; round < MAX_PM_ROUNDS; round++) {
+          // Per-project budget guard — PM rounds incur API spend like main-loop calls.
+          const pmProjectCostUsd = this.priorProjectCostUsd + this.sessionCostUsd;
+          if (this.projectBudget !== null && pmProjectCostUsd >= this.projectBudget) {
+            break;
+          }
+          const pmResponse = await this.provider.create({
+            model: pmModel,
+            max_tokens: 512,
+            system: [{ type: 'text', text: pmSpec.systemAddition }],
+            messages: pmMessages,
+            tools,
+          });
+          // Accrue PM usage into session cost so budget enforcement sees it.
+          const pmPricing = pricingFor(pmResponse.model);
+          this.sessionCostUsd +=
+            pmResponse.usage.input_tokens * pmPricing.input +
+            (pmResponse.usage.cache_creation_input_tokens ?? 0) * pmPricing.cacheWrite +
+            (pmResponse.usage.cache_read_input_tokens ?? 0) * pmPricing.cacheRead +
+            pmResponse.usage.output_tokens * pmPricing.output;
+          pmText += pmResponse.content
+            .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+          if (pmResponse.stop_reason !== 'tool_use') break;
+
+          pmMessages.push({ role: 'assistant', content: pmResponse.content });
+          const pmToolResults: Anthropic.ToolResultBlockParam[] = [];
+          for (const block of pmResponse.content) {
+            if (block.type !== 'tool_use') continue;
+            const tool = this.registry.get(block.name);
+            const toolInput = block.input as Record<string, unknown>;
+            let result: ToolResultContent;
+            if (!tool) {
+              result = `Error: unknown tool "${block.name}"`;
+            } else {
+              callbacks?.onToolCall?.(block.name, toolInput);
+              try {
+                const timeoutMs = this.config.toolTimeoutMs ?? 30_000;
+                result = await Promise.race([
+                  tool.execute(toolInput),
+                  new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error(`tool timed out after ${timeoutMs}ms`)), timeoutMs),
+                  ),
+                ]);
+              } catch (err) {
+                result = `Error: ${err instanceof Error ? err.message : String(err)}`;
+              }
+              const displayResult =
+                typeof result === 'string' ? result : `[${block.name} returned binary content]`;
+              callbacks?.onToolResult?.(block.name, displayResult);
+            }
+            if (typeof result === 'string' && result.length > this.config.maxToolOutputChars) {
+              result =
+                result.slice(0, this.config.maxToolOutputChars) +
+                `\n[truncated — ${result.length} total chars]`;
+            }
+            pmToolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+          }
+          pmMessages.push({ role: 'user', content: pmToolResults });
+        }
         if (pmText) {
           const sep = '\n\n---\n**PM:** ';
           callbacks?.onTextDelta?.(sep + pmText);
@@ -947,6 +1063,15 @@ export class AgentLoop {
           toolUses: toolUses.map((t) => ({ id: t.id, name: t.name })),
         });
       } catch { /* non-fatal */ }
+
+      // Auto-title after the first exchange — non-blocking so it adds no turn
+      // latency. Must run after addConversationTurn above because the title
+      // generator reads turns back from the DB. _generateConversationTitle
+      // never rejects, and _titleGeneration doubles as a run-once guard that
+      // finalize() can await.
+      if (this.state.turnCount === 1 && !this._titleGeneration && this.config.apiKey) {
+        this._titleGeneration = this._generateConversationTitle(this._conversationId);
+      }
     }
 
     // Background preference extraction — Anthropic-only, non-blocking, non-fatal
@@ -1012,7 +1137,12 @@ export class AgentLoop {
         closeConversation(this._conversationId, this.state.turnCount);
       } catch { /* non-fatal */ }
       if (this.config.apiKey) {
-        void this._generateConversationTitle(this._conversationId);
+        // Await title generation (best-effort, 5s cap) so short CLI sessions
+        // don't lose the title to process.exit() racing the request.
+        await Promise.race([
+          this._titleGeneration ?? this._generateConversationTitle(this._conversationId),
+          new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+        ]);
       }
     }
 
@@ -1119,6 +1249,11 @@ export class AgentLoop {
 
   getState(): Readonly<AgentState> {
     return this.state;
+  }
+
+  /** Current conversation row id, or null before the first turn (lazy creation). */
+  getConversationId(): string | null {
+    return this._conversationId ?? null;
   }
 
   getTools(): Array<{ name: string; description: string }> {

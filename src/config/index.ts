@@ -28,6 +28,7 @@ const ConfigSchema = z.object({
   ollamaModel: z.string().default('llama3.2'),
   ollamaBaseUrl: z.string().default('http://localhost:11434'),
   claudeCodePath: z.string().default('claude'),
+  quotaFallback: z.boolean().default(true),
   sandboxBackend: z.enum(['local', 'docker']).default('local'),
   sandboxTimeoutMs: z.number().default(10000),
   browserEnabled: z.boolean().default(false),
@@ -62,6 +63,7 @@ export interface KoaConfigFile {
   ollamaModel?: string;
   ollamaBaseUrl?: string;
   claudeCodePath?: string;
+  quotaFallback?: boolean;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
@@ -159,6 +161,10 @@ export function loadConfig(projectPath?: string): KoaConfig {
         if (raw !== undefined) validateClaudeCodePath(raw);
         return raw ?? 'claude';
       })(),
+      quotaFallback:
+        process.env['KOA_QUOTA_FALLBACK'] !== undefined
+          ? process.env['KOA_QUOTA_FALLBACK'] !== 'false'
+          : (fileConfig.quotaFallback ?? true),
       sandboxBackend:
         (process.env['KOA_SANDBOX_BACKEND'] as 'local' | 'docker' | undefined) ??
         fileConfig.sandboxBackend ??

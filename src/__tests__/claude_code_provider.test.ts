@@ -96,7 +96,7 @@ describe('ClaudeCodeProvider.create', () => {
     expect(args).toContain('--dangerously-skip-permissions');
   });
 
-  it('sends the last user message text to stdin', async () => {
+  it('sends the system prompt and user message to stdin', async () => {
     const resultJson = JSON.stringify({ type: 'result', is_error: false, result: 'ok' });
     const proc = makeProc(0, resultJson);
     mockSpawn.mockReturnValue(proc);
@@ -104,8 +104,30 @@ describe('ClaudeCodeProvider.create', () => {
     const provider = new ClaudeCodeProvider('claude');
     await provider.create(params);
 
-    expect(proc.stdin.write).toHaveBeenCalledWith('What is 2+2?');
+    expect(proc.stdin.write).toHaveBeenCalledWith('System:\nYou are koa.\n\nUser:\nWhat is 2+2?');
     expect(proc.stdin.end).toHaveBeenCalled();
+  });
+
+  it('serializes the full conversation history, not just the last message', async () => {
+    const resultJson = JSON.stringify({ type: 'result', is_error: false, result: 'ok' });
+    const proc = makeProc(0, resultJson);
+    mockSpawn.mockReturnValue(proc);
+
+    const provider = new ClaudeCodeProvider('claude');
+    await provider.create({
+      model: 'claude-code',
+      max_tokens: 1024,
+      system: [{ type: 'text' as const, text: 'You are koa.' }],
+      messages: [
+        { role: 'user' as const, content: 'What is 2+2?' },
+        { role: 'assistant' as const, content: [{ type: 'text' as const, text: '4' }] },
+        { role: 'user' as const, content: 'Double it.' },
+      ],
+    });
+
+    expect(proc.stdin.write).toHaveBeenCalledWith(
+      'System:\nYou are koa.\n\nUser:\nWhat is 2+2?\n\nAssistant:\n4\n\nUser:\nDouble it.',
+    );
   });
 });
 

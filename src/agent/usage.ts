@@ -11,6 +11,10 @@ const PRICING: Record<string, PricingTier> = {
   'claude-haiku': { inputPerM: 0.80, outputPerM: 4.00, cacheWritePerM: 1.00, cacheReadPerM: 0.08 },
   'claude-sonnet': { inputPerM: 3.00, outputPerM: 15.00, cacheWritePerM: 3.75, cacheReadPerM: 0.30 },
   'claude-opus': { inputPerM: 15.00, outputPerM: 75.00, cacheWritePerM: 18.75, cacheReadPerM: 1.50 },
+  // claude-code runs on subscription billing — no per-token API cost (mirrors
+  // FREE_PRICING in loop.ts; without this entry it falls through to 'default'
+  // and quota-fallback turns report phantom Sonnet-rate costs).
+  'claude-code': { inputPerM: 0, outputPerM: 0, cacheWritePerM: 0, cacheReadPerM: 0 },
   'default': { inputPerM: 3.00, outputPerM: 15.00, cacheWritePerM: 3.75, cacheReadPerM: 0.30 },
 };
 

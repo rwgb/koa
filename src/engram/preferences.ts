@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type Anthropic from '@anthropic-ai/sdk';
+import { MODEL_MAP } from '../types/index.js';
 
 export interface Preference {
   id: string;
@@ -67,7 +68,8 @@ Return a JSON array of new preference strings (max 80 chars each), or [] if none
   let extracted: unknown;
   try {
     const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
+      // tier: fast — preference extraction (internal, non-user-facing)
+      model: MODEL_MAP.fast,
       max_tokens: 256,
       messages: [{ role: 'user', content: prompt }],
     });

@@ -1,5 +1,5 @@
 import express from 'express';
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import type { IncomingMessage, ServerResponse } from 'http';
 import cors from 'cors';
 import path from 'path';
@@ -123,6 +123,15 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
         );
       }
     });
+  });
+
+  // ── Global error handler (must be last middleware) ─────────────────────────────
+  // Logs server-side; never exposes err.stack, messages, or filesystem paths to clients.
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    console.error('[server] unhandled error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   });
 
   // ── Background services ────────────────────────────────────────────────────────

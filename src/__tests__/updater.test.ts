@@ -26,6 +26,7 @@ let origKoaHome: string | undefined;
 interface ExecaScenario {
   upstream?: string | null; // null = no upstream configured
   remoteHead?: string;
+  localAhead?: boolean; // remote head is an ancestor of local HEAD (dev install ahead of upstream)
   dirty?: boolean;
   pullFails?: boolean;
   buildFails?: boolean;
@@ -46,6 +47,11 @@ function setupExeca(scenario: ExecaScenario): string[][] {
       if (args[0] === 'fetch') return Promise.resolve({ stdout: '' });
       if (joined === 'rev-parse HEAD') return Promise.resolve({ stdout: LOCAL_SHA });
       if (args[0] === 'rev-parse') return Promise.resolve({ stdout: scenario.remoteHead ?? REMOTE_SHA });
+      if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+        // exit 0 = remote head is an ancestor of (or equal to) local HEAD → no update.
+        const remoteContained = args[2] === LOCAL_SHA || scenario.localAhead === true;
+        return Promise.resolve({ exitCode: remoteContained ? 0 : 1, stdout: '', stderr: '' });
+      }
       if (args[0] === 'status') return Promise.resolve({ stdout: scenario.dirty ? ' M src/x.ts' : '' });
       if (args[0] === 'pull') {
         if (scenario.pullFails) return Promise.reject(new Error('pull failed'));
@@ -116,6 +122,12 @@ describe('koa update', () => {
 
   it('--check reports up-to-date when local HEAD matches upstream', async () => {
     setupExeca({ remoteHead: LOCAL_SHA });
+    const result = await runUpdate({ repoRoot, check: true });
+    expect(result.status).toBe('up-to-date');
+  });
+
+  it('--check treats a local branch ahead of upstream as up-to-date (no downgrade prompt)', async () => {
+    setupExeca({ localAhead: true });
     const result = await runUpdate({ repoRoot, check: true });
     expect(result.status).toBe('up-to-date');
   });

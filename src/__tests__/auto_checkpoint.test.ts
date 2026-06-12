@@ -63,6 +63,7 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     ollamaModel: 'llama3.2',
     ollamaBaseUrl: 'http://localhost:11434',
     claudeCodePath: 'claude',
+    quotaFallback: true,
     sandboxBackend: 'local' as const,
     sandboxTimeoutMs: 10000,
     browserEnabled: false,

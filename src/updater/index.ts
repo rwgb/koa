@@ -33,6 +33,23 @@ async function git(args: string[], cwd: string): Promise<string> {
   return stdout.trim();
 }
 
+/** Collapses an execa/git failure into a clean one-line message (no stack trace). */
+function gitErrorMessage(err: unknown): string {
+  const firstLine = (err instanceof Error ? err.message : String(err)).split('\n')[0] ?? '';
+  return `git command failed: ${firstLine}`;
+}
+
+/** True if `ancestor` is an ancestor of (or equal to) `descendant`. */
+async function isAncestor(ancestor: string, descendant: string, cwd: string): Promise<boolean> {
+  const result = await execa('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+    cwd,
+    reject: false,
+  });
+  if (result.exitCode === 0) return true;
+  if (result.exitCode === 1) return false;
+  throw new Error(result.stderr || `git merge-base exited with code ${result.exitCode}`);
+}
+
 // ntfy ping following the ~/.koa/credentials NTFY_TOPIC convention (same as
 // `koa setup` and the admin /ntfy/test route). No-ops if not configured; a
 // notification failure must never break or roll back the update itself.
@@ -89,9 +106,18 @@ export async function runUpdate(opts: UpdateOptions = {}): Promise<UpdateResult>
     return { status: 'error', message: `Could not fetch from ${upstream}. Check your network and remote access.` };
   }
 
-  const localHead = await git(['rev-parse', 'HEAD'], repoRoot);
-  const remoteHead = await git(['rev-parse', upstream], repoRoot);
-  const updateAvailable = localHead !== remoteHead;
+  let localHead: string;
+  let remoteHead: string;
+  let updateAvailable: boolean;
+  try {
+    localHead = await git(['rev-parse', 'HEAD'], repoRoot);
+    remoteHead = await git(['rev-parse', upstream], repoRoot);
+    // A local branch that is ahead of upstream (dev installs) already contains the
+    // remote head — only report an update when the remote has commits we lack.
+    updateAvailable = !(await isAncestor(remoteHead, localHead, repoRoot));
+  } catch (err) {
+    return { status: 'error', message: gitErrorMessage(err) };
+  }
   const shortRemote = remoteHead.slice(0, 7);
 
   if (opts.check) {
@@ -103,7 +129,12 @@ export async function runUpdate(opts: UpdateOptions = {}): Promise<UpdateResult>
       : { status: 'up-to-date', message: `Already up to date with ${upstream}.` };
   }
 
-  const dirty = await git(['status', '--porcelain'], repoRoot);
+  let dirty: string;
+  try {
+    dirty = await git(['status', '--porcelain'], repoRoot);
+  } catch (err) {
+    return { status: 'error', message: gitErrorMessage(err) };
+  }
   if (dirty !== '' && !opts.force) {
     return {
       status: 'blocked',

@@ -1,11 +1,13 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { HAIKU_CLASSIFIER_TIMEOUT_MS } from '../config/index.js';
+import { MODEL_MAP } from '../types/index.js';
 
-// Model tier identifiers
+// Model tier identifiers (routing names; values sourced from MODEL_MAP so
+// model ids have a single source of truth in src/types/index.ts)
 export const MODELS = {
-  haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-6',
-  opus: 'claude-opus-4-7',
+  haiku: MODEL_MAP.fast,
+  sonnet: MODEL_MAP.standard,
+  opus: MODEL_MAP.powerful,
 } as const;
 
 export type ModelTier = keyof typeof MODELS;
@@ -62,7 +64,8 @@ export async function classifyWithHaiku(
   try {
     const response = await anthropicClient.messages.create(
       {
-        model: MODELS.haiku,
+        // tier: fast — routing classification (internal, non-user-facing)
+        model: MODEL_MAP.fast,
         max_tokens: 16,
         temperature: 0,
         system: CLASSIFIER_SYSTEM,

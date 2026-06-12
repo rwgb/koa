@@ -55,14 +55,16 @@ export function writeCredential(key: string, value: string): void {
   fs.chmodSync(credentialsFile(), 0o600);
 }
 
-export function deleteCredential(key: string): void {
+/** Removes a credential. Returns true only if the key existed and was deleted. */
+export function deleteCredential(key: string): boolean {
   let existing: Record<string, string>;
   try {
     existing = parseCredentials(fs.readFileSync(credentialsFile(), 'utf8'));
   } catch {
-    return;
+    return false;
   }
 
+  if (!(key in existing)) return false;
   delete existing[key];
 
   const content = Object.entries(existing)
@@ -71,6 +73,7 @@ export function deleteCredential(key: string): void {
 
   fs.writeFileSync(credentialsFile(), content, { mode: 0o600 });
   fs.chmodSync(credentialsFile(), 0o600);
+  return true;
 }
 
 export function getCredentialsPath(): string {

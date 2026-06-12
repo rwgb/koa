@@ -42,30 +42,16 @@ metadata:
 | CP18 | koa update with automatic rollback (--check/--no-test/--force) | ✅ done 2026-06-10 — PR #19 merged |
 | Deps fold-in | dependabot #11/#13–#16 + compat fixes (SDK 0.104, zod 4, etc.) | ✅ done 2026-06-10 — PR #20 merged |
 | CP19 | multi-instance GitHub integration | ✅ done 2026-06-10 — PR #21 merged |
+| CP20 | 11 audit fixes + 3 LOW carry-ins + api-cost-opt p1–3 + smart-routing classifier | ✅ done 2026-06-11 |
 
-## Current State (2026-06-10)
+## Current State (2026-06-11)
 
-- Branch: `chore/deps-compat` (off feature/web-console-and-hardening)
-- CP18 merged (PR #19): koa update self-updater, 811 tests at merge
-- Dependabot PRs #11/#13/#14/#15/#16 merged (SDK 0.104, zod 4, commander 15, ink 7, react 19, better-sqlite3 12); #12 (actions/checkout) awaiting dependabot merge — needs `workflow` scope or @dependabot command
-- v1 full audit run wf_84003079-68c: audit+verify completed; fix/gate/report killed by session-limit — NOT RESUMABLE (fix agents died, no source changes to cache)
-- 11 confirmed HIGH/MEDIUM, 0 refuted — full list in DEVLOG.md [2026-06-11] session entry
-- CRITICAL: CP16 fallback NOT on release branch (needs reimplementation); cache_control accumulation bug causes hard 400 failures
-- Fix workflow to be re-launched fresh once session resets (01:20 CT)
-- v1.0.0 push: CP19 (multi-instance GitHub) → full E2E audit → release prep (CHANGELOG, TASKS.md cleanup, ntfy topic rotation) → release
-
-## Merge State
-
-- `feature/context-compression` → `develop` ✅ merged
-- PR #3 (`develop` → `main`) ✅ squash-merged, v0.2.0 released
-- Branch protection on `main` + `develop`: CI required
-- PR #17 (`feature/cp15-engram-loops` → `feature/web-console-and-hardening`) ✅ merged 2026-06-10
+- Branch: `feature/web-console-and-hardening`
+- CP20 done: all 11 HIGH/MEDIUM audit findings fixed, 3 LOW carry-ins fixed, api-cost-optimization phases 1–3 and smart-routing hybrid classifier implemented
+- CHANGELOG.md "Fixed" claims verified accurate — no audit blockers remain for the v1.0.0 tag
+- Hard deadline: koa stable (no iOS/watchOS) before 2026-06-29
 
 ## Next
 
-- [ ] Merge feature/cp17 → feature/web-console-and-hardening (PR)
-- [ ] CP18: `koa update` with automatic rollback (scoped 2026-06-10)
-  - git pull + npm run build; snapshot dist/ before build; restore on failure
-  - CLI: `koa update`, `--check`, `--no-test`, `--force`
-  - New module: `src/updater/index.ts`
-  - ntfy ping on success and rollback
+- [ ] Commit CP20 working-tree changes, tag v1.0.0
+- [ ] CP21 (TBD)

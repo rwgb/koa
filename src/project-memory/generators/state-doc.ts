@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { MODELS } from '../../agent/router.js';
+import { MODEL_MAP } from '../../types/index.js';
 
 export async function generateStateDoc(
   conversationSummary: string,
@@ -9,7 +9,8 @@ export async function generateStateDoc(
   const client = new Anthropic({ apiKey });
 
   const response = await client.messages.create({
-    model: MODELS.haiku,
+    // tier: fast — STATE.md generation (internal, non-user-facing)
+    model: MODEL_MAP.fast,
     max_tokens: 512,
     messages: [
       {
@@ -66,7 +67,8 @@ export async function generateJournalEntry(
   const userMessages = extractUserMessages(conversationSummary);
 
   const response = await client.messages.create({
-    model: MODELS.haiku,
+    // tier: fast — journal entry generation (internal, non-user-facing)
+    model: MODEL_MAP.fast,
     max_tokens: 512,
     messages: [
       {

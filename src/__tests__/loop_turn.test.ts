@@ -68,11 +68,14 @@ vi.mock('../engram/preferences.js', () => ({
 }));
 
 vi.mock('../db/index.js', () => ({
-  createConversation: vi.fn().mockReturnValue('conv-1'),
+  createConversation: vi.fn().mockReturnValue({ id: 'conv-1' }),
   addConversationTurn: vi.fn(),
   closeConversation: vi.fn(),
   getConversationTurns: vi.fn().mockReturnValue([]),
   updateConversationTitle: vi.fn(),
+  getProjectBySlug: vi.fn().mockReturnValue(null),
+  getProjectBudget: vi.fn().mockReturnValue(null),
+  getProjectCumulativeCost: vi.fn().mockReturnValue(0),
 }));
 
 vi.mock('../channels/router.js', () => ({
@@ -178,6 +181,7 @@ function makeConfig(overrides: Partial<KoaConfig> = {}): KoaConfig {
     ollamaModel: 'llama3.2',
     ollamaBaseUrl: 'http://localhost:11434',
     claudeCodePath: 'claude',
+    quotaFallback: true,
     sandboxBackend: 'local' as const,
     sandboxTimeoutMs: 10000,
     browserEnabled: false,
@@ -666,5 +670,74 @@ describe('A-7: Pending Engram Work deduplication', () => {
 
     const pendingMatches = content.match(/## Pending Engram Work/g) ?? [];
     expect(pendingMatches).toHaveLength(1);
+  });
+});
+
+// ── Lazy conversation creation + auto-titling ────────────────────────────────
+
+describe('Lazy conversation creation and auto-titling', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let db: any;
+
+  beforeEach(async () => {
+    db = vi.mocked(await import('../db/index.js'));
+    db.createConversation.mockClear();
+    db.addConversationTurn.mockClear();
+    db.updateConversationTitle.mockClear();
+  });
+
+  afterEach(async () => {
+    db.getConversationTurns.mockReturnValue([]);
+    vi.restoreAllMocks();
+  });
+
+  it('creates no conversation row in initialize(); creates one on the first turn', async () => {
+    const loop = makeLoop();
+    const endMsg = makeMessage({ content: [textBlock('hi')], stop_reason: 'end_turn' });
+    const { provider } = makeProvider([endMsg]);
+    loop.provider = provider;
+
+    await loop.initialize();
+    expect(db.createConversation).not.toHaveBeenCalled();
+    expect(loop._conversationId).toBeUndefined();
+    expect(loop.getConversationId()).toBeNull();
+
+    await loop.turn('hello', {});
+    expect(db.createConversation).toHaveBeenCalledOnce();
+    expect(loop._conversationId).toBe('conv-1');
+    expect(loop.getConversationId()).toBe('conv-1');
+    expect(db.addConversationTurn).toHaveBeenCalledWith('conv-1', 'user', 'hello');
+  });
+
+  it('fires title generation once after the first turn completes', async () => {
+    db.getConversationTurns.mockReturnValue([
+      { role: 'user', content: 'hello' },
+    ]);
+    const loop = makeLoop();
+    const endMsg = makeMessage({ content: [textBlock('hi')], stop_reason: 'end_turn' });
+    const { provider } = makeProvider([endMsg, endMsg]);
+    provider.create = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'Greeting Conversation' }],
+    } as unknown as Anthropic.Message);
+    loop.provider = provider;
+
+    await loop.turn('hello', {});
+    expect(loop._titleGeneration).toBeDefined();
+    await loop._titleGeneration;
+    expect(db.updateConversationTitle).toHaveBeenCalledWith('conv-1', 'Greeting Conversation');
+
+    // Second turn must not start another generation
+    await loop.turn('hello again', {});
+    expect(provider.create).toHaveBeenCalledOnce();
+  });
+
+  it('does not fire title generation without an apiKey', async () => {
+    const loop = makeLoop({ apiKey: '' });
+    const endMsg = makeMessage({ content: [textBlock('hi')], stop_reason: 'end_turn' });
+    const { provider } = makeProvider([endMsg]);
+    loop.provider = provider;
+
+    await loop.turn('hello', {});
+    expect(loop._titleGeneration).toBeUndefined();
   });
 });

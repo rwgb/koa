@@ -329,9 +329,14 @@ configCmd
   .command('unset <key>')
   .description('Remove a persisted configuration value')
   .action((key: string) => {
-    const credKey = key === 'api-key' ? 'ANTHROPIC_API_KEY' : key;
-    deleteCredential(credKey);
-    console.log(`Removed ${key} from ${getCredentialsPath()}`);
+    const credKey =
+      key === 'api-key' ? 'ANTHROPIC_API_KEY' : key === 'web-token' ? 'KOA_WEB_TOKEN' : key;
+    if (deleteCredential(credKey)) {
+      console.log(`Removed ${key} from ${getCredentialsPath()}`);
+    } else {
+      console.error(`Error: "${key}" not found in ${getCredentialsPath()} — nothing removed`);
+      process.exit(1);
+    }
   });
 
 configCmd
@@ -373,7 +378,8 @@ program
     const fs = await import('node:fs');
     const path = await import('node:path');
 
-    const configPath = path.join(os.homedir(), '.koa', 'config.json');
+    // KOA_HOME redirects the config dir (Docker/systemd) — same convention as credentials.ts.
+    const configPath = path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'config.json');
     if (!fs.existsSync(configPath)) {
       console.log('No config file found at', configPath);
       return;

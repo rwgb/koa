@@ -1,23 +1,28 @@
 ---
-written: 2026-06-10
-branch: feature/cp17
-tests: 799
+written: 2026-06-11
+branch: feature/web-console-and-hardening
+tests: 831
 tsc: clean
-tip: a910a49
+tip: 4b523e0 (+ uncommitted CP20+CP21+hotfix working tree)
 ---
 
 ## Where We Are
 
-CP17 complete. OC-1 (dynamic token-budget compression threshold — 100k for 200k models), OC-2 (koa doctor --fix CLI migration command), R-3 (per-project budget_usd + session-cost guard in agent loop). 799 tests, tsc clean.
+CP21 + hotfix done. Server rebuilt and restarted (pid 83540, port 3000) — chat working via quota fallback.
+
+- **CP21**: quota-fallback model/cost attribution ($0 for ClaudeCode turns), conversation auto-titling (lazy create + title after first exchange), version badge sources package.json. Anthropic API key over monthly limit until 2026-07-01 — every turn routes through ClaudeCode CLI.
+- **Hotfix (chat transcript persistence)**: chat replies were appearing in Activity but not the chat window. Root cause: `ChatPage` owned the transcript + SSE stream; route unmount (navigation during the 20–40s fallback turn) aborted the stream and wiped state. Fixed by lifting stream + transcript into `ChatContext` above the router, with DB hydration on load.
+- **Calendar flicker**: fixed — `monthStart`/`monthEnd` memoized, `weekEnd` moved inside callback, stable `key` on grid cells.
 
 ## Active Branch
 
-feature/cp17 — CP17 complete, PR pending against feature/web-console-and-hardening.
+`feature/web-console-and-hardening` — CP21 + hotfix complete.
 
 ## What's Next
 
-1. Merge feature/cp17 → feature/web-console-and-hardening (PR)
-2. CP18 — decide scope (candidates: context engine interface extraction, webhook-triggered delegations, ambient dashboard)
+1. Commit the CP20+CP21+hotfix working-tree changes (atomic commits), open PR
+2. Tag v1.0.0
+3. Fix `koa --version` hardcode in `src/cli/index.ts` (same disease as the web badge — read from package.json)
 
 ## Open Questions
 
@@ -45,3 +50,8 @@ feature/cp17 — CP17 complete, PR pending against feature/web-console-and-harde
 | CP15 | Engram Loop 2: signals.ts + cross_repo tools + HANDOFF wiring | done |
 | CP16 | ClaudeCode fallback on Anthropic 429/quota exhaustion | done |
 | CP17 | OC-1 token-budget compaction + OC-2 koa doctor + R-3 per-project budgets | done |
+| CP18 | koa update with automatic rollback | done |
+| CP19 | Multi-instance GitHub configuration | done |
+| CP20 | Audit fixes + api-cost-opt p1–3 + smart-routing | done |
+| CP21 | Quota fallback attribution, conversation auto-titling, version badge | done |
+| Hotfix | Chat transcript persistence (stream + state lifted out of route component) | done |
