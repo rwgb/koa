@@ -1,0 +1,255 @@
+---
+- name: Configure koa-lxc
+  hosts: koa_servers
+  become: false  # already root
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # System hardening
+    # -------------------------------------------------------------------------
+
+    - name: hardening | disable password authentication in sshd
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        state: present
+        validate: /usr/sbin/sshd -t -f %s
+      notify: restart sshd
+      tags: hardening
+
+    - name: hardening | keep root login enabled (key-only, homelab)
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin prohibit-password'
+        state: present
+        validate: /usr/sbin/sshd -t -f %s
+      notify: restart sshd
+      tags: hardening
+
+    - name: hardening | install fail2ban
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags: hardening
+
+    - name: hardening | configure fail2ban jail for SSH
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/sshd.conf
+        content: |
+          [sshd]
+          enabled  = true
+          port     = ssh
+          filter   = sshd
+          maxretry = 5
+          bantime  = 3600
+          findtime = 600
+        mode: '0644'
+      notify: restart fail2ban
+      tags: hardening
+
+    - name: hardening | install unattended-upgrades
+      ansible.builtin.apt:
+        name:
+          - unattended-upgrades
+          - apt-listchanges
+        state: present
+        cache_valid_time: 3600
+      tags: hardening
+
+    - name: hardening | configure unattended-upgrades (security only)
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        content: |
+          Unattended-Upgrade::Allowed-Origins {
+              "${distro_id}:${distro_codename}-security";
+          };
+          Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+          Unattended-Upgrade::MinimalSteps "true";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+          Unattended-Upgrade::Automatic-Reboot "false";
+        mode: '0644'
+      tags: hardening
+
+    - name: hardening | enable automatic updates via 20auto-upgrades
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        content: |
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+        mode: '0644'
+      tags: hardening
+
+    - name: hardening | install ufw
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        cache_valid_time: 3600
+      tags: hardening
+
+    - name: hardening | ufw default deny incoming
+      community.general.ufw:
+        direction: incoming
+        policy: deny
+      tags: hardening
+
+    - name: hardening | ufw default allow outgoing
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+      tags: hardening
+
+    - name: hardening | ufw allow SSH
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+      tags: hardening
+
+    - name: hardening | ufw allow HTTP (Caddy)
+      community.general.ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+      tags: hardening
+
+    - name: hardening | ufw allow koa port 3000 from LAN only
+      community.general.ufw:
+        rule: allow
+        port: '3000'
+        proto: tcp
+        src: 192.168.1.0/24
+      tags: hardening
+
+    - name: hardening | enable ufw
+      community.general.ufw:
+        state: enabled
+      tags: hardening
+
+    # -------------------------------------------------------------------------
+    # Koa service setup
+    # -------------------------------------------------------------------------
+
+    - name: koa | ensure koa system user exists
+      ansible.builtin.user:
+        name: koa
+        system: true
+        home: /home/koa
+        shell: /usr/sbin/nologin
+        create_home: true
+        state: present
+      tags: koa
+
+    - name: koa | ensure required directories exist
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /opt/koa,      owner: koa,  group: koa,  mode: '0755' }
+        - { path: /var/lib/koa,  owner: koa,  group: koa,  mode: '0750' }
+        - { path: /etc/koa,      owner: root, group: koa,  mode: '0750' }
+      tags: koa
+
+    - name: koa | ensure /etc/koa/env exists
+      ansible.builtin.file:
+        path: /etc/koa/env
+        state: touch
+        owner: root
+        group: koa
+        mode: '0640'
+        modification_time: preserve
+        access_time: preserve
+      tags: koa
+
+    - name: koa | set KOA_PROVIDER=ollama in /etc/koa/env
+      ansible.builtin.lineinfile:
+        path: /etc/koa/env
+        regexp: '^KOA_PROVIDER='
+        line: 'KOA_PROVIDER=ollama'
+        state: present
+      tags: koa
+
+    - name: koa | set KOA_TTS_PROVIDER=none in /etc/koa/env
+      ansible.builtin.lineinfile:
+        path: /etc/koa/env
+        regexp: '^KOA_TTS_PROVIDER='
+        line: 'KOA_TTS_PROVIDER=none'
+        state: present
+      tags: koa
+
+    - name: koa | ensure koa.service is enabled and started
+      ansible.builtin.systemd:
+        name: koa
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: koa
+
+    # -------------------------------------------------------------------------
+    # Claude Code credentials
+    # -------------------------------------------------------------------------
+
+    - name: credentials | copy ~/.claude.json from control node to /home/koa/.claude.json
+      ansible.builtin.copy:
+        src: "{{ lookup('env', 'HOME') }}/.claude.json"
+        dest: /home/koa/.claude.json
+        owner: koa
+        group: koa
+        mode: '0600'
+      tags: credentials
+
+    # -------------------------------------------------------------------------
+    # Log rotation
+    # -------------------------------------------------------------------------
+
+    - name: logrotate | ensure /var/log/koa directory exists
+      ansible.builtin.file:
+        path: /var/log/koa
+        state: directory
+        owner: koa
+        group: koa
+        mode: '0750'
+      tags: logrotate
+
+    - name: logrotate | configure koa log rotation
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/koa
+        content: |
+          /var/log/koa/*.log {
+              daily
+              rotate 14
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0640 koa koa
+              sharedscripts
+              postrotate
+                  systemctl kill --kill-who=main --signal=USR1 koa.service 2>/dev/null || true
+              endscript
+          }
+        mode: '0644'
+      tags: logrotate
+
+  # ---------------------------------------------------------------------------
+  # Handlers
+  # ---------------------------------------------------------------------------
+
+  handlers:
+
+    - name: restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
