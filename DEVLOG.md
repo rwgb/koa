@@ -1,5 +1,52 @@
 # Koa — DevLog
 
+## 2026-06-12 — Production hardening: updater, TTS/web voice, installer, Ansible
+
+### Completed
+- **Production chat fix**: Added `KOA_PROVIDER=ollama` to `/etc/koa/env` on 192.168.1.200; copied `~/.claude.json` to `/home/koa/.claude.json` for ClaudeCode CLI fallback auth (was failing with exit 1 due to no credentials on headless host)
+- **Updater** (`src/updater/index.ts`): Hard-coded `REPO_REMOTE`/`REPO_BRANCH`/`REPO_URL` constants for private repo; `@{u}` detection falls back to constants instead of erroring; `GITHUB_PAT` from credentials used in fetch URL; `GIT_TERMINAL_PROMPT=0` prevents hanging
+- **TTS** (`src/voice/tts.ts`, `src/config/index.ts`): Added `'none'` provider — no-op on server, OS-aware default (`linux→none`, `darwin→say`)
+- **Web voice** (`web/src/hooks/useSpeech.ts` new, `web/src/context/ChatContext.tsx`, `web/src/api.ts`, `web/src/types.ts`): `useSpeech` hook auto-speaks Koa's responses — server TTS when provider is `say`/`elevenlabs`, Web Speech API fallback when `none`; accumulates streamed content in a ref and speaks on `done` event
+- **Installer** (`install.sh`): Added GitHub PAT prompt → writes to credentials; OS-aware TTS config (Linux sets `none`); sets git upstream tracking post-install
+- **Ansible** (`infra/ansible/`): `inventory.yml`, `playbook-koa-lxc.yml`, `playbook-ollama-vm.yml` — idempotent hardening for LXC (UFW, fail2ban, credential deploy, log rotation) and Ollama VM (UFW, model pull, service override)
+- **Test updated**: updater test reflects new fallback behavior (no error on missing upstream)
+
+### Decisions
+- ClaudeCode CLI credentials: copy `~/.claude.json` at deploy time rather than API-key auth — subscription quota is separate from exhausted API quota
+- `GITHUB_PAT` embedded in fetch URL as `x-token:<PAT>@` — appears briefly in ps aux but not stored in .git/config
+- Web Speech API fires only on `done` event using a ref-accumulated buffer — avoids React state timing issues
+- Ansible `PermitRootLogin prohibit-password` rather than `yes` — key-only root, appropriate for homelab
+
+### Issues Found
+- Gate agent introduced incorrect `errMsg.includes('no upstream')` guard that re-enabled old error behavior — caught and fixed immediately
+
+### Next Session
+- [ ] Deploy updated code to production (git push + ssh pull/rebuild)
+- [ ] Verify web voice works in browser on 192.168.1.200
+- [ ] Commit pending changes (atomic commits) + open PR
+- [ ] Tag v1.0.0
+- [ ] Note: `community.general` Ansible collection required for UFW module (`ansible-galaxy collection install community.general`)
+
+## 2026-06-12 — Surface error messages in chat error bubble
+
+### Completed
+- Added sanitizeErrorMessage helper to src/server/routes/chat.ts
+- SSE error event now includes sanitized err.message (paths stripped, truncated at 200 chars)
+- Fixes "Agent error — see server logs" being the only diagnostic info in the UI
+
+### Decisions
+- Use err.message not err.stack: avoids leaking class names, line numbers, file paths from stack frames
+- Path-strip regex strips unix/windows absolute paths from message text before sending to client
+- Prefix 'Agent error — ' preserved: existing security test (invariants.test.ts:319) guards this string
+
+### Issues Found
+- None new
+
+### Next Session
+- [ ] Commit pending CP20+CP21+hotfix+this change (atomic commits) + open PR
+- [ ] Tag v1.0.0
+- [ ] Fix koa --version hardcode in src/cli/index.ts (read from package.json)
+
 ## [2026-06-11] — Hotfix: chat transcript survives navigation/refresh
 
 ### Completed
@@ -3422,6 +3469,38 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 - Engram brains live at `~/.engram/brains/<slug>/brain.db`
 - Engram hooks gracefully exit when no brain exists — safe to enable globally
 
-<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — done 2026-06-11 -->
 
-<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — done 2026-06-11 -->
+
+---
+
+## [2026-06-12] — Production deployment + Claude Code auth on server
+
+### Completed
+- Merged `feature/web-console-and-hardening` into `main` (v1.0.0 — CP14–CP21 + all hotfixes); resolved conflicts with `-X theirs`; pushed main + v1.0.0 tag to GitHub
+- Synced `develop` branch to match main (merge + push)
+- Deployed v1.0.0 to production (192.168.1.200) via `scripts/deploy.sh`; DB migration 10 applied; service restarted healthy
+- Installed `@anthropic-ai/claude-code@2.1.175` globally on production server
+- Configured `HOME=/home/koa` in `/etc/koa/env` so the koa service process finds Claude Code credentials
+- Copied Claude Code OAuth credentials from local macOS Keychain (`Claude Code-credentials`) to `/home/koa/.claude/.credentials.json`; verified `claude -p "say hi"` responds as koa user
+- Quota fallback (CP16) fully operational on production: Anthropic 429 → ClaudeCode CLI via koa user's subscription
+
+### Decisions
+- **Deploy via rsync not git**: production server has no git installed; deploy.sh rsync approach works cleanly
+- **Credential copy over OAuth flow**: headless PKCE auth fails when URL is opened on a different machine (code_challenge lives in the spawning process memory); copying macOS Keychain entry directly to server credentials file is the correct approach
+- **root SSH**: IaC (`infra/terraform/outputs.tf`) specifies `root@<koa_ip>` — confirmed working with id_ed25519
+
+### Issues Found
+- Production was running pre-CP16 build (no quota fallback) since 2026-06-08 — all Anthropic requests hard-failing on quota error
+- koa user had `nologin` shell and no home dir; needed `usermod -s /bin/bash` + `mkdir /home/koa` before auth
+
+### Next Session
+- [ ] Fix `koa --version` hardcode in `src/cli/index.ts` (still prints `0.1.0`)
+- [ ] Bump `package.json` version to `1.0.0`
+- [ ] Run `koa setup` on local dev (credentials cleared for onboarding reset; backup at `~/.koa/credentials.bak`)
+- [ ] Revert koa user shell to `nologin` on production after confirming quota fallback stable
+
+### Learnings
+- Claude Code OAuth uses PKCE — copying just the URL to another machine always fails (code_challenge mismatch)
+- macOS stores Claude Code auth under keychain service `Claude Code-credentials`; Linux uses `~/.claude/.credentials.json` — same JSON format, direct copy works

@@ -43,15 +43,21 @@ metadata:
 | Deps fold-in | dependabot #11/#13–#16 + compat fixes (SDK 0.104, zod 4, etc.) | ✅ done 2026-06-10 — PR #20 merged |
 | CP19 | multi-instance GitHub integration | ✅ done 2026-06-10 — PR #21 merged |
 | CP20 | 11 audit fixes + 3 LOW carry-ins + api-cost-opt p1–3 + smart-routing classifier | ✅ done 2026-06-11 |
+| CP21 | Quota fallback attribution, conversation auto-titling, version badge | ✅ done 2026-06-11 |
+| Hotfix | Chat transcript persistence (stream + state lifted out of route component) | ✅ done 2026-06-11 |
+| v1.0.0 | main + develop synced, tag pushed, production deployed via rsync | ✅ done 2026-06-12 |
+| Prod Claude Code | Installed claude CLI + copied OAuth creds to koa user; quota fallback live on prod | ✅ done 2026-06-12 |
 
-## Current State (2026-06-11)
+## Current State (2026-06-12)
 
-- Branch: `feature/web-console-and-hardening`
-- CP20 done: all 11 HIGH/MEDIUM audit findings fixed, 3 LOW carry-ins fixed, api-cost-optimization phases 1–3 and smart-routing hybrid classifier implemented
-- CHANGELOG.md "Fixed" claims verified accurate — no audit blockers remain for the v1.0.0 tag
+- Branch: `main` (production is on v1.0.0 — CP14–CP21 + all hotfixes)
+- Production (192.168.1.200): running healthy, Claude Code quota fallback active
+- Local dev: credentials cleared for onboarding reset (backup at `~/.koa/credentials.bak`)
 - Hard deadline: koa stable (no iOS/watchOS) before 2026-06-29
 
 ## Next
 
-- [ ] Commit CP20 working-tree changes, tag v1.0.0
-- [ ] CP21 (TBD)
+- [ ] Fix `koa --version` hardcode in `src/cli/index.ts` (prints `0.1.0`)
+- [ ] Bump `package.json` version to `1.0.0`
+- [ ] Run `koa setup` on local dev to restore credentials
+- [ ] Revert koa production user shell to `nologin` (security hardening)
