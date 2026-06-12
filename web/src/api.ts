@@ -762,3 +762,11 @@ export async function runUpdate(opts: { test?: boolean } = {}): Promise<{ status
   if (!res.ok) throw new Error('Update failed');
   return res.json() as Promise<{ status: string; message: string }>;
 }
+
+// ── Voice ─────────────────────────────────────────────────────────────────────
+
+export async function synthesizeSpeech(text: string): Promise<Blob> {
+  const res = await authFetch(`/api/voice/synthesize?text=${encodeURIComponent(text.slice(0, 500))}`);
+  if (!res.ok) throw new Error(`TTS synthesis failed: ${res.status}`);
+  return res.blob();
+}
