@@ -5,6 +5,10 @@ import { execa } from 'execa';
 import { readCredentials } from '../config/credentials.js';
 import { validateSafeUrl } from '../utils/ssrf.js';
 
+const REPO_REMOTE = 'origin';
+const REPO_BRANCH = 'main';
+const REPO_URL = 'https://github.com/rwgb/koa.git';
+
 export interface UpdateOptions {
   /** Repo root to operate on. Defaults to the root of this installation. */
   repoRoot?: string;
@@ -82,26 +86,32 @@ export async function runUpdate(opts: UpdateOptions = {}): Promise<UpdateResult>
   // Resolve the configured upstream of the current branch — we only ever pull
   // from it, never from an arbitrary remote.
   let upstream: string;
+  let remote: string;
+  let remoteBranch: string;
   try {
     upstream = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], repoRoot);
+    const slash = upstream.indexOf('/');
+    remote = upstream.slice(0, slash);
+    remoteBranch = upstream.slice(slash + 1);
+    if (!remote || !remoteBranch) throw new Error('unparseable');
   } catch {
-    return {
-      status: 'error',
-      message:
-        'No upstream configured for the current branch. ' +
-        'Set one with: git branch --set-upstream-to=<remote>/<branch>',
-    };
-  }
-  const slash = upstream.indexOf('/');
-  const remote = upstream.slice(0, slash);
-  const remoteBranch = upstream.slice(slash + 1);
-  if (!remote || !remoteBranch) {
-    return { status: 'error', message: `Could not parse upstream "${upstream}".` };
+    // No upstream configured or unparseable — fall back to hard-coded defaults for this private repo.
+    remote = REPO_REMOTE;
+    remoteBranch = REPO_BRANCH;
+    upstream = `${remote}/${remoteBranch}`;
   }
 
   log(`Checking ${upstream} for updates…`);
+  const creds = readCredentials();
+  const pat = creds['GITHUB_PAT'];
+  const fetchUrl = pat
+    ? REPO_URL.replace('https://', `https://x-token:${pat}@`)
+    : remote;
   try {
-    await execa('git', ['fetch', remote, remoteBranch], { cwd: repoRoot });
+    await execa('git', ['fetch', fetchUrl, remoteBranch], {
+      cwd: repoRoot,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
   } catch {
     return { status: 'error', message: `Could not fetch from ${upstream}. Check your network and remote access.` };
   }
