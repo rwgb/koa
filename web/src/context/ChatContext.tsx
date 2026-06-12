@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { fetchConversationTurns, fetchStatus, streamChat } from '../api.js';
 import { useAgent } from './AgentContext.js';
 import type { ChatItem, SseEvent } from '../types.js';
-import { useSpeech } from '../hooks/useSpeech.js';
+import { useSpeech, type VoiceState } from '../hooks/useSpeech.js';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -13,6 +13,7 @@ interface ChatContextValue {
   classifyingTier: string | null;
   sendMessage: (text: string) => void;
   clearChat: () => void;
+  voice: VoiceState;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -32,7 +33,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const hydratedRef = useRef(false);
 
   const { isThinking, setIsThinking, setActiveTool, setUsage, setAgentStatus, setContextStats, agentStatus } = useAgent();
-  const { speak } = useSpeech();
+  const voice = useSpeech();
   const speakBufferRef = useRef('');
 
   // Sync lastTierRef with the server-reported tier (before any turns, reflects config model)
@@ -88,7 +89,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           lastAgentRef.current = event.agent ?? 'code-assistant';
           const textToSpeak = speakBufferRef.current;
           speakBufferRef.current = '';
-          if (textToSpeak) speak(textToSpeak);
+          if (textToSpeak) voice.speak(textToSpeak);
           setActiveTool(null);
           setAgentStatus(prev =>
             prev
@@ -161,7 +162,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const clearChat = () => setItems([]);
 
   return (
-    <ChatContext.Provider value={{ items, classifyingTier, sendMessage, clearChat }}>
+    <ChatContext.Provider value={{ items, classifyingTier, sendMessage, clearChat, voice }}>
       {children}
     </ChatContext.Provider>
   );

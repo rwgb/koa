@@ -10,7 +10,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
 
   const { isThinking, setUsage, setAgentStatus } = useAgent();
-  const { items, classifyingTier, sendMessage, clearChat } = useChat();
+  const { items, classifyingTier, sendMessage, clearChat, voice } = useChat();
 
   // Refresh agent status on each visit to the chat page
   useEffect(() => {
@@ -38,6 +38,7 @@ export default function ChatPage() {
       isThinking={isThinking}
       classifyingTier={classifyingTier}
       onClear={clearChat}
+      voice={voice}
     />
   );
 }
