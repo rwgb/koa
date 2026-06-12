@@ -3,51 +3,41 @@ written: 2026-06-12
 branch: feature/web-console-and-hardening
 tests: 837
 tsc: clean
-tip: 3 commits pushed (bfd7305)
+tip: 6ad85a8 (voice picker deployed)
 ---
 
 ## Where We Are
 
-Production chat working on 192.168.1.200 via **QuotaFallbackProvider**: Anthropic tries first (quota exhausted until 2026-07-01) → falls back to ClaudeCode CLI subscription. Auto-titling and conversation naming verified working.
+Production healthy at 192.168.1.200. Chat routes Anthropic → ClaudeCode fallback (quota exhausted until 2026-07-01). Voice is live in the web console.
 
-### What Was Fixed This Session
+### What Was Done This Session
 
-- **Root cause of ClaudeCode exit 1**: `ClaudeCodeProvider.doRun()` inherited `ANTHROPIC_API_KEY` from service env → claude used exhausted API key instead of `~/.claude.json`. Fixed by stripping the key before spawn.
-- **Service crash on shutdown**: `generateStateDoc` / `generateJournalEntry` threw unhandled in `finalize()` when Anthropic quota hit. Fixed with try/catch (returns placeholder on failure).
-- **better-sqlite3 ABI mismatch**: `scripts/deploy.sh` now stops service before rsync to prevent crash window during node_modules sync.
-- **Provider routing**: Production `KOA_PROVIDER=anthropic` (was `ollama`). QuotaFallbackProvider handles routing automatically.
-
-### Production State
-
-- `/etc/koa/env` → `KOA_PROVIDER=anthropic`
-- `/home/koa/.claude.json` → valid Claude subscription credentials (koa user)
-- `node_modules/better-sqlite3` → rebuilt for Node.js v20.20.2 on production
-- Service: active (running), no crash loop
+- **Provider fix**: `KOA_PROVIDER=anthropic` on prod; `QuotaFallbackProvider` → ClaudeCode CLI; root cause was `ANTHROPIC_API_KEY` inherited by spawn env. Fixed with `delete spawnEnv['ANTHROPIC_API_KEY']`.
+- **Crash fix**: `generateStateDoc`/`generateJournalEntry` now catch all Anthropic errors in `finalize()` — returns placeholder instead of crashing.
+- **Deploy fix**: `scripts/deploy.sh` stops service before rsync to prevent ABI mismatch crash window.
+- **Voice (CP24)**: Browser-only Web Speech API; optional toggle + voice picker in chat header; defaults off; English voices only; persisted to localStorage.
 
 ## Active Branch
 
-`feature/web-console-and-hardening` — all changes committed and pushed.
+`feature/web-console-and-hardening` — all pushed.
 
 ## What's Next
 
-1. Verify web voice component works in browser at 192.168.1.200
-2. Run Ansible hardening playbooks: `ansible-galaxy collection install community.general` then run playbooks
-3. Tag v1.0.0
-4. Consider upgrading production to Node.js 22 to eliminate the ABI mismatch permanently
+1. Ansible hardening (`ansible-galaxy collection install community.general` → run playbooks)
+2. Tag v1.0.0
+3. Consider Node.js 22 upgrade on production (eliminates better-sqlite3 ABI mismatch)
 
 ## Don't Restart
 
-- Tried undici@8.4.1 for Ollama timeout fix: incompatible with Node.js 20. Reverted.
-- Ollama removed from routing for now (too slow for 7B model); re-enable via `KOA_PROVIDER=auto` when VM gets more resources.
-- Tried Tailscale TLS certs: requires paid plan.
-- iOS real-device test via Tailscale: deferred.
-- `CLAUDE_CODE_TMPDIR`: set `CLAUDE_CODE_TMPDIR=~/.claude/tmp` in shell profile to fix ENOSPC.
+- `undici@8.4.1` incompatible with Node.js 20 — do not re-add.
+- Ollama removed from routing (too slow); re-enable via `KOA_PROVIDER=auto` when VM gets more resources.
+- Tailscale TLS: requires paid plan.
+- `CLAUDE_CODE_TMPDIR=~/.claude/tmp` — set in shell profile to fix ENOSPC.
 
-## Completed Checkpoints (reference)
+## Completed Checkpoints
 
 | CP | Label | Status |
 |----|-------|--------|
-| CP0–CP21 | (see DEVLOG for history) | done |
-| Hotfix | Chat transcript persistence | done |
-| CP22 | Production hardening: updater, TTS, web voice, Ansible | done |
-| CP23 | Production routing: ClaudeCode fallback, crash fixes | done |
+| CP0–CP22 | (see DEVLOG) | done |
+| CP23 | Production routing fix | done |
+| CP24 | Optional browser TTS + voice picker | done |

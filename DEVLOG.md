@@ -1,5 +1,26 @@
 # Koa — DevLog
 
+## 2026-06-12 — Optional browser TTS with voice picker (CP24)
+
+### Completed
+- **useSpeech rewrite** (`web/src/hooks/useSpeech.ts`): browser-only Web Speech API; removed all server TTS code paths; `enabled` state defaults to `false`; `selectedVoiceName` persisted to localStorage; filters to English voices via `voiceschanged` listener
+- **VoiceState interface** exported from useSpeech — consumed by ChatContext and ChatPanel
+- **ChatContext**: `useSpeech()` result exposed as `voice` field on `ChatContextValue`; `voice.speak()` called on SSE `done` event
+- **ChatPanel**: speaker toggle button + compact voice `<select>` added to chat header; select only visible when voice enabled; both persist across sessions
+- **CSS** (`.chat__header-actions`, `.chat__voice-btn`, `.chat__voice-btn--on`, `.chat__voice-select`)
+- Deployed to production at 192.168.1.200; service healthy
+
+### Decisions
+- Voice defaults to off — avoids surprise audio on first load; user opts in explicitly
+- English-only voice filter — avoids 50+ language entries cluttering the picker
+- Speak fires on SSE `done` (full response buffered) not per-token — cleaner delivery, no mid-sentence interruption
+- Inline SVG for speaker icons — no new Icon dependency needed
+
+### Next Session
+- [ ] Ansible hardening playbooks (`ansible-galaxy collection install community.general`)
+- [ ] Tag v1.0.0
+- [ ] Consider Node.js 22 upgrade on production to eliminate ABI mismatch
+
 ## 2026-06-12 — Production chat routing fix: ClaudeCode fallback via QuotaFallbackProvider
 
 ### Completed
