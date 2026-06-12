@@ -3,7 +3,7 @@ import https from 'https';
 import type { Readable } from 'stream';
 import { readCredentials } from '../config/credentials.js';
 
-export type TtsProvider = 'say' | 'elevenlabs';
+export type TtsProvider = 'say' | 'elevenlabs' | 'none';
 
 export interface TtsConfig {
   provider: TtsProvider;
@@ -28,6 +28,7 @@ export function cleanText(text: string): string {
 }
 
 export async function synthesizeStream(text: string, config: TtsConfig): Promise<TtsStream> {
+  if (config.provider === 'none') throw new Error('TTS not available');
   const clean = cleanText(text);
   if (config.provider === 'elevenlabs') {
     return synthesizeElevenLabs(clean, config);
@@ -79,6 +80,7 @@ async function synthesizeElevenLabs(text: string, config: TtsConfig): Promise<Tt
 }
 
 export function speak(text: string, config?: TtsConfig): void {
+  if (config?.provider === 'none') return;
   const clean = cleanText(text);
   if (config?.provider === 'elevenlabs') {
     synthesizeElevenLabs(clean, config)
@@ -92,6 +94,7 @@ export function speak(text: string, config?: TtsConfig): void {
 }
 
 export function isTtsAvailable(provider?: TtsProvider): boolean {
+  if (provider === 'none') return false;
   if (provider === 'elevenlabs') {
     return !!readCredentials()['ELEVENLABS_API_KEY'];
   }

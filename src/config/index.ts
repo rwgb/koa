@@ -21,7 +21,7 @@ const ConfigSchema = z.object({
   autoChaining: z.boolean().default(false),
   briefingEnabled: z.boolean().default(false),
   briefingTime: z.string().default('08:00'),
-  ttsProvider: z.enum(['say', 'elevenlabs']).default('say'),
+  ttsProvider: z.enum(['say', 'elevenlabs', 'none']).default(os.platform() === 'linux' ? 'none' : 'say'),
   elevenLabsVoiceId: z.string().default('21m00Tcm4TlvDq8ikWAM'),
   elevenLabsModel: z.string().default('eleven_turbo_v2_5'),
   provider: z.enum(['anthropic', 'ollama', 'claude-code', 'auto']).default('anthropic'),
@@ -56,7 +56,7 @@ export interface KoaConfigFile {
   autoChaining?: boolean;
   briefingEnabled?: boolean;
   briefingTime?: string;
-  ttsProvider?: 'say' | 'elevenlabs';
+  ttsProvider?: 'say' | 'elevenlabs' | 'none';
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
   provider?: 'anthropic' | 'ollama' | 'claude-code' | 'auto';
@@ -137,7 +137,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       briefingEnabled: fileConfig.briefingEnabled ?? false,
       briefingTime: fileConfig.briefingTime ?? '08:00',
       ttsProvider:
-        (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | undefined) ??
+        (process.env['KOA_TTS_PROVIDER'] as 'say' | 'elevenlabs' | 'none' | undefined) ??
         fileConfig.ttsProvider ??
         'say',
       elevenLabsVoiceId: fileConfig.elevenLabsVoiceId ?? '21m00Tcm4TlvDq8ikWAM',
