@@ -273,8 +273,8 @@ describe('INVARIANT 3 — SSE: error events do not expose internal details', () 
     const { createServer } = await import('../../server/index.js');
 
     // Craft an error with a recognisable internal detail that must never reach the client
-    const internalError = new Error('secret path /var/app/.koa/db.sqlite at line 42');
-    internalError.stack = `Error: secret path /var/app/.koa/db.sqlite at line 42\n    at AgentLoop.turn (/var/app/src/agent/loop.ts:99:9)`;
+    const internalError = new Error('secret path /var/app/.koa/db.sqlite and /Users/ralph brynard/active projects/koa/secret.ts at line 42');
+    internalError.stack = `Error: secret path /var/app/.koa/db.sqlite and /Users/ralph brynard/active projects/koa/secret.ts at line 42\n    at AgentLoop.turn (/var/app/src/agent/loop.ts:99:9)`;
 
     const loop = makeFakeLoop({
       turn: vi.fn().mockRejectedValue(internalError),
@@ -314,6 +314,9 @@ describe('INVARIANT 3 — SSE: error events do not expose internal details', () 
       expect(body).not.toContain('db.sqlite');
       expect(body).not.toContain('AgentLoop');
       expect(body).not.toContain('loop.ts');
+
+      // Must also strip paths that have spaces in components
+      expect(body).not.toContain('brynard/active');
 
       // The error message should be the generic one from chat.ts
       expect(body).toContain('Agent error');

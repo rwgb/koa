@@ -28,6 +28,12 @@ function modelToTier(model: string): string {
   return 'sonnet';
 }
 
+function sanitizeErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Strip absolute paths (including segments with spaces) to avoid leaking file system structure
+  return msg.replace(/([A-Za-z]:)?(\/[\w.\- ]+)+/g, '[path]').slice(0, 200);
+}
+
 // Shared SSE streaming logic used by both POST /api/chat and GET /api/sse/chat.
 function runChatStream(
   loop: AgentLoop,
@@ -93,7 +99,7 @@ function runChatStream(
     })
     .catch((err: unknown) => {
       console.error('[koa] agent error:', err);
-      send({ type: 'error', message: 'Agent error — see server logs' });
+      send({ type: 'error', message: `Agent error — ${sanitizeErrorMessage(err)}` });
       if (!disconnected) res.end();
     })
     .finally(() => {
