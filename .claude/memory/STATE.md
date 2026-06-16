@@ -47,17 +47,25 @@ metadata:
 | Hotfix | Chat transcript persistence (stream + state lifted out of route component) | ✅ done 2026-06-11 |
 | v1.0.0 | main + develop synced, tag pushed, production deployed via rsync | ✅ done 2026-06-12 |
 | Prod Claude Code | Installed claude CLI + copied OAuth creds to koa user; quota fallback live on prod | ✅ done 2026-06-12 |
+| CP22–CP26 | Web console hardening, ElevenLabs TTS, settings, debug console | ✅ done (see DEVLOG) |
+| Architecture | CONTEXT.md + 6 ADRs + project cleanup | ✅ done 2026-06-16 |
+| Fix queue | synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, Slack cap, graceful drain | ✅ done 2026-06-16 |
+| CP27-A/B/E | SQLite memory schema + 8 typed event writes + write_memory_event tool | ✅ done 2026-06-16 |
+| CP27-C/D | BM25/RRF retrieval pipeline + per-turn system prompt injection | ✅ done 2026-06-16 |
+| CP29-A/B | EventBus namespace.verb pattern + action_type dispatch (notify/brief/agent) | ✅ done 2026-06-16 |
+| CP29-C | TurnScheduler replaces isBusy — priority queuing, no more 429s | ✅ done 2026-06-16 |
 
-## Current State (2026-06-12)
+## Current State (2026-06-16)
 
-- Branch: `main` (production is on v1.0.0 — CP14–CP21 + all hotfixes)
-- Production (192.168.1.200): running healthy, Claude Code quota fallback active
-- Local dev: credentials cleared for onboarding reset (backup at `~/.koa/credentials.bak`)
-- Hard deadline: koa stable (no iOS/watchOS) before 2026-06-29
+- Branch: `feature/web-console-and-hardening` (uncommitted working tree changes)
+- Tests: 886 passing, 0 failing | tsc: clean
+- CP27-C/D complete: BM25/RRF retrieval + per-turn system prompt injection wired in
+- Production (192.168.1.200): still on v1.0.0 (CP21-era) — feature branch not yet merged/deployed
+- Hard deadline: stable release before 2026-06-26
 
 ## Next
 
-- [ ] Fix `koa --version` hardcode in `src/cli/index.ts` (prints `0.1.0`)
-- [ ] Bump `package.json` version to `1.0.0`
-- [ ] Run `koa setup` on local dev to restore credentials
-- [ ] Revert koa production user shell to `nologin` (security hardening)
+- [ ] Commit + PR the feature branch work (fix queue + CP27-A/B/E + CP27-C/D + CP29-C + Fix 6)
+- [ ] CP28: Provider expansion (OpenAICompatible + Google + web UI)
+- [ ] CP30: MCP over stdio
+- [ ] Ansible hardening + git tag v1.1.0

@@ -1,5 +1,176 @@
 # Koa — DevLog
 
+## 2026-06-16 - CP27-C/D: Memory Retrieval + System Prompt Injection
+
+### Completed
+- CP27-C: Created src/memory/retrieval.ts — BM25/RRF retrieval from SQLite FTS5; queryDb(), rrfMerge(), queryMemories(query, slug?, limit?), buildEpisodicMemoryInjection()
+- CP27-D: Wired per-turn episodic memory retrieval into loop.ts buildSystemBlocks() — injected into Block 3 (dynamic, no cache)
+- Tests: src/__tests__/memory_retrieval.test.ts — BM25 ranking, RRF merge, expiry filter, injection formatting
+
+### Decisions
+- Retrieval is per-turn (Block 3), not cached: episodic relevance changes with each user message
+- Old flat-file store.ts (Block 1, cached) left untouched: separate concerns
+- Exported queryDb and rrfMerge from retrieval.ts to keep tests free of mocking
+- FTS5 special chars escaped in user query to prevent parse errors (not injection — MATCH is parameterized)
+
+### Next Session
+- [ ] CP29-A/B: Event bus (namespace.verb + action_type dispatch)
+- [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider)
+- [ ] CP30: MCP over stdio
+- [ ] Tag v1.0.0 + release notes
+
+## [2026-06-16] — Fix Queue + CP27-A/B/E + CP29-C + Fix 6 (v1.0.0 track)
+
+### Completed
+- Fix 1: Verified compactAfterTurns only in expected files (cli/index.ts + doctor test)
+- Fix 2: Removed synthesizeSpeech dead export from web/src/api.ts
+- Fix 3: Aligned MODEL_CONTEXT_WINDOWS keys with MODEL_MAP in loop.ts
+- Fix 4: Added 10-minute OAuth nonce TTL with 5-minute prune interval
+- Fix 5: Gated browser tool registration on config.browserEnabled
+- Fix 6: SIGTERM/SIGINT graceful drain handler (30s budget: close → drain → finalize → exit)
+- Fix 7: Capped inbound Slack text at 2000 chars before loop.turn()
+- CP27-A: SQLite memory schema (src/memory/schema.ts + db.ts), better-sqlite3 dependency added
+- CP27-B: Typed write path (src/memory/events.ts), 8 event types, dedup for assertion/standing-order
+- CP27-E: write_memory_event agent tool registered in buildRegistry()
+- CP29-C: TurnScheduler (src/agent/scheduler.ts), priority queuing replaces isBusy 429s
+
+### Decisions
+- CP27 retrieval (phases C/D) deferred to v1.1 — ships write path only for v1.0
+- CP29 event bus + standing orders deferred to v1.1 — ships scheduler only for v1.0
+- better-sqlite3 chosen for SQLite (sync API, well-maintained, Node 20 compatible)
+- TurnScheduler never returns 429; user turns are high-priority, autonomous turns are low-priority
+
+### Issues Found
+- None blocking; all fixes and CP implementations passed QA and security
+
+### Next Session
+- [ ] CP27-C: BM25/RRF retrieval pipeline
+- [ ] CP27-D: System prompt injection of retrieved memories
+- [ ] CP29-A: Event bus (namespace.verb + prefix wildcards)
+- [ ] CP29-B: Standing orders evaluation (trigger → action_type dispatch)
+- [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider + web UI)
+- [ ] CP30: MCP over stdio
+- [ ] Ansible hardening + git tag v1.0.0
+
+### Learnings
+- SQLite sync API (better-sqlite3) fits the agent loop better than async pools — writes happen in-turn, no race windows
+- Priority lanes (user vs autonomous) are simpler than `isBusy` flag — scheduler owns the decision, not the turn handler
+
+## [2026-06-16] - Architecture Grill: Memory, Providers, Security, Cleanup
+
+### Completed
+- Full grill-with-docs session covering memory system, provider expansion, security hardening, and project cleanup
+- Created `CONTEXT.md` — authoritative domain glossary (first-ever for this project)
+- Created `docs/adr/` with 6 ADRs capturing hard architectural decisions
+- Deleted design artifacts and superseded docs (see Decisions)
+
+### Decisions
+- **Koa identity**: autonomous personal assistant — agent loop + memory is the core; CLI/web are one channel among many
+- **Memory retrieval**: per-turn RRF retrieval for episodic/semantic tiers; static injection only for structural context (STATE.md, SpiderBrain)
+- **Memory split**: two SQLite DBs — `~/.koa/memory.db` (global: preferences, standing-orders, boundaries, assertions) + per-project DB (decisions, failures, journals)
+- **Typed learning events**: 8 types (`correction`, `preference`, `resolved`, `assertion`, `decision`, `failure`, `standing-order`, `boundary`); immediate writes for all 8; session-end journal for everything else
+- **Contradiction detection**: at-write dedup for `assertion` + `standing-order` (global DB); consolidation sweep for all other types
+- **Event bus**: `namespace.verb` naming, prefix wildcard matching (`deploy.*`), `action_type` field on standing orders (`notify`/`brief`/`agent`)
+- **Provider architecture**: hybrid — named `anthropic`, `claude-code`, `google` + generic `openai-compatible` (generalizes OllamaProvider); all 4 provider values (`auto`, `claude-code` included) configurable via web UI
+- **Session isolation**: priority lanes replace `isBusy` flag — user turns preempt autonomous turns
+- **SSE reconnection**: heartbeat every 15s + exponential backoff + `streamId` resume (server buffers output for turn duration)
+- **MCP implementation**: stdio first (spawn + JSON-RPC `tools/list` + `tools/call` proxy); HTTP-based MCP deferred
+- **Security — Telegram**: sender allowlist (`TELEGRAM_ALLOWED_CHAT_IDS`); unauthorized messages silently dropped + `unauthorized_inbound` signal
+- **Security — SSE auth**: token moved to `Authorization: Bearer` header; GET endpoint no longer accepts `?token=`; iOS deferred
+- **Security — untrusted content**: `wrapUntrusted()` applied to web_fetch, web_search, MCP results; MCP servers configurable as `trusted: true`
+- **Self-healing**: unilateral within Koa's own process; approval gate for anything touching external systems
+- **Self-extending**: plugin draft → staging → user approval → registration; never auto-registers
+- **Delegation `pattern` field**: renamed to `label`; display-only, never evaluated
+- **Email outbound**: wired into `dispatchToChannel` as first-class channel
+- **Cleanup removals**: `design-concepts/`, `koa_render.py`, `FABLE_AUDIT.md`, root `HANDOFF.md`, `docs/archive/TASKS-v6-cp10.md`; `FABLE_AUDIT_FIXES.md` moved to `docs/`
+
+### Issues Found
+- Provider round-trip bug: `provider: 'auto'` / `'claude-code'` silently corrupted by web UI PUT (High) — resolved by design
+- MCP skills silently broken — stub always returns error (High) — resolved by design
+- `compactAfterTurns` dead field in `AdminConfig` causes silent NaN (High) — fix queued
+- Telegram no sender allowlist (Medium) — resolved by design
+- Auth token in URL query string for SSE GET (Medium) — resolved by design
+- `wrapUntrusted()` not wired into web_fetch/web_search (Medium) — resolved by design
+- `synthesizeSpeech` dead client code (Medium) — fix queued
+- MODEL_CONTEXT_WINDOWS key mismatch `-4-7` vs `-4-8` (Low) — fix queued
+- OAuth nonce map unbounded growth (Low) — fix queued
+- `browserEnabled` flag not checked at tool registration (Low) — fix queued
+- Graceful shutdown race on SIGTERM with active turn (Low) — fix queued
+- Slack inbound text not length-capped before loop.turn() (Low) — fix queued
+
+### Next Session
+- [ ] Implement CP27: typed learning events + per-turn memory retrieval (memory write-side + retrieval wiring)
+- [ ] Implement CP28: provider expansion (OpenAICompatibleProvider + Google + web UI)
+- [ ] Implement CP29: event bus + standing orders + priority lanes
+- [ ] Implement CP30: MCP over stdio
+- [ ] Clear the fix queue (compactAfterTurns, synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, graceful drain, Slack cap)
+- [ ] Ansible hardening + tag v1.0.0
+
+### Learnings
+- OllamaProvider is already a generic OpenAI-compatible layer — multi-provider support is a rename + config expansion, not a rewrite
+- The delegation `pattern` field was always display-only; the name created false expectations of functional matching
+- `wrapUntrusted()` existed but was unwired — security guards only work if they're in the call chain
+
+## [2026-06-16] - Tooling: Matt Pocock Engineering Skills
+
+### Completed
+- Installed 10 engineering skills from `mattpocock/skills` into `~/.claude/skills/`: `diagnose`, `grill-with-docs`, `improve-codebase-architecture`, `prototype`, `setup-matt-pocock-skills`, `tdd`, `to-issues`, `to-prd`, `triage`, `zoom-out`
+- Ran `setup-matt-pocock-skills` for koa: GitHub Issues as issue tracker (default labels), single-context domain docs layout
+- Created `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`
+- Added `## Agent skills` block to `.claude/CLAUDE.md`
+
+### Decisions
+- Skills installed globally (`~/.claude/skills/`) — available in all projects but config (`docs/agents/`) is per-repo
+- Default triage label vocabulary used — no overrides needed as no conflicting labels exist in rwgb/koa
+
+## [2026-06-15] - CP26: Web UI Settings Completeness + Debug Console
+
+### Completed
+- **Settings gaps closed**: ElevenLabs API key, Daily Briefing (enabled + time), and Brave API key (Search section) are now all configurable from the web UI — no more file editing required
+- **ApiKeyRow refactor**: Added optional `label` prop (default "Anthropic API key") so the same component is reused for ElevenLabs and Brave
+- **Debug Console page**: New `/debug` route with server-side log ring buffer (`src/server/debug-log.ts`) + three endpoints: `GET /api/admin/debug/logs`, `DELETE /api/admin/debug/logs`, `GET /api/admin/debug/info`
+- **Log capture**: `installLogCapture()` wraps console.log/warn/error/debug globally at server startup; guarded with `_installed` flag to prevent double-wrapping in tests
+- **Debug UI**: Logs tab (level filter, auto-scroll, 2s poll), Info tab (process, env, config, credentials)
+- **Nav**: Debug page accessible from bottom nav rail (server icon)
+- **Gate**: 843/843 tests pass, tsc clean
+
+### Decisions
+- `installLogCapture()` is idempotent (guarded by `_installed`) — safe to call in tests that create multiple server instances
+- Debug endpoint is behind auth (same `/api/admin/` prefix) — no unauthenticated log leakage
+- Log buffer is capped at 500 entries (ring buffer via `_buffer.shift()`)
+- Used polling (2s interval) instead of SSE for simplicity — log console is non-critical
+
+### Next Session
+- [ ] Ansible hardening playbooks
+- [ ] Tag v1.0.0
+- [ ] Consider Node.js 22 upgrade on production
+
+## [2026-06-12] - CP25: ElevenLabs Server-Side TTS
+
+### Completed
+- Added POST /api/voice/tts endpoint — streams audio/mpeg from ElevenLabs API
+- Added GET /api/voice/tts-status endpoint — reports if ELEVENLABS_API_KEY is configured
+- Rewrote web/src/hooks/useSpeech.ts: removed Web Speech API, uses fetch → Blob URL → Audio() playback
+- Updated web/src/components/ChatPanel.tsx: removed browser voice picker dropdown, toggle only visible when server TTS available
+- Added tests for new TTS endpoints
+
+### Decisions
+- Blob URL + Audio() over MediaSource streaming: simpler implementation, ElevenLabs latency is acceptable
+- Server-side voice ID: keeps ElevenLabs voice config in credentials, not exposed to clients
+- available flag in VoiceState: UI adapts to server config, no hardcoded speechSynthesis check
+
+### Issues Found
+- None blocking
+
+### Next Session
+- [ ] Ansible hardening
+- [ ] Tag v1.0.0
+- [ ] Consider Node.js 22 upgrade on production
+
+### Learnings
+- ElevenLabs API streams audio/mpeg directly — no transcoding needed, pipe straight through
+- Object URL must be revoked after play to prevent memory accumulation
+
 ## 2026-06-12 — Optional browser TTS with voice picker (CP24)
 
 ### Completed
@@ -3549,3 +3720,21 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 ### Learnings
 - Claude Code OAuth uses PKCE — copying just the URL to another machine always fails (code_challenge mismatch)
 - macOS stores Claude Code auth under keychain service `Claude Code-credentials`; Linux uses `~/.claude/.credentials.json` — same JSON format, direct copy works
+
+## 2026-06-16 — CP29-A/B: Event Bus + Action Type Dispatch
+
+### Completed
+- CP29-A: EventBus class (src/agent/event-bus.ts) — namespace.verb pattern matching (exact + namespace.* prefix wildcard)
+- CP29-B: action_type dispatch — notify (ntfy/curl), brief (formatted ntfy), agent (TurnScheduler.enqueue low-priority)
+- initEventBus(scheduler) wired in createServer() after TurnScheduler creation
+- Tests: matchesPattern unit tests + EventBus.emit dispatch tests (src/__tests__/event_bus.test.ts)
+
+### Decisions
+- brief action_type: formatted ntfy notification (no LLM call); full Haiku summarization deferred to v1.1 pending provider per-call model override support
+- Module-level singleton pattern (initEventBus/getEventBus) mirrors memory db pattern (getGlobalMemoryDb/getProjectMemoryDb)
+- Bus errors never throw — ntfy and scheduler failures are best-effort, never crash the server
+
+### Next Session
+- [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider)
+- [ ] CP30: MCP over stdio
+- [ ] Tag v1.0.0
