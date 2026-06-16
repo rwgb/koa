@@ -1,7 +1,4 @@
 #!/usr/bin/env -S node --no-deprecation
-import { Agent, setGlobalDispatcher } from 'undici';
-setGlobalDispatcher(new Agent({ headersTimeout: 0, bodyTimeout: 0 }));
-
 import { Command } from 'commander';
 import { render } from 'ink';
 import React from 'react';
@@ -13,6 +10,7 @@ import { createFileTools } from '../agent/tools/files.js';
 import { createEngramTool } from '../agent/tools/engram_tool.js';
 import { createSpiderBrainTools } from '../agent/tools/spiderbrain_tools.js';
 import { createRememberTool, forgetTool } from '../agent/tools/memory_tool.js';
+import { createMemoryEventTool } from '../agent/tools/memory_event_tool.js';
 import { createAgentDispatchTool } from '../agent/tools/agent_dispatch_tool.js';
 import { webFetchTool } from '../agent/tools/web_fetch.js';
 import { webSearchTool } from '../agent/tools/web_search.js';
@@ -54,9 +52,12 @@ function buildRegistry(
   registry.register(createEngramTool(engram));
   registry.register(createRememberTool(config.userName ?? 'User'));
   registry.register(forgetTool);
+  registry.register(createMemoryEventTool(config.projectPath));
   registry.register(createAgentDispatchTool(projectRoot, apiKey));
   registry.register(createExecuteCodeTool(createRunner(config), config));
-  for (const tool of browserTools) registry.register(tool);
+  if (config.browserEnabled) {
+    for (const tool of browserTools) registry.register(tool);
+  }
   for (const tool of crossRepoTools) registry.register(tool);
   for (const skill of loadCustomSkills()) registry.register(createCustomSkillTool(skill));
   for (const plugin of loadPlugins()) {
@@ -258,10 +259,10 @@ program
     await loop.initialize();
 
     const { createServer } = await import('../server/index.js');
-    const { app, getTelegramPoller } = createServer(loop, config);
+    const { app, getTelegramPoller, scheduler } = createServer(loop, config);
     const port = parseInt(opts.port, 10);
 
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
       const url = `http://localhost:${port}`;
       console.log(`Koa web console → ${url}`);
       if (opts.open) {
@@ -269,20 +270,45 @@ program
       }
     });
 
-    const shutdown = async () => {
-      console.log('\nShutting down...');
-      const { gmailPoller } = await import('../channels/gmail.js');
-      const { calendarSync } = await import('../calendar/sync.js');
-      const { escalationScheduler } = await import('../notifications/escalation.js');
-      gmailPoller.stop();
-      calendarSync.stop();
-      escalationScheduler.stop();
-      getTelegramPoller()?.stop();
-      await loop.finalize();
-      process.exit(0);
+    // Graceful shutdown — stop accepting connections first, then drain, then exit.
+    // Manual test: kill -SIGTERM <pid> during an active turn
+    const shutdown = async (signal: string): Promise<void> => {
+      console.log(`\n[koa] Graceful shutdown started (${signal})`);
+
+      const forceExit = setTimeout(() => {
+        console.warn('[koa] Graceful shutdown timed out after 30s — forcing exit');
+        process.exit(1);
+      }, 30_000);
+      forceExit.unref();
+
+      try {
+        // 1. Stop accepting new HTTP connections
+        await new Promise<void>((resolve, reject) =>
+          server.close(err => (err ? reject(err) : resolve()))
+        );
+        // 2. Drain scheduler — finish the current turn, refuse new enqueues
+        await scheduler.drain();
+        // 3. Stop background services
+        const { gmailPoller } = await import('../channels/gmail.js');
+        const { calendarSync } = await import('../calendar/sync.js');
+        const { escalationScheduler } = await import('../notifications/escalation.js');
+        gmailPoller.stop();
+        calendarSync.stop();
+        escalationScheduler.stop();
+        getTelegramPoller()?.stop();
+        // 4. Finalize agent loop
+        if (typeof loop.finalize === 'function') await loop.finalize();
+        clearTimeout(forceExit);
+        console.log('[koa] Shutdown complete');
+        process.exit(0);
+      } catch (err) {
+        console.error('[koa] Error during graceful shutdown:', err);
+        process.exit(1);
+      }
     };
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+
+    process.once('SIGTERM', () => { shutdown('SIGTERM').catch(() => process.exit(1)); });
+    process.once('SIGINT', () => { shutdown('SIGINT').catch(() => process.exit(1)); });
   });
 
 program

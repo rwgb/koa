@@ -20,6 +20,7 @@ const SECONDARY_ITEMS: { to: string; label: string; icon: IconName }[] = [
 ];
 
 const BOTTOM_ITEMS: { to: string; label: string; icon: IconName }[] = [
+  { to: '/debug',    label: 'Debug',    icon: 'server' },
   { to: '/settings', label: 'Settings', icon: 'gear' },
 ];
 

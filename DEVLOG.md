@@ -1,5 +1,83 @@
 # Koa — DevLog
 
+## 2026-06-16 - Ansible hardening role + playbook refactor
+
+### Completed
+- Extracted shared infra/ansible/roles/hardening/ role with 5 task files (ssh, fail2ban, unattended_upgrades, sysctl, firewall)
+- Added SSH cipher/MAC/KEX hardening, X11Forwarding off, MaxAuthTries 3, ClientAliveInterval 300
+- Added sysctl network stack hardening (syncookies, rp_filter, redirect suppression, dmesg_restrict)
+- Refactored both playbooks to use the role; eliminated duplicated hardening code
+- koa-lxc: added HTTPS (443) to UFW, added koa.service unit deployment
+- deploy/koa.service: added ProtectSystem=strict, PrivateTmp, ProtectHome, RestrictSUIDSGID, LockPersonality, RestrictRealtime
+
+### Decisions
+- Shared hardening role avoids drift between playbooks; both consume identical task files
+- systemd hardening: ProtectSystem=strict + PrivateTmp prevents filesystem writes outside allowed paths
+- SSH hardening: MaxAuthTries 3 + ClientAliveInterval 300 reduces brute-force surface and stale session risk
+
+### Next Session
+- [ ] Tag v1.0.0 + release notes
+
+---
+
+## 2026-06-16 - CP30: MCP over stdio
+
+### Completed
+- NEW src/agent/McpClient.ts: McpClient class using StdioClientTransport; connects to a single MCP server subprocess, lists tools, calls tools, and wraps results
+- NEW src/agent/McpManager.ts: McpManager class; connectAll() connects each configured server (per-server failure caught, degradation logged), getTools() returns all discovered tools prefixed mcp_{server}_{tool}, callTool() routes to the correct client
+- CONFIG: added mcpServers field to config schema (array of { name, command, args?, env? })
+- LOOP: loop.ts integration — McpManager instantiated at startup, MCP tools merged into buildRegistry() tool list
+- ADMIN: GET /admin/status exposes mcp.servers[] with connected/tool-count per server
+- SECURITY: all MCP tool results trust-wrapped per ADR-0006 (trusted: false default)
+- TESTS: vitest tests for McpClient (tool discovery, call routing, error isolation) and McpManager (connectAll degradation, tool prefixing)
+
+### Decisions
+- stdio-first: StdioClientTransport chosen; no HTTP/SSE transport in scope for CP30
+- Graceful degradation: connectAll catches per-server failures so one bad server does not block others
+- Tool name prefix: mcp_{server}_{tool} to prevent collisions with native tools
+- trusted: false default: all MCP results are untrusted until explicitly granted (ADR-0006)
+
+---
+
+## 2026-06-16 - CP28: Provider expansion (OpenAI-compatible + Google Gemini)
+
+### Completed
+- NEW src/agent/providers/openai_compatible.ts: generic OpenAI-compatible provider (baseUrl + optional apiKey)
+- REFACTOR src/agent/providers/ollama.ts: OllamaProvider extends OpenAICompatibleProvider
+- NEW src/agent/providers/google.ts: GoogleProvider pointing at Google OpenAI-compatible endpoint
+- CONFIG: added openai-compatible + google provider types with fields (baseUrl, apiKey, model)
+- ADMIN API: GET/PUT /config expose new provider fields; API keys written to credentials file
+- WEB UI: ProviderSection replaces OllamaSection; conditional fields for each provider
+
+### Decisions
+- Used Google OpenAI-compatible endpoint (generativelanguage.googleapis.com/v1beta/openai/) -- no new SDK needed
+- openaiCompatibleBaseUrl allows public and private addresses; URL format validated only
+- Google and OpenAI API keys stored in credentials file, not config.json
+- fromOpenAIResponse accepts optional label param (default 'OpenAI-compatible provider'); ollama.ts wraps it with 'Ollama' to preserve existing test assertions without touching test files
+
+---
+
+## 2026-06-16 - CP29-A/B: Event bus verified + checkpointed
+
+### Completed
+- Verified CP29-A/B commit (5aaab95): namespace.verb bus + action_type dispatch in src/agent/event-bus.ts
+- tsc: clean, vitest: 905 pass / 0 fail
+
+---
+
+## 2026-06-16 - Skills install: mattpocock/skills productivity + misc buckets
+
+### Completed
+- Installed 9 new skills from github.com/mattpocock/skills into ~/.claude/skills/
+- Productivity: caveman, grill-me, handoff, teach, write-a-skill
+- Misc: git-guardrails-claude-code, migrate-to-shoehorn, scaffold-exercises, setup-pre-commit
+- Engineering bucket (diagnose, grill-with-docs, etc.) was already installed
+
+### Decisions
+- Installed to ~/.claude/skills/ (global) so available across all projects
+
+---
+
 ## 2026-06-16 - CP27-C/D: Memory Retrieval + System Prompt Injection
 
 ### Completed

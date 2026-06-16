@@ -1,18 +1,22 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 const STORAGE_ENABLED = 'koa.voice.enabled';
-const STORAGE_VOICE = 'koa.voice.name';
+const TOKEN_KEY = 'koa_web_token';
 
 function cleanText(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, 'code block omitted')
     .replace(/[*_`#>]/g, '')
-    .slice(0, 600);
+    .slice(0, 500);
 }
 
-function getEnglishVoices(): SpeechSynthesisVoice[] {
-  if (typeof window === 'undefined' || !window.speechSynthesis) return [];
-  return window.speechSynthesis.getVoices().filter(v => v.lang.startsWith('en'));
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    return token ? { 'Authorization': `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
 }
 
 export interface VoiceState {
@@ -20,9 +24,7 @@ export interface VoiceState {
   stop: () => void;
   enabled: boolean;
   setEnabled: (v: boolean) => void;
-  voices: SpeechSynthesisVoice[];
-  selectedVoiceName: string;
-  setSelectedVoiceName: (name: string) => void;
+  available: boolean;
 }
 
 export function useSpeech(): VoiceState {
@@ -30,46 +32,85 @@ export function useSpeech(): VoiceState {
     try { return localStorage.getItem(STORAGE_ENABLED) !== 'false'; } catch { return false; }
   });
 
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [available, setAvailable] = useState<boolean>(false);
 
-  const [selectedVoiceName, setSelectedVoiceNameRaw] = useState<string>(() => {
-    try { return localStorage.getItem(STORAGE_VOICE) ?? ''; } catch { return ''; }
-  });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    const update = () => setVoices(getEnglishVoices());
-    update();
-    window.speechSynthesis.addEventListener('voiceschanged', update);
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', update);
+    let cancelled = false;
+    fetch('/api/voice/tts-status', { headers: getAuthHeaders() })
+      .then(res => res.ok ? res.json() : { available: false })
+      .then((data: { available: boolean }) => {
+        if (!cancelled) setAvailable(!!data.available);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailable(false);
+      });
+    return () => { cancelled = true; };
   }, []);
+
+  const revokeCurrentUrl = useCallback(() => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  }, []);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    revokeCurrentUrl();
+  }, [revokeCurrentUrl]);
 
   const setEnabled = useCallback((v: boolean) => {
     setEnabledRaw(v);
     try { localStorage.setItem(STORAGE_ENABLED, String(v)); } catch { /* ignore */ }
-    if (!v && typeof window !== 'undefined') window.speechSynthesis?.cancel();
-  }, []);
+    if (!v) stop();
+  }, [stop]);
 
-  const setSelectedVoiceName = useCallback((name: string) => {
-    setSelectedVoiceNameRaw(name);
-    try { localStorage.setItem(STORAGE_VOICE, name); } catch { /* ignore */ }
-  }, []);
-
-  const stop = useCallback(() => {
-    if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
-  }, []);
-
-  const speak = useCallback((raw: string) => {
-    if (!enabled || typeof window === 'undefined' || !window.speechSynthesis) return;
+  const speak = useCallback(async (raw: string) => {
+    if (!enabled || !available) return;
     const text = cleanText(raw);
     if (!text) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const currentVoices = getEnglishVoices();
-    const voice = currentVoices.find(v => v.name === selectedVoiceName) ?? currentVoices[0];
-    if (voice) utterance.voice = voice;
-    window.speechSynthesis.speak(utterance);
-  }, [enabled, selectedVoiceName]);
 
-  return { speak, stop, enabled, setEnabled, voices, selectedVoiceName, setSelectedVoiceName };
+    // Cancel any currently playing audio
+    stop();
+
+    try {
+      const res = await fetch('/api/voice/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) {
+        if (res.status === 503) setAvailable(false);
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      objectUrlRef.current = url;
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+
+      audio.addEventListener('ended', () => {
+        audioRef.current = null;
+        revokeCurrentUrl();
+      }, { once: true });
+
+      audio.play().catch(() => {
+        audioRef.current = null;
+        revokeCurrentUrl();
+      });
+    } catch {
+      // Network error — ignore silently
+    }
+  }, [enabled, available, stop, revokeCurrentUrl]);
+
+  return { speak, stop, enabled, setEnabled, available };
 }

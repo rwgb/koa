@@ -346,6 +346,11 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       provider: config.provider ?? 'anthropic',
       ollamaModel: config.ollamaModel ?? 'llama3.2',
       ollamaBaseUrl: config.ollamaBaseUrl ?? 'http://localhost:11434',
+      openaiCompatibleBaseUrl: config.openaiCompatibleBaseUrl ?? '',
+      openaiCompatibleApiKeySet: !!config.openaiCompatibleApiKey,
+      openaiCompatibleModel: config.openaiCompatibleModel ?? 'gpt-4o-mini',
+      googleApiKeySet: !!config.googleApiKey,
+      googleModel: config.googleModel ?? 'gemini-2.0-flash',
       sandboxBackend: config.sandboxBackend ?? 'local',
       sandboxTimeoutMs: config.sandboxTimeoutMs ?? 10000,
     });
@@ -374,6 +379,11 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       provider?: unknown;
       ollamaModel?: unknown;
       ollamaBaseUrl?: unknown;
+      openaiCompatibleBaseUrl?: unknown;
+      openaiCompatibleApiKey?: unknown;
+      openaiCompatibleModel?: unknown;
+      googleApiKey?: unknown;
+      googleModel?: unknown;
       sandboxBackend?: unknown;
       sandboxTimeoutMs?: unknown;
     };
@@ -489,11 +499,12 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     }
 
     if (typeof body.provider === 'string') {
-      if (body.provider !== 'anthropic' && body.provider !== 'ollama') {
-        return res.status(400).json({ error: 'provider must be anthropic or ollama' });
+      const validProviders = ['anthropic', 'ollama', 'openai-compatible', 'google'];
+      if (!validProviders.includes(body.provider)) {
+        return res.status(400).json({ error: 'provider must be anthropic, ollama, openai-compatible, or google' });
       }
       updates['provider'] = body.provider;
-      config.provider = body.provider as 'anthropic' | 'ollama';
+      config.provider = body.provider as 'anthropic' | 'ollama' | 'openai-compatible' | 'google';
     }
     if (typeof body.ollamaModel === 'string' && body.ollamaModel.trim()) {
       if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(body.ollamaModel.trim())) {
@@ -509,6 +520,57 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       }
       updates['ollamaBaseUrl'] = url;
       config.ollamaBaseUrl = url;
+    }
+    if (typeof body.openaiCompatibleBaseUrl === 'string' && body.openaiCompatibleBaseUrl.trim()) {
+      const rawUrl = body.openaiCompatibleBaseUrl.trim();
+      try {
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return res.status(400).json({ error: 'openaiCompatibleBaseUrl must be http or https' });
+        }
+      } catch {
+        return res.status(400).json({ error: 'openaiCompatibleBaseUrl is not a valid URL' });
+      }
+      updates['openaiCompatibleBaseUrl'] = rawUrl;
+      config.openaiCompatibleBaseUrl = rawUrl;
+    }
+    if (typeof body.openaiCompatibleApiKey === 'string') {
+      if (body.openaiCompatibleApiKey.length > 256) {
+        return res.status(400).json({ error: 'openaiCompatibleApiKey too long' });
+      }
+      if (body.openaiCompatibleApiKey) {
+        writeCredential('OPENAI_COMPAT_API_KEY', body.openaiCompatibleApiKey);
+        config.openaiCompatibleApiKey = body.openaiCompatibleApiKey;
+      } else {
+        deleteCredential('OPENAI_COMPAT_API_KEY');
+        config.openaiCompatibleApiKey = undefined;
+      }
+    }
+    if (typeof body.openaiCompatibleModel === 'string' && body.openaiCompatibleModel.trim()) {
+      if (!/^[a-zA-Z0-9._/:-]{1,128}$/.test(body.openaiCompatibleModel.trim())) {
+        return res.status(400).json({ error: 'openaiCompatibleModel invalid' });
+      }
+      updates['openaiCompatibleModel'] = body.openaiCompatibleModel.trim();
+      config.openaiCompatibleModel = body.openaiCompatibleModel.trim();
+    }
+    if (typeof body.googleApiKey === 'string') {
+      if (body.googleApiKey.length > 256) {
+        return res.status(400).json({ error: 'googleApiKey too long' });
+      }
+      if (body.googleApiKey) {
+        writeCredential('GOOGLE_API_KEY', body.googleApiKey);
+        config.googleApiKey = body.googleApiKey;
+      } else {
+        deleteCredential('GOOGLE_API_KEY');
+        config.googleApiKey = undefined;
+      }
+    }
+    if (typeof body.googleModel === 'string' && body.googleModel.trim()) {
+      if (!/^[a-zA-Z0-9._/-]{1,128}$/.test(body.googleModel.trim())) {
+        return res.status(400).json({ error: 'googleModel invalid' });
+      }
+      updates['googleModel'] = body.googleModel.trim();
+      config.googleModel = body.googleModel.trim();
     }
 
     if (typeof body.sandboxBackend === 'string') {
@@ -990,6 +1052,17 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     if (!d) { res.status(404).json({ error: 'Not found' }); return; }
     deleteDelegation(req.params['id']!);
     res.status(204).send();
+  });
+
+  // ── MCP servers ───────────────────────────────────────────────────────────────
+
+  router.get('/mcp/servers', (_req, res) => {
+    const servers = (config.mcpServers ?? []).map((s) => ({
+      name: s.name,
+      command: s.command,
+      trusted: s.trusted ?? false,
+    }));
+    res.json({ servers });
   });
 
   // ── Software update ───────────────────────────────────────────────────────────

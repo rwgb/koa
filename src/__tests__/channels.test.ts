@@ -317,6 +317,24 @@ describe('parseSlackInbound()', () => {
   it('returns null for an empty body', () => {
     expect(parseSlackInbound({})).toBeNull();
   });
+
+  it('caps slash command text at 2000 chars when payload exceeds that length', () => {
+    const longText = 'a'.repeat(5000);
+    const body = { command: '/koa', text: longText, channel_id: 'C012AB3CD' };
+    const result = parseSlackInbound(body);
+    expect(result).not.toBeNull();
+    expect(result?.text.length).toBe(2000);
+  });
+
+  it('caps app_mention text at 2000 chars when payload exceeds that length', () => {
+    const longText = 'b'.repeat(5000);
+    const body = {
+      event: { type: 'app_mention', text: `<@U12345> ${longText}`, channel: 'C99GENERAL' },
+    };
+    const result = parseSlackInbound(body);
+    expect(result).not.toBeNull();
+    expect(result?.text.length).toBe(2000);
+  });
 });
 
 // ── TelegramPoller ────────────────────────────────────────────────────────────

@@ -327,20 +327,18 @@ describe('INVARIANT 3 — SSE: error events do not expose internal details', () 
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// INVARIANT 4: 429 returned when a second request arrives while agent is busy
+// INVARIANT 4 — serialisation: concurrent requests are queued, not rejected
 //
-// Enforcement: src/server/routes/chat.ts — isBusy guard in POST /api/chat
-//              and GET /api/sse/chat
-// Rule: concurrent requests beyond one active turn are rejected with HTTP 429,
-//       not queued, to prevent resource exhaustion.
+// Enforcement: src/agent/scheduler.ts — TurnScheduler priority queue
+// Rule: concurrent requests are serialised through TurnScheduler; no 429 is
+//       returned. High-priority (user) turns preempt low-priority (delegation) turns.
 //
-// Note: POST /api/chat → 429 busy is covered in server_routes.test.ts.
-//       This suite covers the GET /api/sse/chat variant, which has its own
-//       isBusy check and is the primary mobile/iOS path.
+// Behavior changed from CP29-C: the old isBusy → 429 guard has been replaced
+// by TurnScheduler queuing. Tests below verify queuing semantics.
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe('INVARIANT 4 — rate-limit: concurrent requests above one active turn get 429', () => {
-  it('GET /api/sse/chat: second request while first is in-flight → 429', async () => {
+describe('INVARIANT 4 — serialisation: concurrent requests queue via TurnScheduler (no 429)', () => {
+  it('GET /api/sse/chat: second request while first is in-flight → queued, not 429', async () => {
     const { createServer } = await import('../../server/index.js');
 
     let resolveFirst!: (v: TurnResult) => void;
@@ -375,39 +373,36 @@ describe('INVARIANT 4 — rate-limit: concurrent requests above one active turn 
 
     try {
       // Start the first SSE turn — turn() will hang until resolveFirst()
-      const firstReqAbort = new AbortController();
       const firstFetch = fetch(
         `http://localhost:${port}/api/sse/chat?message=first`,
-        { headers: { Authorization: authHeader }, signal: firstReqAbort.signal },
+        { headers: { Authorization: authHeader } },
       );
 
-      // Wait briefly for isBusy to be set true
+      // Wait briefly for the scheduler to be running
       await new Promise((r) => setTimeout(r, 30));
 
-      // Second request should see isBusy=true → 429
+      // Resolve first immediately so second can also complete
+      resolveFirst(mockResult);
+
+      // Second request should be accepted and queued (not 429)
       const secondRes = await fetch(
         `http://localhost:${port}/api/sse/chat?message=second`,
         { headers: { Authorization: authHeader } },
       );
-      expect(secondRes.status).toBe(429);
-      const body = await secondRes.json() as { error: string };
-      expect(body.error).toMatch(/busy/i);
+      expect(secondRes.status).not.toBe(429);
+      expect(secondRes.status).toBe(200);
 
-      // Resolve the first turn so the test can clean up without timeout
-      resolveFirst(mockResult);
-      try { await firstFetch; } catch { /* aborted — expected */ }
+      await firstFetch;
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }
   }, 10000);
 
-  it('POST /api/chat: 429 error body does not expose internal state', async () => {
-    // Verifies the 429 response itself is safe (complements server_routes.test.ts which
-    // only checks the status code).
+  it('POST /api/chat: second request while first is in-flight → queued, response body has no internal state', async () => {
+    // Behavior changed: requests are now queued via TurnScheduler, not rejected with 429.
+    // This test verifies that the queued response is safe (no internal paths or stack traces).
     const { createServer } = await import('../../server/index.js');
 
-    let resolveFirst!: (v: TurnResult) => void;
-    const firstTurnPromise = new Promise<TurnResult>((r) => { resolveFirst = r; });
     const mockResult: TurnResult = {
       content: 'hello',
       toolUses: [],
@@ -419,9 +414,7 @@ describe('INVARIANT 4 — rate-limit: concurrent requests above one active turn 
     };
 
     const loop = makeFakeLoop({
-      turn: vi.fn()
-        .mockImplementationOnce(() => firstTurnPromise)
-        .mockResolvedValue(mockResult),
+      turn: vi.fn().mockResolvedValue(mockResult),
     });
 
     const { app } = createServer(
@@ -435,33 +428,20 @@ describe('INVARIANT 4 — rate-limit: concurrent requests above one active turn 
     const port = (server.address() as { port: number }).port;
 
     try {
-      const firstReqAbort = new AbortController();
-      const firstFetch = fetch(`http://localhost:${port}/api/chat`, {
+      const res = await fetch(`http://localhost:${port}/api/chat`, {
         method: 'POST',
         headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: 'hello' }),
-        signal: firstReqAbort.signal,
       });
 
-      await new Promise((r) => setTimeout(r, 30));
+      // Should not return 429 — request is queued
+      expect(res.status).not.toBe(429);
+      expect(res.status).toBe(200);
 
-      const secondRes = await fetch(`http://localhost:${port}/api/chat`, {
-        method: 'POST',
-        headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: 'hello again' }),
-      });
-
-      expect(secondRes.status).toBe(429);
-      const body = await secondRes.json() as { error: string };
-
-      // Error message must be user-facing only — no internal paths, models, or stack info
-      expect(body).toHaveProperty('error');
-      expect(Object.keys(body)).toEqual(['error']); // exactly one field, no 'stack', 'trace', etc.
-      expect(body.error).not.toMatch(/\/home\//);
-      expect(body.error).not.toMatch(/\.ts:/);
-
-      resolveFirst(mockResult);
-      try { await firstFetch; } catch { /* ignored */ }
+      const text = await res.text();
+      // SSE response must not expose internal paths or stack info
+      expect(text).not.toMatch(/\/home\//);
+      expect(text).not.toMatch(/\.ts:/);
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }

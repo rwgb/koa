@@ -763,10 +763,22 @@ export async function runUpdate(opts: { test?: boolean } = {}): Promise<{ status
   return res.json() as Promise<{ status: string; message: string }>;
 }
 
-// ── Voice ─────────────────────────────────────────────────────────────────────
+// ── Debug Console ─────────────────────────────────────────────────────────────
 
-export async function synthesizeSpeech(text: string): Promise<Blob> {
-  const res = await authFetch(`/api/voice/synthesize?text=${encodeURIComponent(text.slice(0, 500))}`);
-  if (!res.ok) throw new Error(`TTS synthesis failed: ${res.status}`);
-  return res.blob();
+export async function getDebugLogs(): Promise<import('./types.js').DebugLogEntry[]> {
+  const res = await authFetch('/api/admin/debug/logs');
+  if (!res.ok) throw new Error('HTTP ' + String(res.status));
+  const data = await res.json() as { entries: import('./types.js').DebugLogEntry[] };
+  return data.entries;
+}
+
+export async function clearDebugLogs(): Promise<void> {
+  const res = await authFetch('/api/admin/debug/logs', { method: 'DELETE' });
+  if (!res.ok) throw new Error('HTTP ' + String(res.status));
+}
+
+export async function getDebugInfo(): Promise<import('./types.js').DebugInfo> {
+  const res = await authFetch('/api/admin/debug/info');
+  if (!res.ok) throw new Error('HTTP ' + String(res.status));
+  return res.json() as Promise<import('./types.js').DebugInfo>;
 }

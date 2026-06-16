@@ -24,9 +24,14 @@ const ConfigSchema = z.object({
   ttsProvider: z.enum(['say', 'elevenlabs', 'none']).default(os.platform() === 'linux' ? 'none' : 'say'),
   elevenLabsVoiceId: z.string().default('21m00Tcm4TlvDq8ikWAM'),
   elevenLabsModel: z.string().default('eleven_turbo_v2_5'),
-  provider: z.enum(['anthropic', 'ollama', 'claude-code', 'auto']).default('anthropic'),
+  provider: z.enum(['anthropic', 'ollama', 'claude-code', 'auto', 'openai-compatible', 'google']).default('anthropic'),
   ollamaModel: z.string().default('llama3.2'),
   ollamaBaseUrl: z.string().default('http://localhost:11434'),
+  openaiCompatibleBaseUrl: z.string().optional(),
+  openaiCompatibleApiKey: z.string().optional(),
+  openaiCompatibleModel: z.string().optional(),
+  googleApiKey: z.string().optional(),
+  googleModel: z.string().optional(),
   claudeCodePath: z.string().default('claude'),
   quotaFallback: z.boolean().default(true),
   sandboxBackend: z.enum(['local', 'docker']).default('local'),
@@ -34,6 +39,13 @@ const ConfigSchema = z.object({
   browserEnabled: z.boolean().default(false),
   userName: z.string().default('User'),
   toolTimeoutMs: z.number().optional(),
+  mcpServers: z.array(z.object({
+    name: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    trusted: z.boolean().optional(),
+  })).optional(),
 });
 
 export type KoaConfig = z.infer<typeof ConfigSchema>;
@@ -59,9 +71,14 @@ export interface KoaConfigFile {
   ttsProvider?: 'say' | 'elevenlabs' | 'none';
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
-  provider?: 'anthropic' | 'ollama' | 'claude-code' | 'auto';
+  provider?: 'anthropic' | 'ollama' | 'claude-code' | 'auto' | 'openai-compatible' | 'google';
   ollamaModel?: string;
   ollamaBaseUrl?: string;
+  openaiCompatibleBaseUrl?: string;
+  openaiCompatibleApiKey?: string;
+  openaiCompatibleModel?: string;
+  googleApiKey?: string;
+  googleModel?: string;
   claudeCodePath?: string;
   quotaFallback?: boolean;
   sandboxBackend?: 'local' | 'docker';
@@ -69,6 +86,13 @@ export interface KoaConfigFile {
   browserEnabled?: boolean;
   userName?: string;
   toolTimeoutMs?: number;
+  mcpServers?: Array<{
+    name: string;
+    command: string;
+    args?: string[];
+    env?: Record<string, string>;
+    trusted?: boolean;
+  }>;
 }
 
 export function readKoaConfigFile(): KoaConfigFile {
@@ -148,6 +172,8 @@ export function loadConfig(projectPath?: string): KoaConfig {
           | 'ollama'
           | 'claude-code'
           | 'auto'
+          | 'openai-compatible'
+          | 'google'
           | undefined) ??
         fileConfig.provider ??
         'anthropic',
@@ -156,6 +182,14 @@ export function loadConfig(projectPath?: string): KoaConfig {
         process.env['KOA_OLLAMA_BASE_URL'] ??
         fileConfig.ollamaBaseUrl ??
         'http://localhost:11434',
+      openaiCompatibleBaseUrl:
+        process.env['KOA_OPENAI_COMPAT_BASE_URL'] ?? fileConfig.openaiCompatibleBaseUrl,
+      openaiCompatibleApiKey:
+        process.env['KOA_OPENAI_COMPAT_API_KEY'] ?? fileConfig.openaiCompatibleApiKey,
+      openaiCompatibleModel:
+        process.env['KOA_OPENAI_COMPAT_MODEL'] ?? fileConfig.openaiCompatibleModel ?? 'gpt-4o-mini',
+      googleApiKey: process.env['KOA_GOOGLE_API_KEY'] ?? fileConfig.googleApiKey,
+      googleModel: process.env['KOA_GOOGLE_MODEL'] ?? fileConfig.googleModel ?? 'gemini-2.0-flash',
       claudeCodePath: (() => {
         const raw = process.env['KOA_CLAUDE_CODE_PATH'] ?? fileConfig.claudeCodePath;
         if (raw !== undefined) validateClaudeCodePath(raw);
@@ -177,6 +211,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       toolTimeoutMs: process.env['KOA_TOOL_TIMEOUT_MS']
         ? parseInt(process.env['KOA_TOOL_TIMEOUT_MS'], 10)
         : fileConfig.toolTimeoutMs,
+      mcpServers: fileConfig.mcpServers,
     });
   } catch (err) {
     if (err instanceof z.ZodError) {
@@ -252,6 +287,14 @@ export function validateConfig(config: KoaConfig): void {
       'provider is "auto" but no Anthropic API key is set; auto cannot fall back to ' +
         'Anthropic. Set ANTHROPIC_API_KEY or choose provider "ollama"/"claude-code".',
     );
+  }
+  if (config.provider === 'openai-compatible' && !config.openaiCompatibleBaseUrl) {
+    errors.push(
+      'provider is "openai-compatible" but openaiCompatibleBaseUrl is not set. Set KOA_OPENAI_COMPAT_BASE_URL.',
+    );
+  }
+  if (config.provider === 'google' && !config.googleApiKey) {
+    errors.push('provider is "google" but googleApiKey is not set. Set KOA_GOOGLE_API_KEY.');
   }
   if (!Number.isFinite(config.maxTokens) || config.maxTokens <= 0) {
     errors.push(`KOA_MAX_TOKENS must be a positive number (got ${config.maxTokens}).`);

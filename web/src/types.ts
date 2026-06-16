@@ -104,14 +104,21 @@ export interface AdminConfig {
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
   elevenLabsApiKey?: boolean;
-  provider?: 'anthropic' | 'ollama';
+  provider?: 'anthropic' | 'ollama' | 'openai-compatible' | 'google';
   ollamaModel?: string;
   ollamaBaseUrl?: string;
+  openaiCompatibleBaseUrl?: string;
+  openaiCompatibleApiKeySet?: boolean;
+  openaiCompatibleModel?: string;
+  googleApiKeySet?: boolean;
+  googleModel?: string;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
   // write-only: sent in PUT body, never returned by GET
   apiKey?: string;
+  openaiCompatibleApiKey?: string;
+  googleApiKey?: string;
 }
 
 export interface MemoryEntry {
