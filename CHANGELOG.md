@@ -2,9 +2,9 @@
 
 All notable changes to Koa are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow [SemVer](https://semver.org/).
 
-## [1.0.0] — 2026-06-16
+## [1.1.0] — 2026-06-16
 
-First stable release. Covers the full CP0–CP30 arc: from the initial agent loop through layered memory, multi-provider routing, MCP, event bus, voice, web console hardening, and Ansible infrastructure automation.
+CP23–CP30 arc: layered memory (SQLite/BM25/RRF), namespace.verb event bus, priority scheduler, MCP over stdio, OpenAI-compatible + Google Gemini providers, browser TTS + ElevenLabs, web console debug page + settings completeness, Ansible hardening role, and seven hardening fixes.
 
 ### Added
 
