@@ -1,0 +1,12 @@
+---
+# UFW ports opened beyond SSH — set per-host in host_vars or playbook vars
+hardening_ufw_extra_ports: []
+# e.g.:
+# hardening_ufw_extra_ports:
+#   - { port: '80',   proto: tcp, comment: 'HTTP' }
+#   - { port: '443',  proto: tcp, comment: 'HTTPS' }
+#   - { port: '3000', proto: tcp, src: '192.168.1.0/24', comment: 'Koa LAN' }
+
+# SSH AllowUsers allowlist — leave empty to skip (allows any system user with a valid key)
+# Set to the admin username(s) for the host, e.g. ['root'] or ['ansible', 'ralph']
+hardening_ssh_allowed_users: []

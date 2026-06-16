@@ -1,0 +1,125 @@
+---
+# Network namespace-aware sysctl hardening for LXC containers.
+# These settings apply within the container's network namespace and are safe
+# in both privileged and unprivileged LXC containers.
+# Exception: kernel.* entries (e.g. kernel.dmesg_restrict) are host-kernel
+# settings — they may silently no-op in unprivileged containers but will not
+# cause the task to fail.
+
+- name: "sysctl | net.ipv4.ip_forward = 0"
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.tcp_syncookies = 1"
+  ansible.posix.sysctl:
+    name: net.ipv4.tcp_syncookies
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.conf.all.accept_redirects = 0"
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.all.accept_redirects
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.conf.default.accept_redirects = 0"
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.default.accept_redirects
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.conf.all.send_redirects = 0"
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.all.send_redirects
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.conf.default.send_redirects = 0"
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.default.send_redirects
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.icmp_echo_ignore_broadcasts = 1"
+  ansible.posix.sysctl:
+    name: net.ipv4.icmp_echo_ignore_broadcasts
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.conf.all.rp_filter = 1"
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.all.rp_filter
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.conf.default.rp_filter = 1"
+  ansible.posix.sysctl:
+    name: net.ipv4.conf.default.rp_filter
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv4.icmp_ignore_bogus_error_responses = 1"
+  ansible.posix.sysctl:
+    name: net.ipv4.icmp_ignore_bogus_error_responses
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv6.conf.all.accept_redirects = 0"
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.accept_redirects
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | net.ipv6.conf.default.accept_redirects = 0"
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.default.accept_redirects
+    value: '0'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  tags: hardening
+
+- name: "sysctl | kernel.dmesg_restrict = 1 (may no-op in unprivileged containers)"
+  ansible.posix.sysctl:
+    name: kernel.dmesg_restrict
+    value: '1'
+    state: present
+    reload: yes
+    sysctl_set: yes
+  ignore_errors: true
+  tags: hardening

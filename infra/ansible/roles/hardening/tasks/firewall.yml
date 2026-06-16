@@ -1,0 +1,48 @@
+---
+- name: "ufw | install"
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    cache_valid_time: 3600
+  tags: hardening
+
+- name: "ufw | default deny incoming"
+  community.general.ufw:
+    default: deny
+    direction: incoming
+  tags: hardening
+
+- name: "ufw | default allow outgoing"
+  community.general.ufw:
+    default: allow
+    direction: outgoing
+  tags: hardening
+
+- name: "ufw | allow SSH (port 22/tcp)"
+  community.general.ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+    comment: 'SSH'
+  tags: hardening
+
+- name: "ufw | allow extra ports from hardening_ufw_extra_ports"
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    src: "{{ item.src | default(omit) }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ hardening_ufw_extra_ports }}"
+  when: hardening_ufw_extra_ports | length > 0
+  tags: hardening
+
+- name: "ufw | enable logging"
+  community.general.ufw:
+    logging: 'on'
+  tags: hardening
+
+- name: "ufw | enable firewall"
+  community.general.ufw:
+    state: enabled
+  tags: hardening

@@ -1,0 +1,6 @@
+---
+- ansible.builtin.import_tasks: ssh.yml
+- ansible.builtin.import_tasks: fail2ban.yml
+- ansible.builtin.import_tasks: unattended_upgrades.yml
+- ansible.builtin.import_tasks: sysctl.yml
+- ansible.builtin.import_tasks: firewall.yml
