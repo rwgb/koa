@@ -16,7 +16,23 @@
 - SSH hardening: MaxAuthTries 3 + ClientAliveInterval 300 reduces brute-force surface and stale session risk
 
 ### Next Session
-- [ ] Tag v1.0.0 + release notes
+- [x] Tag v1.1.0 + release notes — DONE
+
+## 2026-06-16 - v1.1.0 release cut
+
+### Completed
+- Updated CHANGELOG.md with full CP23–CP30 + hardening arc details
+- Bumped package.json to v1.1.0 (v1.0.0 already existed on main at CP14–CP21)
+- Committed 59 files: all CP23–CP30 source + tests + docs not yet committed
+- Tagged v1.1.0, pushed branch + tag to origin
+- Checkpoint notification confirmed (HTTP 200)
+
+### Decisions
+- v1.1.0 not v1.0.0: existing v1.0.0 tag pointed to CP14–CP21 merge on main; bumping would rewrite a published tag
+
+### Next Session
+- [ ] Open PR: feature/web-console-and-hardening → main for v1.1.0 merge
+- [ ] Watch memory retrieval + event bus surface area for post-release issues
 
 ---
 

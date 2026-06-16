@@ -49,7 +49,8 @@ Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP2
 
 ## What's Next (Prioritized)
 
-1. **Tag v1.0.0 + release notes** — cut release after hardening passes QA
+1. **Merge to main** — open PR from `feature/web-console-and-hardening` → `main` for v1.1.0
+2. **v1.1.x bug triage** — watch for any issues post-release; memory retrieval and event bus are the newest surface area
 
 ## Don't Restart
 
