@@ -1859,6 +1859,12 @@ body {
   overflow: hidden;
 }
 
+.intg-page__body {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 1.5rem;
+}
+
 .intg-page .page-header {
   align-items: center;
 }

@@ -660,8 +660,9 @@ export default function IntegrationsPage() {
         </button>
       </div>
 
+      <div className="intg-page__body">
       {integrations.length === 0 ? (
-        <div className="empty-state" style={{ flex: 1 }}>
+        <div className="empty-state">
           <div className="empty-state__icon">
             <Icon name="plug" size={40} aria-hidden />
           </div>
@@ -823,6 +824,7 @@ export default function IntegrationsPage() {
           </div>
         </div>
       </div>
+      </div>{/* intg-page__body */}
 
       {showPicker && (
         <TypePicker
