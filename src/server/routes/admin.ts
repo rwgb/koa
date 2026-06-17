@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { getLogBuffer, clearLogBuffer } from '../debug-log.js';
 import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
 import { readKoaConfigFile, writeKoaConfigFile, setApiKey } from '../../config/index.js';
@@ -1078,6 +1079,62 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     const { runUpdate } = await import('../../updater/index.js');
     const result = await runUpdate({ test: runTests, log: (msg) => process.stdout.write(`[koa/update] ${msg}\n`) });
     res.json(result);
+  });
+
+  // ── Debug console ─────────────────────────────────────────────────────────────
+
+  router.get('/debug/logs', (_req, res: Response) => {
+    res.json({ entries: getLogBuffer() });
+  });
+
+  router.delete('/debug/logs', (_req, res: Response) => {
+    clearLogBuffer();
+    res.json({ ok: true });
+  });
+
+  router.get('/debug/info', (_req, res: Response) => {
+    const creds = readCredentials();
+    const KNOWN_KEYS = [
+      'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'BRAVE_API_KEY', 'ELEVENLABS_API_KEY',
+      'GITHUB_TOKEN', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REFRESH_TOKEN',
+      'SLACK_BOT_TOKEN', 'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN',
+      'TELEGRAM_BOT_TOKEN', 'NTFY_TOPIC', 'KOA_WEB_TOKEN',
+    ];
+    const credentialKeys = KNOWN_KEYS.map(key => ({
+      key,
+      set: !!(process.env[key] ?? creds[key]),
+    }));
+
+    const env: Record<string, string> = {};
+    for (const k of Object.keys(process.env)) {
+      if (k.startsWith('KOA_') || k.startsWith('NODE_') || k === 'PORT') {
+        env[k] = process.env[k] ?? '';
+      }
+    }
+
+    const cfg: Record<string, unknown> = {
+      model: config.model,
+      provider: config.provider,
+      maxTokens: config.maxTokens,
+      smartRouting: config.smartRouting,
+      engramEnabled: config.engramEnabled,
+      autoCheckpointTurns: config.autoCheckpointTurns,
+      ttsProvider: config.ttsProvider,
+      sandboxBackend: config.sandboxBackend,
+      browserEnabled: config.browserEnabled,
+    };
+
+    res.json({
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      pid: process.pid,
+      uptime: process.uptime(),
+      cwd: process.cwd(),
+      credentialKeys,
+      env,
+      config: cfg,
+    });
   });
 
   return router;

@@ -401,6 +401,26 @@ export interface ProactiveAlert {
   taskCount: number;
 }
 
+// ── Debug Console ─────────────────────────────────────────────────────────────
+
+export interface DebugLogEntry {
+  ts: number;
+  level: 'log' | 'warn' | 'error' | 'debug';
+  msg: string;
+}
+
+export interface DebugInfo {
+  nodeVersion: string;
+  platform: string;
+  arch: string;
+  pid: number;
+  uptime: number;
+  cwd: string;
+  credentialKeys: Array<{ key: string; set: boolean }>;
+  env: Record<string, string>;
+  config: Record<string, unknown>;
+}
+
 // Discriminated union of everything that can appear in the chat timeline
 export type ChatItem =
   | { kind: 'user'; content: string; id: string; channel?: InboundChannel }

@@ -233,7 +233,7 @@ export default function DebugConsolePage() {
                 <h3 style={{ marginTop: 0, marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Credentials</h3>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                   <tbody>
-                    {info.credentialKeys.map(({ key, set }) => (
+                    {info.credentialKeys.map(({ key, set }: { key: string; set: boolean }) => (
                       <tr key={key} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.375rem 0.5rem 0.375rem 0', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{key}</td>
                         <td style={{ padding: '0.375rem 0' }}>
@@ -263,7 +263,7 @@ export default function DebugConsolePage() {
                 <h3 style={{ marginTop: 0, marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Environment</h3>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                   <tbody>
-                    {Object.entries(info.env).map(([k, v]) => (
+                    {(Object.entries(info.env) as [string, string][]).map(([k, v]) => (
                       <tr key={k} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.25rem 0.5rem 0.25rem 0', fontFamily: 'monospace', color: 'var(--text-muted)', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{k}</td>
                         <td style={{ padding: '0.25rem 0', fontFamily: 'monospace', wordBreak: 'break-all' }}>{v}</td>

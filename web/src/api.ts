@@ -30,6 +30,8 @@ import type {
   Conversation,
   ConversationTurn,
   ConversationSearchResult,
+  DebugLogEntry,
+  DebugInfo,
 } from './types.js';
 
 // ── Token storage ─────────────────────────────────────────────────────────────
@@ -765,10 +767,10 @@ export async function runUpdate(opts: { test?: boolean } = {}): Promise<{ status
 
 // ── Debug Console ─────────────────────────────────────────────────────────────
 
-export async function getDebugLogs(): Promise<import('./types.js').DebugLogEntry[]> {
+export async function getDebugLogs(): Promise<DebugLogEntry[]> {
   const res = await authFetch('/api/admin/debug/logs');
   if (!res.ok) throw new Error('HTTP ' + String(res.status));
-  const data = await res.json() as { entries: import('./types.js').DebugLogEntry[] };
+  const data = await res.json() as { entries: DebugLogEntry[] };
   return data.entries;
 }
 
@@ -777,8 +779,8 @@ export async function clearDebugLogs(): Promise<void> {
   if (!res.ok) throw new Error('HTTP ' + String(res.status));
 }
 
-export async function getDebugInfo(): Promise<import('./types.js').DebugInfo> {
+export async function getDebugInfo(): Promise<DebugInfo> {
   const res = await authFetch('/api/admin/debug/info');
   if (!res.ok) throw new Error('HTTP ' + String(res.status));
-  return res.json() as Promise<import('./types.js').DebugInfo>;
+  return res.json() as Promise<DebugInfo>;
 }
