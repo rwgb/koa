@@ -40,7 +40,6 @@ import { generateCalendarOAuthUrl, exchangeCalendarCode } from '../../calendar/o
 import { calendarSync } from '../../calendar/sync.js';
 import { TelegramPoller } from '../../channels/telegram.js';
 import { setTelegramPoller } from '../../channels/router.js';
-import { tokenEqual } from '../utils.js';
 import { DockerRunner } from '../../sandbox/docker.js';
 import { isBrowserAvailable } from '../../browser/client.js';
 import { spawn } from 'child_process';

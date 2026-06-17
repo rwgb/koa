@@ -16,13 +16,17 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { rmSync } from 'node:fs';
+import type { KoaConfig } from '../../config/index.js';
+import type { AgentLoop } from '../../agent/loop.js';
+import type * as GmailModule from '../../channels/gmail.js';
 
 // ── Shared mock setup for server tests ───────────────────────────────────────
 // These are identical to the setup in server_routes.test.ts — required because
 // createServer() imports and starts background services at module load time.
 
 vi.mock('../../channels/gmail.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../channels/gmail.js')>();
+  const actual = await importOriginal<typeof GmailModule>();
   return { ...actual, gmailPoller: { start: vi.fn(), stop: vi.fn() } };
 });
 
@@ -163,8 +167,7 @@ describe('INVARIANT 1 — cross_repo: path traversal rejected before filesystem 
   afterEach(() => {
     delete process.env['KOA_CROSS_REPO_ALLOWLIST'];
     vi.resetModules();
-    const fs = require('fs');
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('read: rejects "../" traversal in relPath', async () => {
@@ -281,8 +284,8 @@ describe('INVARIANT 3 — SSE: error events do not expose internal details', () 
     });
 
     const { app } = createServer(
-      loop as unknown as import('../../agent/loop.js').AgentLoop,
-      BASE_CONFIG as unknown as import('../../config/index.js').KoaConfig,
+      loop as unknown as AgentLoop,
+      BASE_CONFIG as unknown as KoaConfig,
     );
 
     const http = await import('http');
@@ -360,8 +363,8 @@ describe('INVARIANT 4 — serialisation: concurrent requests queue via TurnSched
     });
 
     const { app } = createServer(
-      loop as unknown as import('../../agent/loop.js').AgentLoop,
-      BASE_CONFIG as unknown as import('../../config/index.js').KoaConfig,
+      loop as unknown as AgentLoop,
+      BASE_CONFIG as unknown as KoaConfig,
     );
 
     const http = await import('http');
@@ -418,8 +421,8 @@ describe('INVARIANT 4 — serialisation: concurrent requests queue via TurnSched
     });
 
     const { app } = createServer(
-      loop as unknown as import('../../agent/loop.js').AgentLoop,
-      BASE_CONFIG as unknown as import('../../config/index.js').KoaConfig,
+      loop as unknown as AgentLoop,
+      BASE_CONFIG as unknown as KoaConfig,
     );
 
     const http = await import('http');

@@ -4,14 +4,18 @@
  * Uses supertest against createServer(). Avoids real background-service
  * side-effects by mocking the poller/sync modules before importing the server.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import type { TurnResult } from '../types/index.js';
+import type { KoaConfig } from '../config/index.js';
+import type { AgentLoop } from '../agent/loop.js';
+import type * as GmailModule from '../channels/gmail.js';
+import type * as CalOAuthModule from '../calendar/oauth.js';
 
 // ── Mock background service modules so createServer() doesn't start real pollers ──
 vi.mock('../channels/gmail.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../channels/gmail.js')>();
+  const actual = await importOriginal<typeof GmailModule>();
   return {
     ...actual,
     gmailPoller: { start: vi.fn(), stop: vi.fn() },
@@ -31,7 +35,7 @@ vi.mock('../calendar/sync.js', () => ({
 }));
 
 vi.mock('../calendar/oauth.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../calendar/oauth.js')>();
+  const actual = await importOriginal<typeof CalOAuthModule>();
   return {
     ...actual,
     generateCalendarOAuthUrl: vi.fn((redirectUri: string, state?: string) =>
@@ -161,10 +165,10 @@ async function buildApp(
     ollamaBaseUrl: 'http://localhost:11434',
     sandboxBackend: 'local' as const,
     sandboxTimeoutMs: 10000,
-  } as unknown as import('../config/index.js').KoaConfig;
+  } as unknown as KoaConfig;
 
   const loop = makeFakeLoop(loopOverrides);
-  const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+  const { app } = createServer(loop as unknown as AgentLoop, config);
   return app;
 }
 
@@ -356,12 +360,12 @@ describe('§B server routes — error scrubbing', () => {
       ollamaBaseUrl: 'http://localhost:11434',
       sandboxBackend: 'local' as const,
       sandboxTimeoutMs: 10000,
-    } as unknown as import('../config/index.js').KoaConfig;
+    } as unknown as KoaConfig;
 
     const loop = makeFakeLoop({
       checkpoint: vi.fn().mockRejectedValue(new Error('secret path /etc/shadow exposed')),
     });
-    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+    const { app } = createServer(loop as unknown as AgentLoop, config);
 
     const res = await request(app)
       .post('/api/checkpoint')
@@ -393,12 +397,12 @@ describe('§B server routes — error scrubbing', () => {
       ollamaBaseUrl: 'http://localhost:11434',
       sandboxBackend: 'local' as const,
       sandboxTimeoutMs: 10000,
-    } as unknown as import('../config/index.js').KoaConfig;
+    } as unknown as KoaConfig;
 
     const loop = makeFakeLoop({
       rebuildBrain: vi.fn().mockRejectedValue(new Error('internal db path /home/user/.koa/db.sqlite')),
     });
-    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+    const { app } = createServer(loop as unknown as AgentLoop, config);
 
     const res = await request(app)
       .post('/api/admin/brain/rebuild')
@@ -566,7 +570,7 @@ describe('§B server routes — SSE busy/auth', () => {
       ollamaBaseUrl: 'http://localhost:11434',
       sandboxBackend: 'local' as const,
       sandboxTimeoutMs: 10000,
-    } as unknown as import('../config/index.js').KoaConfig;
+    } as unknown as KoaConfig;
 
     let resolveFirst!: (v: TurnResult) => void;
     const firstTurnPromise = new Promise<TurnResult>(r => { resolveFirst = r; });
@@ -584,7 +588,7 @@ describe('§B server routes — SSE busy/auth', () => {
       turn: vi.fn().mockImplementationOnce(() => firstTurnPromise)
                    .mockResolvedValue(mockResult),
     });
-    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+    const { app } = createServer(loop as unknown as AgentLoop, config);
 
     const http = await import('http');
     const server = http.createServer(app);

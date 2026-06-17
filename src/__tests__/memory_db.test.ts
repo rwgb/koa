@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { unlinkSync, mkdirSync } from 'node:fs'
+import { unlinkSync } from 'node:fs'
 import type Database from 'better-sqlite3'
 
 // Track open DBs and temp paths for cleanup
