@@ -64,8 +64,14 @@ export class ClaudeCodeProvider implements LlmProvider {
       const args = ['-p', '--output-format', 'json'];
       if (this.skipPermissions) args.push('--dangerously-skip-permissions');
 
+      // Strip ANTHROPIC_API_KEY so claude uses ~/.claude.json subscription auth instead
+      // of the potentially-exhausted project API key from the service environment.
+      const spawnEnv = { ...process.env };
+      delete spawnEnv['ANTHROPIC_API_KEY'];
+
       const proc = spawn(this.claudePath, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: spawnEnv,
       });
 
       let stdout = '';

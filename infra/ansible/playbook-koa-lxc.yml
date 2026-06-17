@@ -1,0 +1,160 @@
+---
+- name: Configure koa-lxc
+  hosts: koa_servers
+  become: false  # already root
+
+  # Roles execute before tasks — hardening role replaces the inlined SSH/
+  # fail2ban/unattended-upgrades/UFW task block that was here previously.
+  roles:
+    - role: hardening
+      vars:
+        hardening_ufw_extra_ports:
+          - { port: '80',   proto: tcp,                   comment: 'HTTP (Caddy)' }
+          - { port: '443',  proto: tcp,                   comment: 'HTTPS (Caddy)' }
+          - { port: '3000', proto: tcp, src: '192.168.1.0/24', comment: 'Koa API LAN-only' }
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # Koa service setup
+    # -------------------------------------------------------------------------
+
+    - name: koa | ensure koa system user exists
+      ansible.builtin.user:
+        name: koa
+        system: true
+        home: /home/koa
+        shell: /usr/sbin/nologin
+        create_home: true
+        state: present
+      tags: koa
+
+    - name: koa | ensure required directories exist
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: /opt/koa,     owner: koa,  group: koa,  mode: '0755' }
+        - { path: /var/lib/koa, owner: koa,  group: koa,  mode: '0750' }
+        - { path: /etc/koa,     owner: root, group: koa,  mode: '0750' }
+      tags: koa
+
+    - name: koa | ensure /etc/koa/env exists
+      ansible.builtin.file:
+        path: /etc/koa/env
+        state: touch
+        owner: root
+        group: koa
+        mode: '0640'
+        modification_time: preserve
+        access_time: preserve
+      tags: koa
+
+    - name: koa | set KOA_PROVIDER=ollama in /etc/koa/env
+      ansible.builtin.lineinfile:
+        path: /etc/koa/env
+        regexp: '^KOA_PROVIDER='
+        line: 'KOA_PROVIDER=ollama'
+        state: present
+      tags: koa
+
+    - name: koa | set KOA_TTS_PROVIDER=none in /etc/koa/env
+      ansible.builtin.lineinfile:
+        path: /etc/koa/env
+        regexp: '^KOA_TTS_PROVIDER='
+        line: 'KOA_TTS_PROVIDER=none'
+        state: present
+      tags: koa
+
+    # -------------------------------------------------------------------------
+    # koa | deploy systemd service unit
+    # -------------------------------------------------------------------------
+
+    - name: koa | deploy koa.service unit file
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../deploy/koa.service"
+        dest: /etc/systemd/system/koa.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: reload systemd and restart koa
+      tags: koa
+
+    - name: koa | ensure koa.service is enabled and started
+      ansible.builtin.systemd:
+        name: koa
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: koa
+
+    # -------------------------------------------------------------------------
+    # Claude Code credentials
+    # -------------------------------------------------------------------------
+
+    - name: credentials | copy ~/.claude.json from control node to /home/koa/.claude.json
+      ansible.builtin.copy:
+        src: "{{ lookup('env', 'HOME') }}/.claude.json"
+        dest: /home/koa/.claude.json
+        owner: koa
+        group: koa
+        mode: '0600'
+      tags: credentials
+
+    # -------------------------------------------------------------------------
+    # Log rotation
+    # -------------------------------------------------------------------------
+
+    - name: logrotate | ensure /var/log/koa directory exists
+      ansible.builtin.file:
+        path: /var/log/koa
+        state: directory
+        owner: koa
+        group: koa
+        mode: '0750'
+      tags: logrotate
+
+    - name: logrotate | configure koa log rotation
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/koa
+        content: |
+          /var/log/koa/*.log {
+              daily
+              rotate 14
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0640 koa koa
+              sharedscripts
+              postrotate
+                  systemctl kill --kill-who=main --signal=USR1 koa.service 2>/dev/null || true
+              endscript
+          }
+        mode: '0644'
+      tags: logrotate
+
+  # ---------------------------------------------------------------------------
+  # Handlers
+  # ---------------------------------------------------------------------------
+
+  handlers:
+
+    - name: reload systemd and restart koa
+      ansible.builtin.systemd:
+        name: koa
+        daemon_reload: true
+        state: restarted
+
+    - name: restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

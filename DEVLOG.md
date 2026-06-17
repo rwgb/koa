@@ -1,5 +1,751 @@
 # Koa — DevLog
 
+## 2026-06-16 - Ansible hardening role + playbook refactor
+
+### Completed
+- Extracted shared infra/ansible/roles/hardening/ role with 5 task files (ssh, fail2ban, unattended_upgrades, sysctl, firewall)
+- Added SSH cipher/MAC/KEX hardening, X11Forwarding off, MaxAuthTries 3, ClientAliveInterval 300
+- Added sysctl network stack hardening (syncookies, rp_filter, redirect suppression, dmesg_restrict)
+- Refactored both playbooks to use the role; eliminated duplicated hardening code
+- koa-lxc: added HTTPS (443) to UFW, added koa.service unit deployment
+- deploy/koa.service: added ProtectSystem=strict, PrivateTmp, ProtectHome, RestrictSUIDSGID, LockPersonality, RestrictRealtime
+
+### Decisions
+- Shared hardening role avoids drift between playbooks; both consume identical task files
+- systemd hardening: ProtectSystem=strict + PrivateTmp prevents filesystem writes outside allowed paths
+- SSH hardening: MaxAuthTries 3 + ClientAliveInterval 300 reduces brute-force surface and stale session risk
+
+### Next Session
+- [x] Tag v1.1.0 + release notes — DONE
+
+## 2026-06-16 - v1.1.0 release cut
+
+### Completed
+- Updated CHANGELOG.md with full CP23–CP30 + hardening arc details
+- Bumped package.json to v1.1.0 (v1.0.0 already existed on main at CP14–CP21)
+- Committed 59 files: all CP23–CP30 source + tests + docs not yet committed
+- Tagged v1.1.0, pushed branch + tag to origin
+- Checkpoint notification confirmed (HTTP 200)
+
+### Decisions
+- v1.1.0 not v1.0.0: existing v1.0.0 tag pointed to CP14–CP21 merge on main; bumping would rewrite a published tag
+
+### Next Session
+- [ ] Open PR: feature/web-console-and-hardening → main for v1.1.0 merge
+- [ ] Watch memory retrieval + event bus surface area for post-release issues
+
+---
+
+## 2026-06-16 - CP30: MCP over stdio
+
+### Completed
+- NEW src/agent/McpClient.ts: McpClient class using StdioClientTransport; connects to a single MCP server subprocess, lists tools, calls tools, and wraps results
+- NEW src/agent/McpManager.ts: McpManager class; connectAll() connects each configured server (per-server failure caught, degradation logged), getTools() returns all discovered tools prefixed mcp_{server}_{tool}, callTool() routes to the correct client
+- CONFIG: added mcpServers field to config schema (array of { name, command, args?, env? })
+- LOOP: loop.ts integration — McpManager instantiated at startup, MCP tools merged into buildRegistry() tool list
+- ADMIN: GET /admin/status exposes mcp.servers[] with connected/tool-count per server
+- SECURITY: all MCP tool results trust-wrapped per ADR-0006 (trusted: false default)
+- TESTS: vitest tests for McpClient (tool discovery, call routing, error isolation) and McpManager (connectAll degradation, tool prefixing)
+
+### Decisions
+- stdio-first: StdioClientTransport chosen; no HTTP/SSE transport in scope for CP30
+- Graceful degradation: connectAll catches per-server failures so one bad server does not block others
+- Tool name prefix: mcp_{server}_{tool} to prevent collisions with native tools
+- trusted: false default: all MCP results are untrusted until explicitly granted (ADR-0006)
+
+---
+
+## 2026-06-16 - CP28: Provider expansion (OpenAI-compatible + Google Gemini)
+
+### Completed
+- NEW src/agent/providers/openai_compatible.ts: generic OpenAI-compatible provider (baseUrl + optional apiKey)
+- REFACTOR src/agent/providers/ollama.ts: OllamaProvider extends OpenAICompatibleProvider
+- NEW src/agent/providers/google.ts: GoogleProvider pointing at Google OpenAI-compatible endpoint
+- CONFIG: added openai-compatible + google provider types with fields (baseUrl, apiKey, model)
+- ADMIN API: GET/PUT /config expose new provider fields; API keys written to credentials file
+- WEB UI: ProviderSection replaces OllamaSection; conditional fields for each provider
+
+### Decisions
+- Used Google OpenAI-compatible endpoint (generativelanguage.googleapis.com/v1beta/openai/) -- no new SDK needed
+- openaiCompatibleBaseUrl allows public and private addresses; URL format validated only
+- Google and OpenAI API keys stored in credentials file, not config.json
+- fromOpenAIResponse accepts optional label param (default 'OpenAI-compatible provider'); ollama.ts wraps it with 'Ollama' to preserve existing test assertions without touching test files
+
+---
+
+## 2026-06-16 - CP29-A/B: Event bus verified + checkpointed
+
+### Completed
+- Verified CP29-A/B commit (5aaab95): namespace.verb bus + action_type dispatch in src/agent/event-bus.ts
+- tsc: clean, vitest: 905 pass / 0 fail
+
+---
+
+## 2026-06-16 - Skills install: mattpocock/skills productivity + misc buckets
+
+### Completed
+- Installed 9 new skills from github.com/mattpocock/skills into ~/.claude/skills/
+- Productivity: caveman, grill-me, handoff, teach, write-a-skill
+- Misc: git-guardrails-claude-code, migrate-to-shoehorn, scaffold-exercises, setup-pre-commit
+- Engineering bucket (diagnose, grill-with-docs, etc.) was already installed
+
+### Decisions
+- Installed to ~/.claude/skills/ (global) so available across all projects
+
+---
+
+## 2026-06-16 - CP27-C/D: Memory Retrieval + System Prompt Injection
+
+### Completed
+- CP27-C: Created src/memory/retrieval.ts — BM25/RRF retrieval from SQLite FTS5; queryDb(), rrfMerge(), queryMemories(query, slug?, limit?), buildEpisodicMemoryInjection()
+- CP27-D: Wired per-turn episodic memory retrieval into loop.ts buildSystemBlocks() — injected into Block 3 (dynamic, no cache)
+- Tests: src/__tests__/memory_retrieval.test.ts — BM25 ranking, RRF merge, expiry filter, injection formatting
+
+### Decisions
+- Retrieval is per-turn (Block 3), not cached: episodic relevance changes with each user message
+- Old flat-file store.ts (Block 1, cached) left untouched: separate concerns
+- Exported queryDb and rrfMerge from retrieval.ts to keep tests free of mocking
+- FTS5 special chars escaped in user query to prevent parse errors (not injection — MATCH is parameterized)
+
+### Next Session
+- [ ] CP29-A/B: Event bus (namespace.verb + action_type dispatch)
+- [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider)
+- [ ] CP30: MCP over stdio
+- [ ] Tag v1.0.0 + release notes
+
+## [2026-06-16] — Fix Queue + CP27-A/B/E + CP29-C + Fix 6 (v1.0.0 track)
+
+### Completed
+- Fix 1: Verified compactAfterTurns only in expected files (cli/index.ts + doctor test)
+- Fix 2: Removed synthesizeSpeech dead export from web/src/api.ts
+- Fix 3: Aligned MODEL_CONTEXT_WINDOWS keys with MODEL_MAP in loop.ts
+- Fix 4: Added 10-minute OAuth nonce TTL with 5-minute prune interval
+- Fix 5: Gated browser tool registration on config.browserEnabled
+- Fix 6: SIGTERM/SIGINT graceful drain handler (30s budget: close → drain → finalize → exit)
+- Fix 7: Capped inbound Slack text at 2000 chars before loop.turn()
+- CP27-A: SQLite memory schema (src/memory/schema.ts + db.ts), better-sqlite3 dependency added
+- CP27-B: Typed write path (src/memory/events.ts), 8 event types, dedup for assertion/standing-order
+- CP27-E: write_memory_event agent tool registered in buildRegistry()
+- CP29-C: TurnScheduler (src/agent/scheduler.ts), priority queuing replaces isBusy 429s
+
+### Decisions
+- CP27 retrieval (phases C/D) deferred to v1.1 — ships write path only for v1.0
+- CP29 event bus + standing orders deferred to v1.1 — ships scheduler only for v1.0
+- better-sqlite3 chosen for SQLite (sync API, well-maintained, Node 20 compatible)
+- TurnScheduler never returns 429; user turns are high-priority, autonomous turns are low-priority
+
+### Issues Found
+- None blocking; all fixes and CP implementations passed QA and security
+
+### Next Session
+- [ ] CP27-C: BM25/RRF retrieval pipeline
+- [ ] CP27-D: System prompt injection of retrieved memories
+- [ ] CP29-A: Event bus (namespace.verb + prefix wildcards)
+- [ ] CP29-B: Standing orders evaluation (trigger → action_type dispatch)
+- [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider + web UI)
+- [ ] CP30: MCP over stdio
+- [ ] Ansible hardening + git tag v1.0.0
+
+### Learnings
+- SQLite sync API (better-sqlite3) fits the agent loop better than async pools — writes happen in-turn, no race windows
+- Priority lanes (user vs autonomous) are simpler than `isBusy` flag — scheduler owns the decision, not the turn handler
+
+## [2026-06-16] - Architecture Grill: Memory, Providers, Security, Cleanup
+
+### Completed
+- Full grill-with-docs session covering memory system, provider expansion, security hardening, and project cleanup
+- Created `CONTEXT.md` — authoritative domain glossary (first-ever for this project)
+- Created `docs/adr/` with 6 ADRs capturing hard architectural decisions
+- Deleted design artifacts and superseded docs (see Decisions)
+
+### Decisions
+- **Koa identity**: autonomous personal assistant — agent loop + memory is the core; CLI/web are one channel among many
+- **Memory retrieval**: per-turn RRF retrieval for episodic/semantic tiers; static injection only for structural context (STATE.md, SpiderBrain)
+- **Memory split**: two SQLite DBs — `~/.koa/memory.db` (global: preferences, standing-orders, boundaries, assertions) + per-project DB (decisions, failures, journals)
+- **Typed learning events**: 8 types (`correction`, `preference`, `resolved`, `assertion`, `decision`, `failure`, `standing-order`, `boundary`); immediate writes for all 8; session-end journal for everything else
+- **Contradiction detection**: at-write dedup for `assertion` + `standing-order` (global DB); consolidation sweep for all other types
+- **Event bus**: `namespace.verb` naming, prefix wildcard matching (`deploy.*`), `action_type` field on standing orders (`notify`/`brief`/`agent`)
+- **Provider architecture**: hybrid — named `anthropic`, `claude-code`, `google` + generic `openai-compatible` (generalizes OllamaProvider); all 4 provider values (`auto`, `claude-code` included) configurable via web UI
+- **Session isolation**: priority lanes replace `isBusy` flag — user turns preempt autonomous turns
+- **SSE reconnection**: heartbeat every 15s + exponential backoff + `streamId` resume (server buffers output for turn duration)
+- **MCP implementation**: stdio first (spawn + JSON-RPC `tools/list` + `tools/call` proxy); HTTP-based MCP deferred
+- **Security — Telegram**: sender allowlist (`TELEGRAM_ALLOWED_CHAT_IDS`); unauthorized messages silently dropped + `unauthorized_inbound` signal
+- **Security — SSE auth**: token moved to `Authorization: Bearer` header; GET endpoint no longer accepts `?token=`; iOS deferred
+- **Security — untrusted content**: `wrapUntrusted()` applied to web_fetch, web_search, MCP results; MCP servers configurable as `trusted: true`
+- **Self-healing**: unilateral within Koa's own process; approval gate for anything touching external systems
+- **Self-extending**: plugin draft → staging → user approval → registration; never auto-registers
+- **Delegation `pattern` field**: renamed to `label`; display-only, never evaluated
+- **Email outbound**: wired into `dispatchToChannel` as first-class channel
+- **Cleanup removals**: `design-concepts/`, `koa_render.py`, `FABLE_AUDIT.md`, root `HANDOFF.md`, `docs/archive/TASKS-v6-cp10.md`; `FABLE_AUDIT_FIXES.md` moved to `docs/`
+
+### Issues Found
+- Provider round-trip bug: `provider: 'auto'` / `'claude-code'` silently corrupted by web UI PUT (High) — resolved by design
+- MCP skills silently broken — stub always returns error (High) — resolved by design
+- `compactAfterTurns` dead field in `AdminConfig` causes silent NaN (High) — fix queued
+- Telegram no sender allowlist (Medium) — resolved by design
+- Auth token in URL query string for SSE GET (Medium) — resolved by design
+- `wrapUntrusted()` not wired into web_fetch/web_search (Medium) — resolved by design
+- `synthesizeSpeech` dead client code (Medium) — fix queued
+- MODEL_CONTEXT_WINDOWS key mismatch `-4-7` vs `-4-8` (Low) — fix queued
+- OAuth nonce map unbounded growth (Low) — fix queued
+- `browserEnabled` flag not checked at tool registration (Low) — fix queued
+- Graceful shutdown race on SIGTERM with active turn (Low) — fix queued
+- Slack inbound text not length-capped before loop.turn() (Low) — fix queued
+
+### Next Session
+- [ ] Implement CP27: typed learning events + per-turn memory retrieval (memory write-side + retrieval wiring)
+- [ ] Implement CP28: provider expansion (OpenAICompatibleProvider + Google + web UI)
+- [ ] Implement CP29: event bus + standing orders + priority lanes
+- [ ] Implement CP30: MCP over stdio
+- [ ] Clear the fix queue (compactAfterTurns, synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, graceful drain, Slack cap)
+- [ ] Ansible hardening + tag v1.0.0
+
+### Learnings
+- OllamaProvider is already a generic OpenAI-compatible layer — multi-provider support is a rename + config expansion, not a rewrite
+- The delegation `pattern` field was always display-only; the name created false expectations of functional matching
+- `wrapUntrusted()` existed but was unwired — security guards only work if they're in the call chain
+
+## [2026-06-16] - Tooling: Matt Pocock Engineering Skills
+
+### Completed
+- Installed 10 engineering skills from `mattpocock/skills` into `~/.claude/skills/`: `diagnose`, `grill-with-docs`, `improve-codebase-architecture`, `prototype`, `setup-matt-pocock-skills`, `tdd`, `to-issues`, `to-prd`, `triage`, `zoom-out`
+- Ran `setup-matt-pocock-skills` for koa: GitHub Issues as issue tracker (default labels), single-context domain docs layout
+- Created `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`
+- Added `## Agent skills` block to `.claude/CLAUDE.md`
+
+### Decisions
+- Skills installed globally (`~/.claude/skills/`) — available in all projects but config (`docs/agents/`) is per-repo
+- Default triage label vocabulary used — no overrides needed as no conflicting labels exist in rwgb/koa
+
+## [2026-06-15] - CP26: Web UI Settings Completeness + Debug Console
+
+### Completed
+- **Settings gaps closed**: ElevenLabs API key, Daily Briefing (enabled + time), and Brave API key (Search section) are now all configurable from the web UI — no more file editing required
+- **ApiKeyRow refactor**: Added optional `label` prop (default "Anthropic API key") so the same component is reused for ElevenLabs and Brave
+- **Debug Console page**: New `/debug` route with server-side log ring buffer (`src/server/debug-log.ts`) + three endpoints: `GET /api/admin/debug/logs`, `DELETE /api/admin/debug/logs`, `GET /api/admin/debug/info`
+- **Log capture**: `installLogCapture()` wraps console.log/warn/error/debug globally at server startup; guarded with `_installed` flag to prevent double-wrapping in tests
+- **Debug UI**: Logs tab (level filter, auto-scroll, 2s poll), Info tab (process, env, config, credentials)
+- **Nav**: Debug page accessible from bottom nav rail (server icon)
+- **Gate**: 843/843 tests pass, tsc clean
+
+### Decisions
+- `installLogCapture()` is idempotent (guarded by `_installed`) — safe to call in tests that create multiple server instances
+- Debug endpoint is behind auth (same `/api/admin/` prefix) — no unauthenticated log leakage
+- Log buffer is capped at 500 entries (ring buffer via `_buffer.shift()`)
+- Used polling (2s interval) instead of SSE for simplicity — log console is non-critical
+
+### Next Session
+- [ ] Ansible hardening playbooks
+- [ ] Tag v1.0.0
+- [ ] Consider Node.js 22 upgrade on production
+
+## [2026-06-12] - CP25: ElevenLabs Server-Side TTS
+
+### Completed
+- Added POST /api/voice/tts endpoint — streams audio/mpeg from ElevenLabs API
+- Added GET /api/voice/tts-status endpoint — reports if ELEVENLABS_API_KEY is configured
+- Rewrote web/src/hooks/useSpeech.ts: removed Web Speech API, uses fetch → Blob URL → Audio() playback
+- Updated web/src/components/ChatPanel.tsx: removed browser voice picker dropdown, toggle only visible when server TTS available
+- Added tests for new TTS endpoints
+
+### Decisions
+- Blob URL + Audio() over MediaSource streaming: simpler implementation, ElevenLabs latency is acceptable
+- Server-side voice ID: keeps ElevenLabs voice config in credentials, not exposed to clients
+- available flag in VoiceState: UI adapts to server config, no hardcoded speechSynthesis check
+
+### Issues Found
+- None blocking
+
+### Next Session
+- [ ] Ansible hardening
+- [ ] Tag v1.0.0
+- [ ] Consider Node.js 22 upgrade on production
+
+### Learnings
+- ElevenLabs API streams audio/mpeg directly — no transcoding needed, pipe straight through
+- Object URL must be revoked after play to prevent memory accumulation
+
+## 2026-06-12 — Optional browser TTS with voice picker (CP24)
+
+### Completed
+- **useSpeech rewrite** (`web/src/hooks/useSpeech.ts`): browser-only Web Speech API; removed all server TTS code paths; `enabled` state defaults to `false`; `selectedVoiceName` persisted to localStorage; filters to English voices via `voiceschanged` listener
+- **VoiceState interface** exported from useSpeech — consumed by ChatContext and ChatPanel
+- **ChatContext**: `useSpeech()` result exposed as `voice` field on `ChatContextValue`; `voice.speak()` called on SSE `done` event
+- **ChatPanel**: speaker toggle button + compact voice `<select>` added to chat header; select only visible when voice enabled; both persist across sessions
+- **CSS** (`.chat__header-actions`, `.chat__voice-btn`, `.chat__voice-btn--on`, `.chat__voice-select`)
+- Deployed to production at 192.168.1.200; service healthy
+
+### Decisions
+- Voice defaults to off — avoids surprise audio on first load; user opts in explicitly
+- English-only voice filter — avoids 50+ language entries cluttering the picker
+- Speak fires on SSE `done` (full response buffered) not per-token — cleaner delivery, no mid-sentence interruption
+- Inline SVG for speaker icons — no new Icon dependency needed
+
+### Next Session
+- [ ] Ansible hardening playbooks (`ansible-galaxy collection install community.general`)
+- [ ] Tag v1.0.0
+- [ ] Consider Node.js 22 upgrade on production to eliminate ABI mismatch
+
+## 2026-06-12 — Production chat routing fix: ClaudeCode fallback via QuotaFallbackProvider
+
+### Completed
+- **Provider routing**: Changed production `KOA_PROVIDER=anthropic` (was `ollama`); `QuotaFallbackProvider` now automatically routes to ClaudeCode CLI when Anthropic quota exhausted (expires 2026-07-01)
+- **Root cause of ClaudeCode exit 1**: `ClaudeCodeProvider.doRun()` was spawning claude with `ANTHROPIC_API_KEY` inherited from service env — claude used the exhausted API key instead of `~/.claude.json` subscription credentials. Fixed by `delete spawnEnv['ANTHROPIC_API_KEY']` before spawn
+- **Service crash on shutdown**: `generateStateDoc` / `generateJournalEntry` called Anthropic directly in `finalize()` without error handling → unhandled rejection crashed the process when quota exhausted. Fixed with try/catch in both functions (returns placeholder string on failure)
+- **better-sqlite3 ABI mismatch**: macOS-compiled `.node` file rsynced to Linux Node.js 20 host crashed on startup. Fixed by stopping service before rsync in `scripts/deploy.sh` (prevents auto-restart before rebuild), removed `--silent` from `npm rebuild` for visibility
+- **Conversation auto-titling**: Working via `QuotaFallbackProvider` — Anthropic fails → ClaudeCode CLI generates title. Verified in production DB
+- **Revert undici**: `undici@8.4.1` requires Node.js 22; production runs Node.js 20. Reverted the global dispatcher approach
+
+### Decisions
+- `KOA_PROVIDER=anthropic` on production: QuotaFallbackProvider handles the Anthropic→ClaudeCode routing automatically; when quota resets July 1 it will switch back without config change
+- Ollama removed from active routing: too slow for 7B model on current VM hardware; can be re-enabled by setting `KOA_PROVIDER=auto` and ensuring `KOA_OLLAMA_BASE_URL` is set
+- state-doc.ts errors return placeholder strings, not empty: journal and STATE.md still get written even during API quota outages (with a note about the failure)
+
+### Issues Found
+- Node.js version mismatch (dev: v22, prod: v20) is a standing issue for all native modules; deploy script now stops service before rsync to prevent the crash window
+
+### Next Session
+- [ ] Verify web voice in browser at 192.168.1.200
+- [ ] Run Ansible hardening playbooks (`ansible-galaxy collection install community.general` first)
+- [ ] Tag v1.0.0
+- [ ] Consider upgrading production to Node.js 22 to eliminate the ABI mismatch permanently
+
+## 2026-06-12 — Production hardening: updater, TTS/web voice, installer, Ansible
+
+### Completed
+- **Production chat fix**: Added `KOA_PROVIDER=ollama` to `/etc/koa/env` on 192.168.1.200; copied `~/.claude.json` to `/home/koa/.claude.json` for ClaudeCode CLI fallback auth (was failing with exit 1 due to no credentials on headless host)
+- **Updater** (`src/updater/index.ts`): Hard-coded `REPO_REMOTE`/`REPO_BRANCH`/`REPO_URL` constants for private repo; `@{u}` detection falls back to constants instead of erroring; `GITHUB_PAT` from credentials used in fetch URL; `GIT_TERMINAL_PROMPT=0` prevents hanging
+- **TTS** (`src/voice/tts.ts`, `src/config/index.ts`): Added `'none'` provider — no-op on server, OS-aware default (`linux→none`, `darwin→say`)
+- **Web voice** (`web/src/hooks/useSpeech.ts` new, `web/src/context/ChatContext.tsx`, `web/src/api.ts`, `web/src/types.ts`): `useSpeech` hook auto-speaks Koa's responses — server TTS when provider is `say`/`elevenlabs`, Web Speech API fallback when `none`; accumulates streamed content in a ref and speaks on `done` event
+- **Installer** (`install.sh`): Added GitHub PAT prompt → writes to credentials; OS-aware TTS config (Linux sets `none`); sets git upstream tracking post-install
+- **Ansible** (`infra/ansible/`): `inventory.yml`, `playbook-koa-lxc.yml`, `playbook-ollama-vm.yml` — idempotent hardening for LXC (UFW, fail2ban, credential deploy, log rotation) and Ollama VM (UFW, model pull, service override)
+- **Test updated**: updater test reflects new fallback behavior (no error on missing upstream)
+
+### Decisions
+- ClaudeCode CLI credentials: copy `~/.claude.json` at deploy time rather than API-key auth — subscription quota is separate from exhausted API quota
+- `GITHUB_PAT` embedded in fetch URL as `x-token:<PAT>@` — appears briefly in ps aux but not stored in .git/config
+- Web Speech API fires only on `done` event using a ref-accumulated buffer — avoids React state timing issues
+- Ansible `PermitRootLogin prohibit-password` rather than `yes` — key-only root, appropriate for homelab
+
+### Issues Found
+- Gate agent introduced incorrect `errMsg.includes('no upstream')` guard that re-enabled old error behavior — caught and fixed immediately
+
+### Next Session
+- [ ] Deploy updated code to production (git push + ssh pull/rebuild)
+- [ ] Verify web voice works in browser on 192.168.1.200
+- [ ] Commit pending changes (atomic commits) + open PR
+- [ ] Tag v1.0.0
+- [ ] Note: `community.general` Ansible collection required for UFW module (`ansible-galaxy collection install community.general`)
+
+## 2026-06-12 — Surface error messages in chat error bubble
+
+### Completed
+- Added sanitizeErrorMessage helper to src/server/routes/chat.ts
+- SSE error event now includes sanitized err.message (paths stripped, truncated at 200 chars)
+- Fixes "Agent error — see server logs" being the only diagnostic info in the UI
+
+### Decisions
+- Use err.message not err.stack: avoids leaking class names, line numbers, file paths from stack frames
+- Path-strip regex strips unix/windows absolute paths from message text before sending to client
+- Prefix 'Agent error — ' preserved: existing security test (invariants.test.ts:319) guards this string
+
+### Issues Found
+- None new
+
+### Next Session
+- [ ] Commit pending CP20+CP21+hotfix+this change (atomic commits) + open PR
+- [ ] Tag v1.0.0
+- [ ] Fix koa --version hardcode in src/cli/index.ts (read from package.json)
+
+## [2026-06-11] — Hotfix: chat transcript survives navigation/refresh
+
+### Completed
+- **Root cause of "replies show in Activity but not the chat window"**: the chat transcript
+  and the in-flight SSE stream lived entirely inside the `ChatPage` route component. Any
+  navigation unmounted the route, which (a) aborted the in-flight stream and (b) destroyed
+  the ephemeral transcript state. There was no rehydration from the DB on load, so a refresh
+  or route change wiped the conversation view even though turns persisted server-side.
+  Surfaced by quota-fallback turn latency (20–40s per turn) — users navigated away mid-turn
+  far more often, hitting the unmount path on nearly every exchange.
+- **Fix**: lifted transcript + stream lifecycle out of the route component into a shared
+  context (`web/src/context/ChatContext.tsx`) mounted at the layout level
+  (`web/src/layouts/RootLayout.tsx`), so navigation no longer aborts the SSE stream or
+  drops messages; transcript now hydrates from `GET /api/conversations/:id/turns` on load
+  (`src/server/routes/chat.ts`, `web/src/pages/ChatPage.tsx`, `web/src/types.ts`)
+- Supporting changes in `src/agent/loop.ts`; tests updated in
+  `src/__tests__/server_routes.test.ts` and `src/__tests__/loop_turn.test.ts`
+- Security review on the diff: no HIGH/MEDIUM findings
+
+### Decisions
+- Stream lifecycle is owned by a context provider above the router, not the route — route
+  components must stay disposable; anything that must survive navigation belongs in context
+- Transcript is server-authoritative: the DB turns endpoint is the source of truth on mount,
+  with the live stream layered on top
+
+### Issues Found
+- None new beyond the root cause above
+
+### Next Session
+- [ ] Rebuild + restart the running server to pick up the hotfix
+- [ ] Commit and fold into the CP20/CP21 PR
+
+### Learnings
+- State scoped to a route component dies with the route — long-lived async work (SSE
+  streams) must be owned above the router
+- High turn latency turns rare unmount races into the common path; latency changes can
+  expose lifecycle bugs that were always there
+
+## [2026-06-11] — Session 5: CP21 — quota fallback attribution, conversation auto-titling, version badge
+
+### Completed
+- **Quota-fallback model/cost attribution fix**: fallback turns are now attributed to
+  `claude-code` at $0 instead of billing the configured Anthropic model
+  (`src/agent/providers/quota_fallback.ts`, `src/agent/loop.ts`, `src/agent/usage.ts`)
+- **Conversation auto-titling**: conversations are created lazily on first turn and titled
+  automatically after the first exchange — previously title generation only ran at CLI
+  shutdown and lost a race with `process.exit`, leaving everything "Untitled — 0 turns"
+  (`src/agent/loop.ts`, `src/__tests__/loop_turn.test.ts`)
+- **Web console version badge**: sources the real version from `package.json` instead of a
+  hardcoded `'0.2.0'` (`web/src/components/TopNav.tsx`, `src/server/routes/db.ts`)
+- Security review findings fixed: PM mini-loop now uses the same tool-execution timeout
+  guard as the main loop; PM mini-loop no longer bypasses the per-project budget guard and
+  session cost accounting
+
+### Decisions
+- Fallback turns cost $0 by definition (ClaudeCode CLI is subscription-billed), so usage
+  records attribute them to `claude-code` rather than approximating Anthropic API rates
+- Title generation moved into the turn path (after first exchange) rather than trying to
+  win the shutdown race — shutdown-time work is inherently unreliable under `process.exit`
+
+### Issues Found
+- **Root cause discovery**: the Anthropic API key is over its monthly usage limit until
+  2026-07-01 — every turn currently falls back to the ClaudeCode CLI. This is why the
+  attribution bug was visible on every conversation.
+- **Action required**: the user's running server needs a rebuild + restart to pick up the
+  fallback attribution fix — until then it keeps misattributing turns.
+
+### Next Session
+- [ ] Rebuild + restart the running server to pick up CP21 fixes
+- [ ] Commit the CP20+CP21 working-tree changes, open PR
+- [ ] Tag v1.0.0
+
+### Learnings
+- Shutdown hooks racing `process.exit` silently lose — do finalization work inline in the
+  request/turn path instead
+- When a provider fallback changes the effective model, usage/cost attribution must follow
+  the actual provider, not the configured one
+
+---
+
+## [2026-06-11] — Session 4: CP20 complete — audit fixes + cost-opt + smart-routing
+
+### Completed
+- Fixed 11 audit findings:
+  - HIGH: cache_control breakpoint cap (loop.ts), CP16 quota fallback (providers)
+  - MEDIUM: compaction metric, budget phantom costs, config unset web-token,
+    koa doctor KOA_HOME, updater merge-base, PM auto-chain, ClaudeCodeProvider history,
+    Express error handler, Gmail send scope
+- Fixed 3 LOW carry-ins: checkpoint.sh grep -Po portability, updater git error handling,
+  README phantom commands
+- Implemented api-cost-optimization phases 1-3 (prompt caching, model tiering, selective context)
+- Implemented smart-routing hybrid Haiku pre-classifier
+- All QA gates (tsc + vitest) passed after each phase
+- CHANGELOG "Fixed" claims verified accurate
+
+### Decisions
+- Parallel audit fix groups partitioned by file area (loop-tokens, providers, cli-config, pm-server-integrations)
+- api-cost-opt phases done sequentially per spec ordering
+- smart-routing Phase 1 (core) before Phase 2 (integration) per spec pipeline instructions
+
+---
+
+## [2026-06-11] — Session 3: CP20 stabilization workflow launched
+
+- Workflow `cp20-stabilize` running on Fable: 11 HIGH/MEDIUM audit fixes + 3 LOW carry-ins → api-cost-opt p1–3 → smart-routing → security → CP20 seal
+- Run ID: `wf_af2c40ca-a21` | Script: `.claude/cp20-workflow.js` (resume with `resumeFromRunId` if it dies)
+- ~/.claude/CLAUDE.md §19 updated with model-tier rule (haiku for gates/research; impl/security inherit session model)
+
+---
+
+## [2026-06-11] — Session 2: Context recovery + plan for next session
+
+### Completed
+- Recovered session context after stale HANDOFF.md (was pointing at CP17; actually at CP19 + v1.0.0 scope)
+- Updated HANDOFF.md to reflect true current state: v1.0.0, CP17–CP19 merged, two task specs queued
+- Confirmed the 2026-06-11 audit HIGH/MEDIUM findings are NOT fixed — CHANGELOG claim was aspirational; commit message explicitly says fix phase was killed by session limit
+- Agreed on next-session plan: fix 11 audit findings first, then api-cost-optimization, then smart-routing-hybrid-classifier
+- Agreed to update global CLAUDE.md §19 with workflow model-tier rule (haiku for gates/research, sonnet for impl/security) at start of next session before launching workflow
+- Goal: koa stable (no iOS/watchOS) before 2026-06-29 (new job start)
+
+### Decisions
+- Audit fixes take priority over new features — the CHANGELOG "Fixed" claim must become true before v1.0.0 is tagged
+- Workflow model-tier rule to be baked into §19 of ~/.claude/CLAUDE.md so it applies globally going forward
+
+### Next Session
+- [ ] Update ~/.claude/CLAUDE.md §19 with model-tier rule (haiku/sonnet/opus split for workflow agents)
+- [ ] Launch workflow: fix 11 HIGH/MEDIUM audit findings → gate → api-cost-optimization (phases 1–3) → gate → smart-routing-hybrid-classifier → security-review → CP20 checkpoint
+- [ ] Verify CHANGELOG.md "Fixed" claim is accurate after fixes land
+
+---
+
+## [2026-06-11] — Full v1 Audit (session limit hit; findings recorded, fixes queued)
+
+### Completed
+- 14-area E2E audit fanned out; 117 findings surfaced; 11 confirmed HIGH/MEDIUM (0 refuted), verified before session limit
+- Fix + gate phases killed by session-limit 429s; no source changes made yet — all findings are queue items only
+- CHANGELOG.md created; TASKS.md archived to docs/archive/TASKS-v6-cp10.md; feature/cp18-updater, chore/deps-compat, feature/cp19-github-multi all merged
+
+### Confirmed Findings (must fix before v1.0.0)
+- **[HIGH] cache_control breakpoints accumulate** — loop.ts markMessageHistoryCache never strips prior markers; 5th breakpoint on turn 2 → guaranteed 400 from Anthropic on multi-tool conversations
+- **[HIGH] CP16 quota fallback absent from release branch** — the feature/cp16-claude-fallback commit never merged; isQuotaError/fallbackToClaudeCode do not exist on HEAD; needs reimplementation against current provider API
+- **[MEDIUM] `config unset web-token` silent failure** — deleteCredential('web-token') no-ops; token remains valid; CLI falsely reports "Removed"
+- **[MEDIUM] `koa doctor` ignores KOA_HOME** — uses os.homedir() directly; breaks Docker/systemd deployments per docs/DEPLOYMENT.md
+- **[MEDIUM] Updater misreports local-ahead as update-available** — simple SHA comparison instead of merge-base --is-ancestor; false downgrade prompt on dev installs
+- **[MEDIUM] Compaction trigger uses wrong token metric** — accumulated per-turn sum, not last-request size; excludes cached tokens; keys off config.model not routed model
+- **[MEDIUM] Budget guard phantom costs for free providers** — pricingFor falls through to Sonnet rates for claude-code/ollama; per-session-only enforcement of per-project budget
+- **[MEDIUM] PM auto-chain tool calls silently dropped** — chain call uses provider.create() with no tool loop; tool_use blocks discarded
+- **[MEDIUM] ClaudeCodeProvider drops conversation history and system prompt** — buildPrompt serializes only last message; params.system and params.tools ignored
+- **[MEDIUM] No global Express error handler** — unhandled throws return HTML stack traces with absolute filesystem paths
+- **[MEDIUM] Gmail send scope permanently broken** — Re-authorize flow uses readonly scope only; scopes key never stored in config; send_email tool silently fails
+
+### Carry-in LOWs (also fix before v1.0.0)
+- checkpoint.sh grep -Po is GNU-only (macOS silently skips ntfy ping)
+- Updater uncaught git failures leak stack traces
+- README documents non-existent CLI commands (koa migrate/backup/health)
+
+### Next
+- [ ] Resume audit-fix workflow (session resets 01:20 CT) — fix all HIGH/MEDIUM + carry-in LOWs, gate, commit, PR
+- [ ] Release prep: CHANGELOG review, ntfy topic rotation, PR #12 (actions/checkout) if workflow-scope grant
+- [ ] v1.0.0 release
+
+---
+
+## [2026-06-10] — CP19: Multi-instance GitHub integration
+
+### Completed
+- **CP19**: Multiple GitHub integration instances — each instance carries its own token and `defaultRepo`, so Koa can operate across personal and org accounts simultaneously
+- Per-instance config: token + defaultRepo stored per instance instead of a single global GitHub credential
+- Repo-owner-based token resolution in agent tools — GitHub tools resolve which instance's token to use from the owner of the target repo, falling back sensibly when no instance matches
+- Web console: "Add another" flow on the GitHub integration card to register additional instances
+- Tests: 819 passing (`npx vitest run`, includes CP19 multi-instance tests)
+
+### Decisions
+- Token resolution keys off repo owner rather than requiring the caller to name an instance — tool call surface stays unchanged, existing prompts keep working
+- Resolution order: prefer the instance whose `defaultRepo` owner matches the target repo's owner (connected instances win among matches); zero matches fall back to first connected instance; no target repo keeps legacy behavior (first instance)
+- No schema migration needed — `~/.koa/integrations.json` already stores an array, so existing single GitHub entries just become the first instance
+- `defaultRepo` stays per-instance so unqualified repo references resolve against the matching account's default
+
+### Next
+- [ ] PR feature/cp19 → feature/web-console-and-hardening
+- [ ] Decide CP20 scope
+
+---
+
+## [2026-06-10] — CP18: koa update with automatic rollback
+
+### Completed
+- **CP18**: `koa update` command — `git pull --ff-only` from the current branch's configured upstream (`@{u}`, not hardcoded origin/main) + `npm run build`, with automatic rollback on failure
+- Rollback mechanism: `dist/` snapshotted to `dist.bak/` before build; restored automatically if build (tsc) or test (vitest) verification fails
+- CLI flags: `--check` (report available updates without applying), `--no-test` (skip vitest verification step), `--force` (proceed past dirty-worktree / no-upstream-changes guards; diverged history is never forced — the pull is `--ff-only` and errors out)
+- New module: `src/updater/index.ts` encapsulates git pull, build, snapshot/restore logic
+- ntfy notification fires on both successful update and rollback
+- Tests: 811 passing (`npx vitest run`, includes CP18 updater tests)
+
+### Decisions
+- Update source is repo-local (`git pull` + rebuild), not a separate release channel — matches self-hosted deployment model
+- Rollback restores the `dist/` snapshot rather than `git reset` — source tree stays at the new commit so the failure can be inspected, while the running build remains the last-known-good
+- `--no-test` skips only vitest; tsc build success is always required before the snapshot is discarded
+- ntfy pings on rollback as well as success so a failed unattended update is never silent
+
+### Next
+- [ ] PR feature/cp18-updater → feature/web-console-and-hardening
+- [ ] Decide CP19 scope
+
+---
+
+## [2026-06-10] — CP18 Scope: koa update with automatic rollback
+
+### Completed
+- Confirmed no auto-update/rollback feature exists in the codebase
+- Scoped CP18 as `koa update` command with git-pull-based upgrade and automatic dist/ rollback
+
+### Decisions
+- Update source: `git pull origin/main + npm run build` (repo-local, no separate release channel)
+- Rollback target: snapshot `dist/` → `dist.bak/` before build; restore on tsc or vitest failure
+- CLI surface: `koa update`, `koa update --check`, `koa update --no-test`, `koa update --force`
+- New module: `src/updater/index.ts` encapsulates git pull, build, backup/restore logic
+- ntfy ping on both success and rollback
+
+### Next
+- [ ] Implement CP18 via Workflow with pipeline gates
+
+---
+
+## [2026-06-10] — CP17: Token-budget compaction, koa doctor, per-project budgets
+
+### Completed
+- **OC-1**: Token-budget compaction — replaced hardcoded CONTEXT_COMPRESS_THRESHOLD=150000 with dynamic threshold: contextWindow - max(MIN_PROMPT_BUDGET_TOKENS=8000, contextWindow * MIN_PROMPT_BUDGET_RATIO=0.5). For 200k models: compresses at 100k tokens (50% of window).
+- **OC-2**: koa doctor --fix — new CLI subcommand that detects stale config fields (smartRouting→provider, compactAfterTurns removal) and migrates them with atomic backup-and-write.
+- **R-3**: Per-project spending budgets — budget_usd column on projects (migration 10); AgentLoop tracks session cost and blocks turns when budget exceeded.
+- 799 tests passing, tsc clean, security review clean.
+
+### Decisions
+- OC-1: dynamic threshold fires earlier (100k vs old 150k) for 200k models — more proactive compaction is correct; MODEL_CONTEXT_WINDOWS map is authoritative, unknown models fall back to 200k.
+- OC-2: --fix is idempotent; always backs up before writing; atomic via tmp+rename.
+- R-3: budget check is session-scoped (not cumulative historical), sufficient to guard against runaway loops within a session.
+
+### Next
+- [ ] PR feature/cp17 → feature/web-console-and-hardening
+- [ ] CP18: decide scope (context engine interface extraction, webhook-triggered delegations, ambient dashboard)
+
+---
+
+## [2026-06-10] — Obsidian Pro Theme + Housekeeping Sprint
+
+### Completed
+- **Obsidian Pro theme** applied to web console (`938b183`) — `web/src/index.css`, `index.html`, `ActivityPage.tsx`, `IntegrationsPage.tsx` updated to winning design palette (zinc-based darks, indigo accent `#6366F1`)
+- **H-1**: `AbortSignal.timeout(30s)` added to tool dispatch in `loop.ts` — prevents hung `web_fetch` blocking entire turn
+- **H-2**: `escapeFts()` helper added to `db/index.ts` — FTS5 queries no longer throw 500 on bare `"`
+- **H-3**: Internal helpers unexported in `select-agent.ts` (`isCodeQuery`, `hasBacklogSignals`, `hasLifeSignals`)
+- **H-4**: Duplicate `HAIKU_MODEL` constant consolidated — `router.ts` now imports from `config/index.ts`
+- **H-5**: `bash_tool.test.ts` coverage improved — allowed commands, blocked commands, stdout truncation, exit codes
+- **H-6**: `server/index.ts` trimmed to <200 lines — middleware extracted
+- **H-7**: `any` casts replaced with `unknown + instanceof Error` in `web_fetch.ts` and `web_search.ts`
+- **H-8**: `src/__tests__/security/invariants.test.ts` created — path traversal, SSRF guard, bash blocked commands, SSE error safety
+- **EL-1**: `scripts/engram-impact.js` created — detects koa→Engram interface changes in git diff
+- **EL-2**: `.github/workflows/engram-impact.yml` created — triggers on `src/engram/client.ts` changes, comments on PR if interface shifted
+- **iOS-1**: `NSAllowsArbitraryLoads` scoped to `.ts.net` + `localhost` only in `ios/project.yml`
+- 783 tests passing, tsc clean, committed `b08dc75`
+
+### Decisions
+- Theme update kept existing CSS variable names, updated values only — zero component renames needed
+- Security test suite is a skeleton (5 invariants); H-8 / OC-4 full suite (80+ assertions) is a separate future CP
+
+### Next
+- [x] ~~**CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env`~~ — done 2026-06-10
+- [ ] PR feature/cp15-engram-loops → feature/web-console-and-hardening
+- [ ] Decide CP17 scope
+
+---
+
+## [2026-06-10] — Fable Audit Remediation
+
+### Completed
+- ~30 fixes from FABLE_AUDIT_FIXES.md across §A/§B/§C/§D
+- **C-2**: `validateSafeUrl` made async with DNS resolution; untrusted wrapper, arg injection guard, webpush origin check, cross_repo path safety
+- **A**: max-iteration guard in agent loop, `max_tokens` handling, null-safety, cache fixes, HANDOFF dedup
+- **D-6 + D-1.2**: specialist persona moved to `CODE_SYSTEM`, `SYSTEM_BASE` trimmed + security sentence added
+- **B**: fail-closed auth middleware, loopback-only bind, OAuth CSRF state param, SSE abort signal wiring
+- **D**: ESM playwright import, memory corruption guard, atomic writes, migration backup, `selectAgent` word-boundary regex, router tier labels, notification batch dedup, config validation, `maxTokens=8192`
+
+### Decisions
+- B-6: inline `?token=` check retained (simpler than middleware for SSE handshake)
+- D-8: threshold unchanged (existing heuristic is acceptable)
+- D-9: auto gate kept as-is
+- `compactAfterTurns` / `KOA_COMPACT_TURNS` removed — dead config (maybeCompact was never called; replaced by `semanticCompact` / `maybeCompressContext`)
+
+### Next
+- [ ] **CRITICAL**: rotate `ANTHROPIC_API_KEY` in `.env` (key may be exposed)
+- [ ] PR `feature/audit-fixes` → `develop`
+- [ ] Then CP17
+
+---
+
+## [2026-06-10] — CP16: ClaudeCode fallback on quota exhaustion
+
+### Completed
+- `src/agent/loop.ts`: catches 429/quota/overloaded errors, retries with ClaudeCodeProvider when `fallbackToClaudeCode=true`
+- `src/config/index.ts`: `fallbackToClaudeCode` config field + `KOA_FALLBACK_TO_CLAUDE_CODE` env var
+- `src/__tests__/cp16_fallback.test.ts`: ≥5 tests covering all fallback branches
+
+### Decisions
+- Fallback is transparent (debug log only, not surfaced to user) — better UX
+- Re-throws original error if fallback also fails — no silent data loss
+
+### Next
+- [ ] Merge CP16 PR → develop
+- [ ] iOS real-device test via Tailscale
+
+---
+
+## [2026-06-08] — CP10a + CP15: iOS Project Init + Engram Loop 2
+
+### Completed
+
+- **CP10a verified**: all iOS Keychain migration, Siri fix, gmail scope already implemented in prior arcs (CP10f/CP11d)
+- **iOS project initialized**: `ios/project.yml` (xcodegen) → `Koa.xcodeproj` with iOS + watchOS targets
+- **Build errors fixed**: `roundedBorder` unavailable on watchOS → `.plain`; `super.init` ordering in `WatchSession`; bundle ID mismatch between iOS and watchOS targets
+- **Bundle ID**: `com.brynard.koa` / `com.brynard.koa.watch`
+- **App running in Simulator** (iPhone 17 Pro, iOS 26.3) — Connect to Koa auth screen confirmed
+- **Tailscale on LXC**: installed + joined tailnet at `100.101.19.77` (hostname: `koa`); userspace networking mode for unprivileged LXC; persistent via `/etc/default/tailscaled FLAGS=--tun=userspace-networking`
+- **CP15 Loop 2**: `src/engram/signals.ts` (signal collector → `~/.koa/signals/engram.jsonl`), `src/agent/loop.ts` (HANDOFF.md Pending Engram Work section), `src/agent/tools/cross_repo.ts` (allowlisted read/write/test tools); 651 tests passing, tsc clean; committed `a0cad9a` on `feature/cp15-engram-loops`
+
+### Decisions
+
+- Tailscale userspace networking required on unprivileged LXC (kernel TUN unavailable); `FLAGS` in `/etc/default/tailscaled` is the clean override path
+- Tailscale TLS certs require paid plan — HTTP over Tailscale (WireGuard-encrypted) is sufficient for homelab use
+- iOS Simulator reaches local dev server via Mac LAN IP (`192.168.1.17:3000`), not `localhost`
+
+### Issues Found
+
+- Tailscale `tailscale cert` requires paid plan — no `.ts.net` TLS certs on free tier
+- `NSAllowsArbitraryLoads: true` still in `project.yml` — should be scoped to `.ts.net` only (low priority)
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] PR: `feature/cp14-smart-routing` → `develop`
+- [ ] PR: `feature/cp15-engram-loops` → `develop`
+- [ ] Security review on CP15 branch diff
+- [ ] Test iOS app connecting to LXC via Tailscale IP (`http://100.101.19.77:3000`) on real device
+
+---
+
+## [2026-06-08] — CP14 Smart Provider Routing + ClaudeCodeProvider
+
+### Completed
+
+- **PR #5 merged** (`feature/cp13-clone-ready` → `develop`)
+- **PR #6 opened** (`develop` → `main`, v0.3.0 release)
+- **`ClaudeCodeProvider`** (`src/agent/providers/claude_code.ts`): spawns `claude -p --output-format json` subprocess; fits `LlmProvider` interface; uses EventEmitter stream pattern matching OllamaProvider
+- **Config additions**: `provider` enum extended to `'anthropic' | 'ollama' | 'claude-code' | 'auto'`; `claudeCodePath` field added (env: `KOA_CLAUDE_CODE_PATH`, default: `'claude'`)
+- **Auto routing** (`loop.ts`): when `provider === 'auto'`, routes code queries to claude-code, simple queries to ollama (if configured), complex to Anthropic; `activeProvider` local var per-turn so tool-use continuation stays on the same provider
+- **ntfy topic validation** (`PUT /integrations/:id`): rejects topics not matching `/^[a-zA-Z0-9_-]{1,64}$/` with HTTP 400; `NTFY_TOPIC_RE` exported for testing
+- **Tests**: 643 passing (added `claude_code_provider.test.ts` + `ntfy_topic_validation.test.ts`); tsc clean
+
+### Decisions
+
+- `'auto'` routing in loop.ts (not in a `RoutingProvider` wrapper) — keeps routing colocated with turn logic where agent context is available
+- `ClaudeCodeProvider` does not pass `--system-prompt` to claude CLI — let it use its own context rather than injecting koa's full system blocks
+- `NTFY_TOPIC_RE` exported constant to keep validation testable without a server
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [x] Confirm Packer + terraform for Ollama VM 201 → CP14c sealed
+- [ ] CP15: Engram quality signal collector + cross-repo tools (Loop 2 from TASKS.md)
+
+## [2026-06-08] — CP14c: terraform apply + Ollama VM deploy
+
+### Completed
+
+- Terraform applied: VM 201 cloned from Packer template 9001 (`ollama-debian13`) in 54s
+- VM came up at 192.168.1.36 (DHCP, not static .201 — tfvars updated)
+- `ollama.service` patched: `OLLAMA_HOST=0.0.0.0` so LXC at .200 can reach it
+- `qwen2.5:7b` (4.7GB) pre-baked in template — no pull needed
+- Koa env on LXC: `KOA_OLLAMA_BASE_URL=http://192.168.1.36:11434`, `KOA_OLLAMA_MODEL=qwen2.5:7b`
+- `KOA_PROVIDER` left unset — koa auto-routes to Claude by default; Ollama available on demand
+
+### Decisions
+
+- CPU-only Ollama inference on `qwen2.5:7b` is too slow for interactive use (~30–90s/response); Ollama wiring kept intact for future GPU addition or batch tasks
+- Did not set `KOA_PROVIDER=ollama` in production env; smart-routing default (Claude) is better UX
+
+### Next
+
+- [ ] PR #6 merge + GitHub Release v0.3.0
+- [ ] CP15: Engram quality signal collector + cross-repo tools
+
 ## [2026-06-08] — CP13 End-of-Arc + version bump to 0.3.0
 
 ### Completed
@@ -3033,6 +3779,56 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 - Engram brains live at `~/.engram/brains/<slug>/brain.db`
 - Engram hooks gracefully exit when no brain exists — safe to enable globally
 
-<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+<!-- workflow run wf_68cfe146-090 (CP21: fallback attribution, auto-titling, version badge) — done 2026-06-11 -->
 
-<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — in progress 2026-06-11; resume via scriptPath in session 18385b32 if it dies -->
+<!-- workflow run wf_2699ed40-ab9 (Hotfix: chat transcript persistence) — done 2026-06-11 -->
+
+---
+
+## [2026-06-12] — Production deployment + Claude Code auth on server
+
+### Completed
+- Merged `feature/web-console-and-hardening` into `main` (v1.0.0 — CP14–CP21 + all hotfixes); resolved conflicts with `-X theirs`; pushed main + v1.0.0 tag to GitHub
+- Synced `develop` branch to match main (merge + push)
+- Deployed v1.0.0 to production (192.168.1.200) via `scripts/deploy.sh`; DB migration 10 applied; service restarted healthy
+- Installed `@anthropic-ai/claude-code@2.1.175` globally on production server
+- Configured `HOME=/home/koa` in `/etc/koa/env` so the koa service process finds Claude Code credentials
+- Copied Claude Code OAuth credentials from local macOS Keychain (`Claude Code-credentials`) to `/home/koa/.claude/.credentials.json`; verified `claude -p "say hi"` responds as koa user
+- Quota fallback (CP16) fully operational on production: Anthropic 429 → ClaudeCode CLI via koa user's subscription
+
+### Decisions
+- **Deploy via rsync not git**: production server has no git installed; deploy.sh rsync approach works cleanly
+- **Credential copy over OAuth flow**: headless PKCE auth fails when URL is opened on a different machine (code_challenge lives in the spawning process memory); copying macOS Keychain entry directly to server credentials file is the correct approach
+- **root SSH**: IaC (`infra/terraform/outputs.tf`) specifies `root@<koa_ip>` — confirmed working with id_ed25519
+
+### Issues Found
+- Production was running pre-CP16 build (no quota fallback) since 2026-06-08 — all Anthropic requests hard-failing on quota error
+- koa user had `nologin` shell and no home dir; needed `usermod -s /bin/bash` + `mkdir /home/koa` before auth
+
+### Next Session
+- [ ] Fix `koa --version` hardcode in `src/cli/index.ts` (still prints `0.1.0`)
+- [ ] Bump `package.json` version to `1.0.0`
+- [ ] Run `koa setup` on local dev (credentials cleared for onboarding reset; backup at `~/.koa/credentials.bak`)
+- [ ] Revert koa user shell to `nologin` on production after confirming quota fallback stable
+
+### Learnings
+- Claude Code OAuth uses PKCE — copying just the URL to another machine always fails (code_challenge mismatch)
+- macOS stores Claude Code auth under keychain service `Claude Code-credentials`; Linux uses `~/.claude/.credentials.json` — same JSON format, direct copy works
+
+## 2026-06-16 — CP29-A/B: Event Bus + Action Type Dispatch
+
+### Completed
+- CP29-A: EventBus class (src/agent/event-bus.ts) — namespace.verb pattern matching (exact + namespace.* prefix wildcard)
+- CP29-B: action_type dispatch — notify (ntfy/curl), brief (formatted ntfy), agent (TurnScheduler.enqueue low-priority)
+- initEventBus(scheduler) wired in createServer() after TurnScheduler creation
+- Tests: matchesPattern unit tests + EventBus.emit dispatch tests (src/__tests__/event_bus.test.ts)
+
+### Decisions
+- brief action_type: formatted ntfy notification (no LLM call); full Haiku summarization deferred to v1.1 pending provider per-call model override support
+- Module-level singleton pattern (initEventBus/getEventBus) mirrors memory db pattern (getGlobalMemoryDb/getProjectMemoryDb)
+- Bus errors never throw — ntfy and scheduler failures are best-effort, never crash the server
+
+### Next Session
+- [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider)
+- [ ] CP30: MCP over stdio
+- [ ] Tag v1.0.0

@@ -1161,6 +1161,56 @@ body {
   color: var(--red);
 }
 
+.chat__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat__voice-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  transition: color 0.15s;
+}
+
+.chat__voice-btn:hover {
+  color: var(--text-primary);
+}
+
+.chat__voice-btn--on {
+  color: var(--accent);
+}
+
+.chat__voice-btn--on:hover {
+  color: var(--accent-hover);
+}
+
+.chat__voice-select {
+  background: var(--bg-zinc-800, #27272a);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  cursor: pointer;
+  max-width: 120px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.chat__voice-select:hover,
+.chat__voice-select:focus {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  outline: none;
+}
+
 /* ── Message copy button ───────────────────────────────────────── */
 
 .bubble--hoverable .message__copy-btn {

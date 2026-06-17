@@ -264,7 +264,7 @@ function CheckpointSection({
 
 // ── API key row (set-only — key is never returned from server) ─────────────────
 
-function ApiKeyRow({ isSet, onSave }: { isSet: boolean; onSave: (v: string) => Promise<void> }) {
+function ApiKeyRow({ label = 'Anthropic API key', isSet, onSave }: { label?: string; isSet: boolean; onSave: (v: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft]     = useState('');
   const [saving, setSaving]   = useState(false);
@@ -290,7 +290,7 @@ function ApiKeyRow({ isSet, onSave }: { isSet: boolean; onSave: (v: string) => P
 
   return (
     <div className="setting-row">
-      <span className="setting-row__label">Anthropic API key</span>
+      <span className="setting-row__label">{label}</span>
       {editing ? (
         <>
           <div className="setting-row__value" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -334,9 +334,9 @@ function ApiKeyRow({ isSet, onSave }: { isSet: boolean; onSave: (v: string) => P
   );
 }
 
-// ── Ollama provider section ────────────────────────────────────────────────────
+// ── Provider section ───────────────────────────────────────────────────────────
 
-function OllamaSection({
+function ProviderSection({
   config,
   onSave,
 }: {
@@ -359,7 +359,7 @@ function OllamaSection({
     }
   }
 
-  const isOllama = (config.provider ?? 'anthropic') === 'ollama';
+  const provider = config.provider ?? 'anthropic';
 
   return (
     <div className="section">
@@ -368,15 +368,17 @@ function OllamaSection({
       </div>
       <EditableRow
         label="Provider"
-        value={config.provider ?? 'anthropic'}
+        value={provider}
         type="select"
         options={[
           { value: 'anthropic', label: 'Anthropic (cloud)' },
           { value: 'ollama', label: 'Ollama (local)' },
+          { value: 'openai-compatible', label: 'OpenAI-compatible' },
+          { value: 'google', label: 'Google Gemini' },
         ]}
-        onSave={v => onSave({ provider: v as 'anthropic' | 'ollama' })}
+        onSave={v => onSave({ provider: v as AdminConfig['provider'] })}
       />
-      {isOllama && (
+      {provider === 'ollama' && (
         <>
           <EditableRow
             label="Ollama model"
@@ -414,6 +416,39 @@ function OllamaSection({
               </button>
             </div>
           </div>
+        </>
+      )}
+      {provider === 'openai-compatible' && (
+        <>
+          <EditableRow
+            label="Base URL"
+            value={config.openaiCompatibleBaseUrl ?? ''}
+            onSave={v => onSave({ openaiCompatibleBaseUrl: v })}
+          />
+          <ApiKeyRow
+            label="API key"
+            isSet={config.openaiCompatibleApiKeySet ?? false}
+            onSave={v => onSave({ openaiCompatibleApiKey: v })}
+          />
+          <EditableRow
+            label="Model"
+            value={config.openaiCompatibleModel ?? 'gpt-4o-mini'}
+            onSave={v => onSave({ openaiCompatibleModel: v })}
+          />
+        </>
+      )}
+      {provider === 'google' && (
+        <>
+          <ApiKeyRow
+            label="Google API key"
+            isSet={config.googleApiKeySet ?? false}
+            onSave={v => onSave({ googleApiKey: v })}
+          />
+          <EditableRow
+            label="Model"
+            value={config.googleModel ?? 'gemini-2.0-flash'}
+            onSave={v => onSave({ googleModel: v })}
+          />
         </>
       )}
     </div>
@@ -723,7 +758,7 @@ export default function SettingsPage() {
         </div>
 
         {/* LLM Provider */}
-        <OllamaSection config={config} onSave={handleSave} />
+        <ProviderSection config={config} onSave={handleSave} />
 
         {/* Code Execution */}
         <CodeExecutionSection config={config} onSave={handleSave} />

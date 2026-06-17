@@ -1,0 +1,104 @@
+---
+- name: Configure ollama-vm
+  hosts: ollama_vms
+  become: false  # already root
+
+  roles:
+    - role: hardening
+      vars:
+        hardening_ufw_extra_ports:
+          - { port: '11434', proto: tcp, src: '192.168.1.0/24', comment: 'Ollama API LAN-only' }
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # Ollama service
+    # -------------------------------------------------------------------------
+
+    - name: ollama | ensure systemd override directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/ollama.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      tags: ollama
+
+    - name: ollama | write systemd override to bind on all interfaces
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ollama.service.d/override.conf
+        content: |
+          [Service]
+          Environment="OLLAMA_HOST=0.0.0.0:11434"
+        mode: '0644'
+      notify:
+        - reload systemd
+        - restart ollama
+      tags: ollama
+
+    - name: ollama | ensure ollama service is enabled and started
+      ansible.builtin.systemd:
+        name: ollama
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: ollama
+
+    # -------------------------------------------------------------------------
+    # Model management
+    # -------------------------------------------------------------------------
+
+    - name: models | pull qwen2.5:7b
+      ansible.builtin.shell:
+        cmd: ollama pull qwen2.5:7b
+      changed_when: false
+      tags: models
+
+    # -------------------------------------------------------------------------
+    # Log rotation
+    # -------------------------------------------------------------------------
+
+    - name: logrotate | configure ollama log rotation
+      ansible.builtin.copy:
+        dest: /etc/logrotate.d/ollama
+        content: |
+          /var/log/ollama/*.log {
+              daily
+              rotate 14
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0640 ollama ollama
+              sharedscripts
+              postrotate
+                  systemctl kill --kill-who=main --signal=USR1 ollama.service 2>/dev/null || true
+              endscript
+          }
+        mode: '0644'
+      tags: logrotate
+
+  # ---------------------------------------------------------------------------
+  # Handlers
+  # ---------------------------------------------------------------------------
+
+  handlers:
+
+    - name: restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted
+
+    - name: reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: restart ollama
+      ansible.builtin.service:
+        name: ollama
+        state: restarted

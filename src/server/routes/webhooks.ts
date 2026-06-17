@@ -9,6 +9,7 @@ import { validateSlackSignature, parseSlackInbound, replyToSlack } from '../../c
 import { extractIntent } from '../../channels/gmail.js';
 import { listProjects, createTask } from '../../db/index.js';
 import { transcribeAudio } from '../../voice/whisper.js';
+import { synthesizeStream, cleanText } from '../../voice/tts.js';
 import { readCredentials } from '../../config/credentials.js';
 
 export interface WebhooksRouterDeps {
@@ -153,6 +154,63 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
 export function createVoiceRouter(deps: Pick<WebhooksRouterDeps, 'rawBodyMap'>): Router {
   const router = Router();
   const { rawBodyMap } = deps;
+
+  // ── GET /tts-status — check if ElevenLabs TTS is available ──────────────────
+  router.get('/tts-status', (_req: Request, res: Response) => {
+    const creds = readCredentials();
+    const available = !!creds['ELEVENLABS_API_KEY'];
+    res.json({ available });
+  });
+
+  // ── POST /tts — synthesize text to audio/mpeg via ElevenLabs ─────────────────
+  // Input is capped at 2000 chars before cleanText (which further slices to 500).
+  // This prevents large-payload regex work even though express.json() has a 100KB default limit.
+  router.post('/tts', async (req: Request, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const rawText = body['text'];
+
+    if (typeof rawText !== 'string' || rawText.trim().length === 0) {
+      res.status(400).json({ error: 'text must be a non-empty string' });
+      return;
+    }
+
+    // Explicit length gate before regex processing in cleanText
+    if (rawText.length > 2000) {
+      res.status(400).json({ error: 'text exceeds maximum length' });
+      return;
+    }
+
+    const text = cleanText(rawText);
+
+    if (text.length === 0) {
+      res.status(400).json({ error: 'text must be a non-empty string' });
+      return;
+    }
+
+    try {
+      const { stream, contentType } = await synthesizeStream(text, { provider: 'elevenlabs' });
+      res.setHeader('Content-Type', contentType);
+      // Attach an error handler on the stream before piping so that errors emitted
+      // after headers are already sent do not propagate to the uncaughtException handler.
+      stream.on('error', (err) => {
+        console.error('[koa/tts] stream error after pipe started:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'TTS synthesis failed' });
+        } else {
+          res.destroy();
+        }
+      });
+      stream.pipe(res);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('ELEVENLABS_API_KEY not configured')) {
+        res.status(503).json({ error: 'ElevenLabs not configured' });
+      } else {
+        console.error('[koa/tts] synthesis error:', err);
+        res.status(500).json({ error: 'TTS synthesis failed' });
+      }
+    }
+  });
 
   router.post('/transcribe', express.raw({ limit: '26mb', type: () => true }), async (req: Request, res: Response) => {
     // Check API key is configured before accepting the audio upload

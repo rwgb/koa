@@ -762,3 +762,23 @@ export async function runUpdate(opts: { test?: boolean } = {}): Promise<{ status
   if (!res.ok) throw new Error('Update failed');
   return res.json() as Promise<{ status: string; message: string }>;
 }
+
+// ── Debug Console ─────────────────────────────────────────────────────────────
+
+export async function getDebugLogs(): Promise<import('./types.js').DebugLogEntry[]> {
+  const res = await authFetch('/api/admin/debug/logs');
+  if (!res.ok) throw new Error('HTTP ' + String(res.status));
+  const data = await res.json() as { entries: import('./types.js').DebugLogEntry[] };
+  return data.entries;
+}
+
+export async function clearDebugLogs(): Promise<void> {
+  const res = await authFetch('/api/admin/debug/logs', { method: 'DELETE' });
+  if (!res.ok) throw new Error('HTTP ' + String(res.status));
+}
+
+export async function getDebugInfo(): Promise<import('./types.js').DebugInfo> {
+  const res = await authFetch('/api/admin/debug/info');
+  if (!res.ok) throw new Error('HTTP ' + String(res.status));
+  return res.json() as Promise<import('./types.js').DebugInfo>;
+}

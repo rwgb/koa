@@ -5,6 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { AgentLoop } from '../agent/loop.js';
+import { TurnScheduler } from '../agent/scheduler.js';
 import type { KoaConfig } from '../config/index.js';
 import { readCredentials } from '../config/credentials.js';
 import { gmailPoller } from '../channels/gmail.js';
@@ -23,11 +24,22 @@ import { createCalendarRouter } from './routes/calendar.js';
 import { createWebhooksRouter, createVoiceRouter } from './routes/webhooks.js';
 import { createConversationsRouter } from './routes/conversations.js';
 import { authRateLimit, requireAuth, scheduleBriefing } from './middleware.js';
+import { installLogCapture } from './debug-log.js';
+import { initEventBus } from '../agent/event-bus.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Exported for testing only — removes nonces older than ttlMs from the map. */
+export function pruneExpiredNonces(map: OAuthStateMap, ttlMs: number): void {
+  const cutoff = Date.now() - ttlMs;
+  for (const [nonce, ts] of map) {
+    if (ts < cutoff) map.delete(nonce);
+  }
+}
+
 export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173) {
   const app = express();
+  installLogCapture();
 
   // CORS is only needed in development (Vite runs on a separate port from Express).
   // In production the web UI is served from the same Express origin — no cross-origin calls.
@@ -80,6 +92,9 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   // ── OAuth state (CSRF nonce map) — shared between admin URL builder and callback ──
   const oauthState: OAuthStateMap = new Map();
 
+  const NONCE_TTL_MS = 10 * 60_000;
+  setInterval(() => pruneExpiredNonces(oauthState, NONCE_TTL_MS), 5 * 60_000).unref();
+
   // OAuth callback routes bypass requireAuth — Google redirects here without a bearer token.
   // Mount BEFORE the /api/ auth guard so they are reachable unauthenticated.
   app.use('/api/admin', createOAuthCallbackRouter(config, oauthState));
@@ -88,8 +103,9 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
 
   // ── Mutable telegramPoller ref — shared between admin router and startup ──────
   let telegramPoller: TelegramPoller | null = null;
-  // ── isBusy shared state for the chat router ───────────────────────────────────
-  let isBusy = false;
+  // ── TurnScheduler — serialises agent turns with priority queuing ──────────────
+  const scheduler = new TurnScheduler(msg => loop.turn(msg));
+  initEventBus(scheduler);
 
   // ── API routers (all behind the auth guard) ───────────────────────────────────
   app.use('/api/admin', createAdminRouter({
@@ -102,8 +118,7 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   app.use('/api', createChatRouter({
     loop,
     config,
-    isBusy: () => isBusy,
-    setIsBusy: (v) => { isBusy = v; },
+    scheduler,
   }));
   app.use('/api', createDbRouter());
   app.use('/api/push', createPushRouter({ loop }));
@@ -151,12 +166,12 @@ export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173)
   // Daily morning briefing (checks config.briefingEnabled internally)
   scheduleBriefing(loop, config);
 
-  // Check delegations every 5 minutes
+  // Check delegations every 5 minutes — low priority so user turns always preempt
   setInterval(() => {
-    void runDueDelegations(loop);
+    void runDueDelegations(scheduler);
   }, 5 * 60_000);
 
-  return { app, getTelegramPoller: () => telegramPoller };
+  return { app, getTelegramPoller: () => telegramPoller, scheduler };
 }
 
 export async function startServer(loop: AgentLoop, config: KoaConfig, port: number): Promise<void> {

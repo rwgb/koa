@@ -1,0 +1,24 @@
+---
+- name: "fail2ban | install"
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+    cache_valid_time: 3600
+  tags: hardening
+
+- name: "fail2ban | write sshd jail config"
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.d/sshd.conf
+    mode: '0644'
+    content: |
+      [sshd]
+      enabled   = true
+      port      = ssh
+      filter    = sshd
+      backend   = systemd
+      maxretry  = 3
+      bantime   = 86400
+      findtime  = 600
+      ignoreip  = 127.0.0.1/8 100.64.0.0/10
+  notify: restart fail2ban
+  tags: hardening

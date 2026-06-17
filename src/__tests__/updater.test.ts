@@ -232,12 +232,12 @@ describe('koa update', () => {
     expect(calls.some(c => c[0] === 'npm')).toBe(false);
   });
 
-  it('errors with an actionable message when no upstream is configured', async () => {
+  it('falls back to origin/main when no upstream is configured', async () => {
     setupExeca({ upstream: null });
-    const result = await runUpdate({ repoRoot });
+    const result = await runUpdate({ repoRoot, check: true });
 
-    expect(result.status).toBe('error');
-    expect(result.message).toContain('--set-upstream-to');
+    expect(result.status).not.toBe('error');
+    expect(result.message).toContain('origin/main');
   });
 
   it('drops the snapshot and errors when git pull fails (dist untouched)', async () => {

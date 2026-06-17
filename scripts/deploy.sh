@@ -15,6 +15,10 @@ npm run build
 log "Building web UI..."
 npm run build:web
 
+# --- Stop service before sync (prevent ABI mismatch during node_modules rsync) ---
+log "Stopping koa service..."
+ssh "$KOA_HOST" "systemctl stop koa" || true
+
 # --- Sync ---
 log "Syncing to $KOA_HOST:$REMOTE_DIR ..."
 rsync -az --delete \
@@ -36,7 +40,7 @@ rsync -az \
 
 # --- Rebuild native modules for target platform ---
 log "Rebuilding native modules..."
-ssh "$KOA_HOST" "cd $REMOTE_DIR && npm rebuild better-sqlite3 --silent"
+ssh "$KOA_HOST" "cd $REMOTE_DIR && npm rebuild better-sqlite3"
 
 # --- Restart ---
 log "Restarting koa service..."

@@ -129,6 +129,72 @@ if [[ "$SKIP_GLOBAL" == false ]]; then
   fi
 fi
 
+# ─── GitHub PAT setup ─────────────────────────────────────────────────────────
+header "GitHub access (private repo)"
+
+GH_PAT="${GITHUB_PAT:-}"
+if [[ -z "$GH_PAT" && -t 0 ]]; then
+  read -rsp "  GitHub PAT for https://github.com/rwgb/koa.git (Enter to skip): " GH_PAT || GH_PAT=""
+  echo
+fi
+
+if [[ -n "$GH_PAT" ]]; then
+  KOA_CREDS_DIR="${KOA_HOME:-$HOME}/.koa"
+  KOA_CREDS_FILE="$KOA_CREDS_DIR/credentials"
+  mkdir -p "$KOA_CREDS_DIR"
+  touch "$KOA_CREDS_FILE"
+  chmod 600 "$KOA_CREDS_FILE"
+  if grep -q '^GITHUB_PAT=' "$KOA_CREDS_FILE" 2>/dev/null; then
+    sed -i.bak "s|^GITHUB_PAT=.*|GITHUB_PAT=$GH_PAT|" "$KOA_CREDS_FILE" && rm -f "$KOA_CREDS_FILE.bak"
+  else
+    echo "GITHUB_PAT=$GH_PAT" >> "$KOA_CREDS_FILE"
+  fi
+  success "GitHub PAT saved to credentials store"
+else
+  warn "No GitHub PAT provided — 'koa update' may fail on private remotes"
+fi
+
+# ─── TTS configuration ────────────────────────────────────────────────────────
+header "TTS configuration"
+
+KOA_CFG_DIR="${KOA_HOME:-$HOME}/.koa"
+KOA_CFG_FILE="$KOA_CFG_DIR/config.json"
+mkdir -p "$KOA_CFG_DIR"
+
+_OS="$(uname -s)"
+if [[ "$_OS" == "Linux" ]]; then
+  warn "Linux host detected — server-side 'say' is unavailable"
+  info "Setting ttsProvider to 'none' (web console will use browser speech synthesis)"
+  if [[ -f "$KOA_CFG_FILE" ]]; then
+    node -e "
+      const fs = require('fs');
+      const cfg = JSON.parse(fs.readFileSync('$KOA_CFG_FILE', 'utf8') || '{}');
+      cfg.ttsProvider = 'none';
+      fs.writeFileSync('$KOA_CFG_FILE', JSON.stringify(cfg, null, 2), { mode: 0o600 });
+    " && success "ttsProvider set to 'none' in config"
+  else
+    node -e "
+      const fs = require('fs');
+      fs.writeFileSync('$KOA_CFG_FILE', JSON.stringify({ ttsProvider: 'none' }, null, 2), { mode: 0o600 });
+    " && success "ttsProvider set to 'none' in config"
+  fi
+else
+  success "macOS detected — using 'say' for TTS"
+fi
+
+# ─── Git upstream tracking ────────────────────────────────────────────────────
+header "Git upstream tracking"
+
+_CURRENT_BRANCH="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'main')"
+if git -C "$SCRIPT_DIR" rev-parse --verify --quiet "origin/$_CURRENT_BRANCH" &>/dev/null; then
+  git -C "$SCRIPT_DIR" branch --set-upstream-to="origin/$_CURRENT_BRANCH" "$_CURRENT_BRANCH" 2>/dev/null \
+    && success "Upstream set to origin/$_CURRENT_BRANCH" \
+    || warn "Could not set upstream — run manually: git branch --set-upstream-to=origin/main main"
+else
+  warn "origin/$_CURRENT_BRANCH not found — skipping upstream tracking"
+  warn "Run manually after verifying remote: git branch --set-upstream-to=origin/main main"
+fi
+
 # ─── Git hooks ────────────────────────────────────────────────────────────────
 header "Installing git hooks"
 

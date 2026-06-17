@@ -2,11 +2,22 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { LlmProvider } from './types.js';
 import { AnthropicProvider } from './anthropic.js';
 import { OllamaProvider } from './ollama.js';
+import { OpenAICompatibleProvider } from './openai_compatible.js';
+import { GoogleProvider } from './google.js';
 import { ClaudeCodeProvider } from './claude_code.js';
 import { QuotaFallbackProvider } from './quota_fallback.js';
 import type { KoaConfig } from '../../config/index.js';
 
 export function createProvider(config: KoaConfig): LlmProvider {
+  if (config.provider === 'openai-compatible') {
+    return new OpenAICompatibleProvider(
+      config.openaiCompatibleBaseUrl ?? 'http://localhost:8080',
+      config.openaiCompatibleApiKey,
+    );
+  }
+  if (config.provider === 'google') {
+    return new GoogleProvider(config.googleApiKey ?? '');
+  }
   if (config.provider === 'ollama') {
     return new OllamaProvider(config.ollamaBaseUrl ?? 'http://localhost:11434');
   }

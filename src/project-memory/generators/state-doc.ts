@@ -8,14 +8,16 @@ export async function generateStateDoc(
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
 
-  const response = await client.messages.create({
-    // tier: fast — STATE.md generation (internal, non-user-facing)
-    model: MODEL_MAP.fast,
-    max_tokens: 512,
-    messages: [
-      {
-        role: 'user',
-        content: `Based on this session (${turnCount} turns), write a STATE.md capturing what is currently in-flight.
+  let response: Anthropic.Message;
+  try {
+    response = await client.messages.create({
+      // tier: fast — STATE.md generation (internal, non-user-facing)
+      model: MODEL_MAP.fast,
+      max_tokens: 512,
+      messages: [
+        {
+          role: 'user',
+          content: `Based on this session (${turnCount} turns), write a STATE.md capturing what is currently in-flight.
 
 Session summary:
 ${conversationSummary}
@@ -36,9 +38,13 @@ Output ONLY markdown using this exact structure (omit empty sections):
 
 ## Known Issues
 - issue`,
-      },
-    ],
-  });
+        },
+      ],
+    });
+  } catch {
+    const date = new Date().toISOString().slice(0, 10);
+    return `# STATE — Last updated: ${date}\n\n*(unavailable — API quota or network error)*`;
+  }
 
   const date = new Date().toISOString().slice(0, 10);
   const text = response.content
@@ -66,14 +72,16 @@ export async function generateJournalEntry(
 
   const userMessages = extractUserMessages(conversationSummary);
 
-  const response = await client.messages.create({
-    // tier: fast — journal entry generation (internal, non-user-facing)
-    model: MODEL_MAP.fast,
-    max_tokens: 512,
-    messages: [
-      {
-        role: 'user',
-        content: `You are writing a memory journal for a personal AI assistant. Future sessions read this journal to recall past conversations. Accuracy matters — be specific.
+  let response: Anthropic.Message;
+  try {
+    response = await client.messages.create({
+      // tier: fast — journal entry generation (internal, non-user-facing)
+      model: MODEL_MAP.fast,
+      max_tokens: 512,
+      messages: [
+        {
+          role: 'user',
+          content: `You are writing a memory journal for a personal AI assistant. Future sessions read this journal to recall past conversations. Accuracy matters — be specific.
 
 Session transcript (${turnCount} turns):
 ${conversationSummary}
@@ -95,9 +103,17 @@ Output ONLY the journal body using this structure (omit empty sections):
 - [ ] [open follow-up or action]
 
 100–200 words max.`,
-      },
-    ],
-  });
+        },
+      ],
+    });
+  } catch {
+    const date = new Date().toISOString().slice(0, 10);
+    const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const verbatim = userMessages.length > 0
+      ? `**User said:**\n${userMessages.map((m) => `- ${m}`).join('\n')}\n\n`
+      : '';
+    return `## ${date} ${time} (${turnCount} turns)\n\n${verbatim}*(journal unavailable — API quota or network error)*`;
+  }
 
   const date = new Date().toISOString().slice(0, 10);
   const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { fetchConversationTurns, fetchStatus, streamChat } from '../api.js';
 import { useAgent } from './AgentContext.js';
 import type { ChatItem, SseEvent } from '../types.js';
+import { useSpeech, type VoiceState } from '../hooks/useSpeech.js';
 
 function makeId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -12,6 +13,7 @@ interface ChatContextValue {
   classifyingTier: string | null;
   sendMessage: (text: string) => void;
   clearChat: () => void;
+  voice: VoiceState;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -31,6 +33,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const hydratedRef = useRef(false);
 
   const { isThinking, setIsThinking, setActiveTool, setUsage, setAgentStatus, setContextStats, agentStatus } = useAgent();
+  const voice = useSpeech();
+  const speakBufferRef = useRef('');
 
   // Sync lastTierRef with the server-reported tier (before any turns, reflects config model)
   useEffect(() => {
@@ -83,6 +87,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (event.type === 'done') {
           lastTierRef.current = event.tier;
           lastAgentRef.current = event.agent ?? 'code-assistant';
+          const textToSpeak = speakBufferRef.current;
+          speakBufferRef.current = '';
+          if (textToSpeak) voice.speak(textToSpeak);
           setActiveTool(null);
           setAgentStatus(prev =>
             prev
@@ -105,6 +112,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           return;
         }
         if (event.type === 'content') {
+          speakBufferRef.current += event.text;
           setClassifyingTier(null);
           setItems(prev => {
             const last = prev[prev.length - 1];
@@ -154,7 +162,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const clearChat = () => setItems([]);
 
   return (
-    <ChatContext.Provider value={{ items, classifyingTier, sendMessage, clearChat }}>
+    <ChatContext.Provider value={{ items, classifyingTier, sendMessage, clearChat, voice }}>
       {children}
     </ChatContext.Provider>
   );

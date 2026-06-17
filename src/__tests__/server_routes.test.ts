@@ -4,14 +4,18 @@
  * Uses supertest against createServer(). Avoids real background-service
  * side-effects by mocking the poller/sync modules before importing the server.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import type { TurnResult } from '../types/index.js';
+import type { KoaConfig } from '../config/index.js';
+import type { AgentLoop } from '../agent/loop.js';
+import type * as GmailModule from '../channels/gmail.js';
+import type * as CalOAuthModule from '../calendar/oauth.js';
 
 // ── Mock background service modules so createServer() doesn't start real pollers ──
 vi.mock('../channels/gmail.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../channels/gmail.js')>();
+  const actual = await importOriginal<typeof GmailModule>();
   return {
     ...actual,
     gmailPoller: { start: vi.fn(), stop: vi.fn() },
@@ -31,7 +35,7 @@ vi.mock('../calendar/sync.js', () => ({
 }));
 
 vi.mock('../calendar/oauth.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../calendar/oauth.js')>();
+  const actual = await importOriginal<typeof CalOAuthModule>();
   return {
     ...actual,
     generateCalendarOAuthUrl: vi.fn((redirectUri: string, state?: string) =>
@@ -59,7 +63,7 @@ vi.mock('../channels/router.js', () => ({
 }));
 
 vi.mock('../config/credentials.js', () => ({
-  readCredentials: vi.fn().mockReturnValue({}),
+  readCredentials: vi.fn().mockReturnValue({ OPENAI_API_KEY: 'test-key' }),
   writeCredential: vi.fn(),
   deleteCredential: vi.fn(),
   getCredentialsPath: vi.fn().mockReturnValue('/tmp/koa-test-creds'),
@@ -80,6 +84,7 @@ vi.mock('../voice/whisper.js', () => ({
 
 vi.mock('../voice/tts.js', () => ({
   synthesizeStream: vi.fn().mockResolvedValue({ stream: null, contentType: 'audio/mpeg' }),
+  cleanText: (t: string) => t.replace(/[*_`#>]/g, '').slice(0, 500),
 }));
 
 vi.mock('../proactive/briefing.js', () => ({
@@ -160,10 +165,10 @@ async function buildApp(
     ollamaBaseUrl: 'http://localhost:11434',
     sandboxBackend: 'local' as const,
     sandboxTimeoutMs: 10000,
-  } as unknown as import('../config/index.js').KoaConfig;
+  } as unknown as KoaConfig;
 
   const loop = makeFakeLoop(loopOverrides);
-  const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+  const { app } = createServer(loop as unknown as AgentLoop, config);
   return app;
 }
 
@@ -355,12 +360,12 @@ describe('§B server routes — error scrubbing', () => {
       ollamaBaseUrl: 'http://localhost:11434',
       sandboxBackend: 'local' as const,
       sandboxTimeoutMs: 10000,
-    } as unknown as import('../config/index.js').KoaConfig;
+    } as unknown as KoaConfig;
 
     const loop = makeFakeLoop({
       checkpoint: vi.fn().mockRejectedValue(new Error('secret path /etc/shadow exposed')),
     });
-    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+    const { app } = createServer(loop as unknown as AgentLoop, config);
 
     const res = await request(app)
       .post('/api/checkpoint')
@@ -392,12 +397,12 @@ describe('§B server routes — error scrubbing', () => {
       ollamaBaseUrl: 'http://localhost:11434',
       sandboxBackend: 'local' as const,
       sandboxTimeoutMs: 10000,
-    } as unknown as import('../config/index.js').KoaConfig;
+    } as unknown as KoaConfig;
 
     const loop = makeFakeLoop({
       rebuildBrain: vi.fn().mockRejectedValue(new Error('internal db path /home/user/.koa/db.sqlite')),
     });
-    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+    const { app } = createServer(loop as unknown as AgentLoop, config);
 
     const res = await request(app)
       .post('/api/admin/brain/rebuild')
@@ -438,8 +443,112 @@ describe('§B server routes — error scrubbing', () => {
   });
 });
 
+describe('TTS endpoints', () => {
+  it('GET /api/voice/tts-status returns { available: false } when ELEVENLABS_API_KEY not in credentials', async () => {
+    const { readCredentials } = await import('../config/credentials.js');
+    // createServer() calls readCredentials() once at startup (for Telegram token check).
+    // Queue two values: one for startup, one for the route handler.
+    vi.mocked(readCredentials).mockReturnValueOnce({}).mockReturnValueOnce({});
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/voice/tts-status')
+      .set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ available: false });
+  });
+
+  it('GET /api/voice/tts-status returns { available: true } when ELEVENLABS_API_KEY is in credentials', async () => {
+    const { readCredentials } = await import('../config/credentials.js');
+    // First call is startup (no Telegram), second call is the route handler.
+    vi.mocked(readCredentials).mockReturnValueOnce({}).mockReturnValueOnce({ ELEVENLABS_API_KEY: 'el-test-key' });
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/voice/tts-status')
+      .set('Authorization', 'Bearer tok');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ available: true });
+  });
+
+  it('POST /api/voice/tts returns 400 when text is missing', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .post('/api/voice/tts')
+      .set('Authorization', 'Bearer tok')
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('non-empty');
+  });
+
+  it('POST /api/voice/tts returns 400 when text is empty string', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .post('/api/voice/tts')
+      .set('Authorization', 'Bearer tok')
+      .send({ text: '   ' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('non-empty');
+  });
+
+  it('POST /api/voice/tts returns 503 when ELEVENLABS_API_KEY not configured', async () => {
+    const { synthesizeStream } = await import('../voice/tts.js');
+    vi.mocked(synthesizeStream).mockRejectedValueOnce(
+      new Error('ELEVENLABS_API_KEY not configured')
+    );
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .post('/api/voice/tts')
+      .set('Authorization', 'Bearer tok')
+      .send({ text: 'hello' });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toContain('ElevenLabs not configured');
+  });
+
+  it('POST /api/voice/tts streams audio/mpeg when configured', async () => {
+    const { synthesizeStream } = await import('../voice/tts.js');
+    const { Readable } = await import('stream');
+
+    const fakeAudio = Buffer.from('fake-mp3-data');
+    const fakeStream = Readable.from([fakeAudio]);
+    vi.mocked(synthesizeStream).mockResolvedValueOnce({
+      stream: fakeStream,
+      contentType: 'audio/mpeg',
+    });
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .post('/api/voice/tts')
+      .set('Authorization', 'Bearer tok')
+      .send({ text: 'hello world' });
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('audio/mpeg');
+    expect(res.body).toBeDefined();
+  });
+});
+
+describe('pruneExpiredNonces', () => {
+  it('removes nonces older than ttlMs and keeps fresh ones', async () => {
+    const { pruneExpiredNonces } = await import('../server/index.js');
+    const map: Map<string, number> = new Map();
+    const oldNonce = 'old-nonce-aabbcc';
+    const freshNonce = 'fresh-nonce-ddeeff';
+    map.set(oldNonce, Date.now() - 11 * 60_000);  // 11 minutes old — should be pruned
+    map.set(freshNonce, Date.now() - 1 * 60_000); // 1 minute old — should survive
+
+    pruneExpiredNonces(map, 10 * 60_000);
+
+    expect(map.has(oldNonce)).toBe(false);
+    expect(map.has(freshNonce)).toBe(true);
+  });
+});
+
 describe('§B server routes — SSE busy/auth', () => {
-  it('POST /api/chat when busy → 429', async () => {
+  // Behavior changed: requests now queue via TurnScheduler instead of returning 429.
+  // A second POST /api/chat while the first is running is enqueued and will be
+  // processed after the first turn completes — no 429 is returned.
+  it('POST /api/chat when busy → queues second request (no 429)', async () => {
     const { createServer } = await import('../server/index.js');
     const config = {
       webToken: 'tok',
@@ -461,10 +570,8 @@ describe('§B server routes — SSE busy/auth', () => {
       ollamaBaseUrl: 'http://localhost:11434',
       sandboxBackend: 'local' as const,
       sandboxTimeoutMs: 10000,
-    } as unknown as import('../config/index.js').KoaConfig;
+    } as unknown as KoaConfig;
 
-    // Simulate busy by having the first turn() pause long enough for the test to complete.
-    // We use a short delay + immediate resolve to avoid a hanging test.
     let resolveFirst!: (v: TurnResult) => void;
     const firstTurnPromise = new Promise<TurnResult>(r => { resolveFirst = r; });
     const mockResult: TurnResult = {
@@ -481,37 +588,40 @@ describe('§B server routes — SSE busy/auth', () => {
       turn: vi.fn().mockImplementationOnce(() => firstTurnPromise)
                    .mockResolvedValue(mockResult),
     });
-    const { app } = createServer(loop as unknown as import('../agent/loop.js').AgentLoop, config);
+    const { app } = createServer(loop as unknown as AgentLoop, config);
 
-    // Use http.Server to send a request that we can abort mid-stream
     const http = await import('http');
     const server = http.createServer(app);
     await new Promise<void>(r => server.listen(0, r));
     const port = (server.address() as { port: number }).port;
 
-    // Send first request — isBusy goes true, turn() pauses
-    const firstReqAbort = new AbortController();
+    // Send first request — scheduler is running, turn() pauses
     const firstFetch = fetch(`http://localhost:${port}/api/chat`, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'hello' }),
-      signal: firstReqAbort.signal,
     });
 
-    // Wait briefly for isBusy to be set
+    // Wait briefly for the first turn to be running
     await new Promise(r => setTimeout(r, 30));
 
-    // Second request should see isBusy=true → 429
-    const res2 = await fetch(`http://localhost:${port}/api/chat`, {
+    // Second request should be accepted and queued — not 429
+    // We resolve first immediately so the second can also complete
+    resolveFirst(mockResult);
+    const secondFetch = fetch(`http://localhost:${port}/api/chat`, {
       method: 'POST',
       headers: { 'Authorization': 'Bearer tok', 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'hello again' }),
     });
-    expect(res2.status).toBe(429);
 
-    // Clean up: resolve the first turn so the request can complete
-    resolveFirst(mockResult);
-    try { await firstFetch; } catch { /* ignore */ }
+    const [res1, res2] = await Promise.all([firstFetch, secondFetch]);
+
+    // Both requests should succeed (200 SSE), not 429
+    expect(res1.status).not.toBe(429);
+    expect(res2.status).not.toBe(429);
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
     await new Promise<void>(r => server.close(() => r()));
   }, 10000);
 

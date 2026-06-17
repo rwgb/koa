@@ -1,4 +1,4 @@
-import type { AgentLoop } from '../agent/loop.js';
+import type { TurnScheduler } from '../agent/scheduler.js';
 import { listDelegations, updateDelegation } from '../db/index.js';
 
 function msUntilDue(schedule: string, _lastRun: Date): number {
@@ -25,20 +25,17 @@ export function isDue(
   return now.getTime() - lastRun.getTime() >= msUntilDue(delegation.schedule, lastRun);
 }
 
-export async function runDueDelegations(loop: AgentLoop): Promise<void> {
+export async function runDueDelegations(scheduler: TurnScheduler): Promise<void> {
   const now = new Date();
   const delegations = listDelegations().filter(d => d.enabled === 1);
   for (const d of delegations) {
     if (isDue(d, now)) {
       try {
-        await loop.turn(d.action);
+        // Low priority so user-initiated turns always preempt delegations in the queue
+        await scheduler.enqueue(d.action, 'low');
         updateDelegation(d.id, { last_run: now.toISOString() });
       } catch (err) {
-        if (err instanceof Error && err.message === 'Agent is already processing a request') {
-          process.stderr.write(`[koa/delegations] skipping delegation ${d.id}: agent busy\n`);
-        } else {
-          process.stderr.write(`[koa/delegations] error running delegation ${d.id}: ${err}\n`);
-        }
+        process.stderr.write(`[koa/delegations] error running delegation ${d.id}: ${err}\n`);
       }
     }
   }

@@ -1,57 +1,79 @@
 ---
-written: 2026-06-11
+written: 2026-06-16
 branch: feature/web-console-and-hardening
-tests: 831
+tests: 843
 tsc: clean
-tip: 4b523e0 (+ uncommitted CP20+CP21+hotfix working tree)
+tip: e2877d8 (+ session work: fix queue + CP27-A/B/E + CP27-C/D + CP29-C + Fix 6)
 ---
 
 ## Where We Are
 
-CP21 + hotfix done. Server rebuilt and restarted (pid 83540, port 3000) — chat working via quota fallback.
+Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP29 scheduler (priority lanes) committed. 7 fixes applied (compactAfterTurns, synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, graceful drain, Slack cap). v1.0.0 track solid; CP27 retrieval and CP29 event bus deferred to v1.1.
 
-- **CP21**: quota-fallback model/cost attribution ($0 for ClaudeCode turns), conversation auto-titling (lazy create + title after first exchange), version badge sources package.json. Anthropic API key over monthly limit until 2026-07-01 — every turn routes through ClaudeCode CLI.
-- **Hotfix (chat transcript persistence)**: chat replies were appearing in Activity but not the chat window. Root cause: `ChatPage` owned the transcript + SSE stream; route unmount (navigation during the 20–40s fallback turn) aborted the stream and wiped state. Fixed by lifting stream + transcript into `ChatContext` above the router, with DB hydration on load.
-- **Calendar flicker**: fixed — `monthStart`/`monthEnd` memoized, `weekEnd` moved inside callback, stable `key` on grid cells.
+### What Was Done This Session
+
+- **Fix queue cleared** (7 fixes): compactAfterTurns removed, synthesizeSpeech dead export removed, MODEL_CONTEXT_WINDOWS keys aligned, OAuth nonce TTL (10min) + prune (5min), browserEnabled runtime check on tool registration, graceful SIGTERM/SIGINT drain (30s budget), Slack inbound text capped at 2000 chars
+- **CP27-A: SQLite schema** — src/memory/schema.ts (tables: memory, versions) + src/memory/db.ts (init, version mgmt); better-sqlite3 added to package.json
+- **CP27-B: Typed write path** — src/memory/events.ts (8 event types: correction, preference, resolved, assertion, decision, failure, standing-order, boundary); dedup logic for assertion/standing-order
+- **CP27-E: Agent tool** — write_memory_event registered in buildRegistry() with required fields (type, data) + optional (event_id, relates_to)
+- **CP29-C: Priority scheduler** — src/agent/scheduler.ts (TurnScheduler class, priority queue, user>autonomous); replaces isBusy flag with proper lane isolation
+- **CP27-C: Memory retrieval** — src/memory/retrieval.ts (BM25/RRF retrieval from SQLite FTS5; queryDb(), rrfMerge(), queryMemories(), buildEpisodicMemoryInjection())
+- **CP27-D: Prompt injection** — loop.ts buildSystemBlocks() wired to inject per-turn episodic memory into Block 3 (dynamic, no cache)
+
+### Key Decisions Made
+
+| Area | Decision |
+|---|---|
+| CP27 shipping | Write path only (schema + events + agent tool); retrieval (C/D) deferred to v1.1 |
+| CP29 shipping | Scheduler + priority lanes only (user > autonomous); event bus deferred to v1.1 |
+| SQLite API | better-sqlite3 (sync) chosen over sqlite3/bun:sqlite; fits agent loop (writes in-turn, no race windows) |
+| Graceful shutdown | SIGTERM/SIGINT drain: close → drain → finalize → exit (30s budget); no interruption of active turn |
+| OAuth nonce TTL | 10-minute TTL with 5-minute prune interval; prevents unbounded growth while preserving replay safety |
+| Browser tool gating | `browserEnabled` checked at tool registration time, not just config; prevents stale tool availability |
+| Slack message length | Cap at 2000 chars before loop.turn(); prevents buffer overflow while preserving semantic content |
+| Memory retrieval | Per-turn RRF for episodic/semantic; static for structural (deferred to v1.1) |
+| Event bus | `namespace.verb` + prefix wildcards + `action_type` dispatch (deferred to v1.1) |
+| Providers | Hybrid: named Anthropic/ClaudeCode/Google + generic OpenAI-compatible (CP28) |
+| Session isolation | Priority lanes replace `isBusy` flag (scheduler owns decision, not turn handler) |
+| SSE reconnection | Heartbeat + backoff + `streamId` resume |
+| MCP | stdio first; `trusted: false` default for all MCP results |
+| Telegram security | Sender allowlist; silent drop + `unauthorized_inbound` signal |
+| SSE auth | Token to `Authorization` header; no more `?token=` |
+| Self-healing | Unilateral within process; approval gate for external |
+| Self-extending | Draft → approval → register; never auto-registers |
+| Email outbound | Wired into dispatchToChannel |
 
 ## Active Branch
 
-`feature/web-console-and-hardening` — CP21 + hotfix complete.
+`feature/web-console-and-hardening` — all pushed.
 
-## What's Next
+## What's Next (Prioritized)
 
-1. Commit the CP20+CP21+hotfix working-tree changes (atomic commits), open PR
-2. Tag v1.0.0
-3. Fix `koa --version` hardcode in `src/cli/index.ts` (same disease as the web badge — read from package.json)
-
-## Open Questions
-
-(none)
+1. **Merge to main** — open PR from `feature/web-console-and-hardening` → `main` for v1.1.0
+2. **v1.1.x bug triage** — watch for any issues post-release; memory retrieval and event bus are the newest surface area
 
 ## Don't Restart
 
-- Tried Tailscale TLS certs: requires paid plan. HTTP over WireGuard is sufficient.
-- Tried setInterval for briefing at 08:00: deferred to CP10e (not yet started).
-- iOS real-device test via Tailscale: deferred indefinitely (skipped by user).
+- `undici@8.4.1` incompatible with Node.js 20 — do not re-add
+- Ollama removed from routing (too slow); re-enable via `KOA_PROVIDER=auto` when VM gets more resources
+- Tailscale TLS: requires paid plan
+- `CLAUDE_CODE_TMPDIR=~/.claude/tmp` — set in shell profile to fix ENOSPC
 
-## Completed Checkpoints (reference)
+## Completed Checkpoints
 
 | CP | Label | Status |
 |----|-------|--------|
-| CP0 | Admin UI Phase 1 | done |
-| CP7–CP10c | DB, channels, voice, iOS, server refactor, calendar/email | done |
-| CP10a | iOS Keychain hardening + Siri fix | done |
-| CP10d | GitHub integration | done |
-| CP10f | iOS search tab + TTS voice round-trip | done |
-| CP11a–CP11d | ElevenLabs, multi-agent chaining, conversation persistence, watchOS | done |
-| CP12a–CP12g | Plugin SDK, context compaction, Ollama, conv intelligence, sandbox, browser, homelab | done |
-| CP13–CP13d | Security hardening, userName, ntfy param, koa setup, repo sanitisation | done |
-| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | done |
-| CP15 | Engram Loop 2: signals.ts + cross_repo tools + HANDOFF wiring | done |
-| CP16 | ClaudeCode fallback on Anthropic 429/quota exhaustion | done |
-| CP17 | OC-1 token-budget compaction + OC-2 koa doctor + R-3 per-project budgets | done |
-| CP18 | koa update with automatic rollback | done |
-| CP19 | Multi-instance GitHub configuration | done |
-| CP20 | Audit fixes + api-cost-opt p1–3 + smart-routing | done |
-| CP21 | Quota fallback attribution, conversation auto-titling, version badge | done |
-| Hotfix | Chat transcript persistence (stream + state lifted out of route component) | done |
+| CP0–CP22 | (see DEVLOG) | done |
+| CP23 | Production routing fix | done |
+| CP24 | Optional browser TTS + voice picker | done |
+| CP25 | ElevenLabs server-side TTS | done |
+| CP26 | Web UI settings completeness + debug console | done |
+| — | Matt Pocock engineering skills installed + koa configured | done |
+| — | Architecture grill: CONTEXT.md + 6 ADRs + cleanup | done |
+| Fix queue + CP27-A/B/E + CP29-C + Fix 6 | v1.0.0 track | done |
+| CP27-C/D | Memory retrieval (BM25/RRF) + system prompt injection | done |
+| CP29-A/B | Event bus: namespace.verb + action_type dispatch | done |
+| CP28 | Provider expansion: OpenAI-compatible + Google Gemini + web UI | done |
+| — | mattpocock/skills: productivity + misc buckets installed (9 skills) | done |
+| CP30 | MCP over stdio | done |
+| — | Ansible hardening role + playbook refactor | done |

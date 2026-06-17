@@ -1,16 +1,17 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { AgentLoop } from '../../agent/loop.js';
+import type { TurnScheduler } from '../../agent/scheduler.js';
 import type { KoaConfig } from '../../config/index.js';
 import type { SseEvent } from '../events.js';
 import { routeResponse } from '../../channels/router.js';
 import { synthesizeStream } from '../../voice/tts.js';
+import type { TurnResult } from '../../types/index.js';
 
 export interface ChatRouterDeps {
   loop: AgentLoop;
   config: KoaConfig;
-  isBusy: () => boolean;
-  setIsBusy: (v: boolean) => void;
+  scheduler: TurnScheduler;
 }
 
 function stripAnsi(s: string): string {
@@ -28,15 +29,25 @@ function modelToTier(model: string): string {
   return 'sonnet';
 }
 
+function sanitizeErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  // Strip absolute paths (including segments with spaces) to avoid leaking file system structure
+  return msg.replace(/([A-Za-z]:)?(\/[\w.\- ]+)+/g, '[path]').slice(0, 200);
+}
+
 // Shared SSE streaming logic used by both POST /api/chat and GET /api/sse/chat.
+// Enqueues the turn via the scheduler (high priority) so concurrent requests queue
+// rather than returning 429. Streaming callbacks are not available through the
+// scheduler's generic interface — content arrives in a single 'done' event.
 function runChatStream(
   loop: AgentLoop,
+  scheduler: TurnScheduler,
   message: string,
   req: Request,
   res: Response,
-  opts: { brief?: boolean; setIsBusy: (v: boolean) => void },
+  opts: { brief?: boolean },
 ): void {
-  const { brief = false, setIsBusy } = opts;
+  const { brief = false } = opts;
   let disconnected = false;
 
   res.setHeader('Content-Type', 'text/event-stream');
@@ -51,26 +62,17 @@ function runChatStream(
   // POST body is consumed, before the async turn completes, making every res.write a no-op.
   res.on('close', () => {
     disconnected = true;
-    setIsBusy(false);
   });
 
   const send = (event: SseEvent) => {
     if (!disconnected) res.write(`data: ${JSON.stringify(brief ? briefify(event) : event)}\n\n`);
   };
 
-  let didStreamContent = false;
-
-  loop
-    .turn(message, {
-      onToolCall: (name, input) => send({ type: 'tool_call', name, input }),
-      onToolResult: (name, result) => send({ type: 'tool_result', name, result }),
-      onClassifying: () => send({ type: 'classifying' }),
-      onClassified: (tier) => send({ type: 'classified', tier }),
-      onTextDelta: (delta) => { didStreamContent = true; send({ type: 'content', text: delta }); },
-      onChainStart: (agent) => send({ type: 'chain_start', agent }),
-    })
-    .then((result) => {
-      if (!didStreamContent) send({ type: 'content', text: result.content });
+  scheduler
+    .enqueue(message, 'high')
+    .then((raw) => {
+      const result = raw as TurnResult;
+      send({ type: 'content', text: result.content });
       if (result.usage) {
         send({ type: 'usage', turn: result.usage, session: loop.getState().usage, contextStats: loop.contextStats() });
       }
@@ -93,17 +95,14 @@ function runChatStream(
     })
     .catch((err: unknown) => {
       console.error('[koa] agent error:', err);
-      send({ type: 'error', message: 'Agent error — see server logs' });
+      send({ type: 'error', message: `Agent error — ${sanitizeErrorMessage(err)}` });
       if (!disconnected) res.end();
-    })
-    .finally(() => {
-      setIsBusy(false);
     });
 }
 
 export function createChatRouter(deps: ChatRouterDeps): Router {
   const router = Router();
-  const { loop, config, isBusy, setIsBusy } = deps;
+  const { loop, config, scheduler } = deps;
 
   router.get('/context', (_req, res) => {
     const state = loop.getState();
@@ -122,7 +121,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
   });
 
   router.post('/checkpoint', (_req, res) => {
-    if (isBusy()) {
+    if (scheduler.isBusy()) {
       res.status(409).json({ error: 'Agent turn in progress — retry after current response finishes' });
       return;
     }
@@ -141,12 +140,8 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       res.status(400).json({ error: 'message is required' });
       return;
     }
-    if (isBusy()) {
-      res.status(429).json({ error: 'Agent is busy — wait for the current response to finish' });
-      return;
-    }
-    setIsBusy(true);
-    runChatStream(loop, message, req, res, { setIsBusy });
+    // Behavior changed: requests now queue via TurnScheduler instead of returning 429
+    runChatStream(loop, scheduler, message, req, res, {});
   });
 
   router.get('/voice/synthesize', (req: Request, res: Response) => {
@@ -187,12 +182,8 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       res.status(400).json({ error: 'message query param is required' });
       return;
     }
-    if (isBusy()) {
-      res.status(429).json({ error: 'Agent is busy — wait for the current response to finish' });
-      return;
-    }
-    setIsBusy(true);
-    runChatStream(loop, message, req, res, { brief, setIsBusy });
+    // Behavior changed: requests now queue via TurnScheduler instead of returning 429
+    runChatStream(loop, scheduler, message, req, res, { brief });
   });
 
   return router;

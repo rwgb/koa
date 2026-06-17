@@ -1,4 +1,5 @@
 import Anthropic, { BadRequestError } from '@anthropic-ai/sdk';
+import { McpManager } from './mcp/manager.js';
 import path from 'path';
 import { createProvider } from './providers/index.js';
 import type { LlmProvider } from './providers/index.js';
@@ -15,6 +16,7 @@ import { selectModel, classifyMessage } from './router.js';
 import type { UsageTracker } from './usage.js';
 import { loadMemories, buildMemoryPromptInjection } from '../memory/store.js';
 import type { MemoryEntry } from '../memory/store.js';
+import { queryMemories, buildEpisodicMemoryInjection } from '../memory/retrieval.js';
 import { selectAgent, isCodeQuery, hasBacklogSignals } from './select-agent.js';
 import { buildAgentSpecs } from './specialists.js';
 import { buildCalendarSummary } from '../calendar/conflicts.js';
@@ -36,10 +38,13 @@ import type { SignalType } from '../engram/signals.js';
 
 const MIN_PROMPT_BUDGET_TOKENS = 8_000;
 const MIN_PROMPT_BUDGET_RATIO = 0.5;
+// Keys are derived from MODEL_MAP so lookups always match the configured model IDs.
+// Additional hardcoded aliases cover forward-compat model strings not yet in MODEL_MAP.
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
-  'claude-haiku-4-5-20251001': 200_000,
-  'claude-sonnet-4-6': 200_000,
-  'claude-opus-4-8': 200_000,
+  [MODEL_MAP.fast]: 200_000,
+  [MODEL_MAP.standard]: 200_000,
+  [MODEL_MAP.powerful]: 200_000,
+  // forward-compat aliases
   'claude-fable-5': 200_000,
 };
 const CONTEXT_KEEP_RECENT = 4; // messages to preserve intact during compression
@@ -236,6 +241,11 @@ export class AgentLoop {
   private lastCompactionAt: string | null = null;
   private _busy = false;
   private agentSpecs: ReturnType<typeof buildAgentSpecs>;
+  private projectBudget: number | null = null;
+  private sessionCostUsd = 0;
+  /** Cost already recorded for this project in prior sessions (cumulative budget enforcement). */
+  private priorProjectCostUsd = 0;
+  private mcpManager?: McpManager;
 
   constructor(
     config: KoaConfig,
@@ -351,6 +361,13 @@ export class AgentLoop {
       // non-fatal — budget enforcement is best-effort
     }
 
+    if ((this.config.mcpServers?.length ?? 0) > 0) {
+      this.mcpManager = new McpManager(this.config.mcpServers!);
+      await this.mcpManager.connectAll();
+      const mcpTools = await this.mcpManager.getTools();
+      this.registry.registerMany(mcpTools);
+    }
+
     if (this.config.autoCheckpointMinutes > 0) {
       const ms = this.config.autoCheckpointMinutes * 60_000;
       this._checkpointTimer = setInterval(() => { this._autoCheckpoint(); }, ms);
@@ -450,6 +467,11 @@ export class AgentLoop {
       const sbInjection = this.sb.buildSystemPromptInjection(this.state.spiderBrainContext);
       if (sbInjection) dynamicParts.push(sbInjection);
     }
+
+    const projectSlug = this.config.projectPath ? path.basename(this.config.projectPath) : undefined
+    const episodic = queryMemories(userMessage, projectSlug)
+    const episodicInjection = buildEpisodicMemoryInjection(episodic)
+    if (episodicInjection) dynamicParts.push(episodicInjection)
 
     if (injectBacklog && pm?.backlog) {
       dynamicParts.push(`<backlog>\n${escapeXml(pm.backlog)}\n</backlog>`);
@@ -1126,6 +1148,7 @@ export class AgentLoop {
       clearInterval(this._checkpointTimer);
       this._checkpointTimer = undefined;
     }
+    await this.mcpManager?.disconnectAll();
     if (this.state.turnCount === 0) return;
 
     if (this._conversationId) {

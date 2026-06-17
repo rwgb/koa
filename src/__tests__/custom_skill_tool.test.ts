@@ -183,7 +183,6 @@ describe('createCustomSkillTool — http branch', () => {
           // Reject immediately when the signal fires (same path as real timeout).
           signal.addEventListener('abort', () => reject(abortError));
           // Manually abort right away to simulate elapsed timeout without waiting.
-          (signal as AbortSignal & { _controller?: AbortController });
         }
         // Drive the abort: the real code does setTimeout(() => controller.abort(), timeout).
         // We replicate that here by aborting on the next microtask so the Promise

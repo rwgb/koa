@@ -32,32 +32,40 @@ metadata:
 | CP13c | `koa setup` wizard + IPv6 SSRF fix | ✅ done |
 | CP13d | Repo sanitisation & template files | ✅ done |
 | CP13 End-of-Arc | Security review clean, 627 tests, tsc clean, v0.3.0 bump | ✅ done |
+| CP14 | ClaudeCodeProvider + auto routing + ntfy topic validation | ✅ done |
+| CP15 | Engram signal collector + cross-repo tools (Loop 2) | ✅ done |
+| CP16 | ClaudeCode fallback on Anthropic quota exhaustion | ✅ done |
+| Fable Audit | ~30 fixes from FABLE_AUDIT_FIXES.md — §A/§B/§C/§D | ✅ done 2026-06-10 |
+| Obsidian Pro Theme | Winning UI theme applied to web console | ✅ done 2026-06-10 — commit 938b183 |
+| Housekeeping Sprint | H-1–H-8, EL-1/EL-2, iOS-1 — 10 fixes | ✅ done 2026-06-10 — commit b08dc75 |
+| CP17 | OC-1 token-budget + OC-2 koa doctor + R-3 per-project budgets | ✅ done 2026-06-10 |
+| CP18 | koa update with automatic rollback (--check/--no-test/--force) | ✅ done 2026-06-10 — PR #19 merged |
+| Deps fold-in | dependabot #11/#13–#16 + compat fixes (SDK 0.104, zod 4, etc.) | ✅ done 2026-06-10 — PR #20 merged |
+| CP19 | multi-instance GitHub integration | ✅ done 2026-06-10 — PR #21 merged |
+| CP20 | 11 audit fixes + 3 LOW carry-ins + api-cost-opt p1–3 + smart-routing classifier | ✅ done 2026-06-11 |
+| CP21 | Quota fallback attribution, conversation auto-titling, version badge | ✅ done 2026-06-11 |
+| Hotfix | Chat transcript persistence (stream + state lifted out of route component) | ✅ done 2026-06-11 |
+| v1.0.0 | main + develop synced, tag pushed, production deployed via rsync | ✅ done 2026-06-12 |
+| Prod Claude Code | Installed claude CLI + copied OAuth creds to koa user; quota fallback live on prod | ✅ done 2026-06-12 |
+| CP22–CP26 | Web console hardening, ElevenLabs TTS, settings, debug console | ✅ done (see DEVLOG) |
+| Architecture | CONTEXT.md + 6 ADRs + project cleanup | ✅ done 2026-06-16 |
+| Fix queue | synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, Slack cap, graceful drain | ✅ done 2026-06-16 |
+| CP27-A/B/E | SQLite memory schema + 8 typed event writes + write_memory_event tool | ✅ done 2026-06-16 |
+| CP27-C/D | BM25/RRF retrieval pipeline + per-turn system prompt injection | ✅ done 2026-06-16 |
+| CP29-A/B | EventBus namespace.verb pattern + action_type dispatch (notify/brief/agent) | ✅ done 2026-06-16 |
+| CP29-C | TurnScheduler replaces isBusy — priority queuing, no more 429s | ✅ done 2026-06-16 |
 
-## Current State (2026-06-11)
+## Current State (2026-06-16)
 
-- Branch: `feature/web-console-and-hardening`
-- CP20 done: all 11 HIGH/MEDIUM audit findings fixed, 3 LOW carry-ins fixed, api-cost-optimization phases 1–3 and smart-routing hybrid classifier implemented
-- CHANGELOG.md "Fixed" claims verified accurate — no audit blockers remain for the v1.0.0 tag
-- Hard deadline: koa stable (no iOS/watchOS) before 2026-06-29
-
-## Current Arc — CP13: Clone-Ready Hardening (complete)
-
-- CP13a–CP13d ✅ all done on `feature/cp13-clone-ready`
-- PR #4 (docs sync) ✅ merged to main 2026-06-05
-- Gate grep: zero hits ✅
-- tsc clean, 619 tests passing ✅
-- Security review: clean ✅
-
-## Infra Recovery (2026-06-08, in-progress)
-
-- Packer rewritten: `proxmox-iso` → `proxmox-clone` from VMID 100 (existing Debian 13 template, `debian:debian`)
-- Packer build running — clone + Ollama install (~5 min vs 40 min); will produce template at VMID 9001
-- Koa web console deployed to LXC 200 ✅ — http://192.168.1.200:3000 live
-- Fixed: deploy.sh (sudo, native rebuild), koa.service (namespace hardening), rsync missing on LXC
+- Branch: `feature/web-console-and-hardening` (uncommitted working tree changes)
+- Tests: 886 passing, 0 failing | tsc: clean
+- CP27-C/D complete: BM25/RRF retrieval + per-turn system prompt injection wired in
+- Production (192.168.1.200): still on v1.0.0 (CP21-era) — feature branch not yet merged/deployed
+- Hard deadline: stable release before 2026-06-26
 
 ## Next
 
-- [ ] Confirm Packer build succeeded; `terraform apply` → VM 201 (you run: `cd infra && terraform apply`)
-- [ ] Verify 192.168.1.201 + `ollama list`
-- [ ] PR: `feature/cp13-clone-ready` → `develop` → release v0.3.0
-- [ ] CP14: Smart model routing (Ollama/Anthropic/Claude-Code providers) + fix `PUT /integrations/:id` ntfy topic validation
+- [ ] Commit + PR the feature branch work (fix queue + CP27-A/B/E + CP27-C/D + CP29-C + Fix 6)
+- [ ] CP28: Provider expansion (OpenAICompatible + Google + web UI)
+- [ ] CP30: MCP over stdio
+- [ ] Ansible hardening + git tag v1.1.0

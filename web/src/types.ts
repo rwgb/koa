@@ -79,6 +79,7 @@ export interface AgentStatus {
   projectPath?: string;
   /** Active conversation row id; null before the first turn (lazy creation). */
   conversationId?: string | null;
+  ttsProvider?: 'say' | 'elevenlabs' | 'none';
 }
 
 export interface AdminConfig {
@@ -99,18 +100,25 @@ export interface AdminConfig {
   autoChaining?: boolean;
   briefingEnabled?: boolean;
   briefingTime?: string;
-  ttsProvider?: 'say' | 'elevenlabs';
+  ttsProvider?: 'say' | 'elevenlabs' | 'none';
   elevenLabsVoiceId?: string;
   elevenLabsModel?: string;
   elevenLabsApiKey?: boolean;
-  provider?: 'anthropic' | 'ollama';
+  provider?: 'anthropic' | 'ollama' | 'openai-compatible' | 'google';
   ollamaModel?: string;
   ollamaBaseUrl?: string;
+  openaiCompatibleBaseUrl?: string;
+  openaiCompatibleApiKeySet?: boolean;
+  openaiCompatibleModel?: string;
+  googleApiKeySet?: boolean;
+  googleModel?: string;
   sandboxBackend?: 'local' | 'docker';
   sandboxTimeoutMs?: number;
   browserEnabled?: boolean;
   // write-only: sent in PUT body, never returned by GET
   apiKey?: string;
+  openaiCompatibleApiKey?: string;
+  googleApiKey?: string;
 }
 
 export interface MemoryEntry {

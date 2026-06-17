@@ -3,6 +3,7 @@ import { loadIntegrations } from '../integrations/store.js';
 import type { ChannelSendResult } from './types.js';
 
 const SLACK_MAX_CHARS = 4000;
+const SLACK_INBOUND_MAX_CHARS = 2000;
 const SLACK_SIGNING_VERSION = 'v0';
 
 /**
@@ -46,7 +47,7 @@ export function parseSlackInbound(body: Record<string, unknown>): {
 } | null {
   // Slash command: body has 'command' field
   if (typeof body['command'] === 'string' && typeof body['text'] === 'string') {
-    const text = (body['text'] as string).trim();
+    const text = (body['text'] as string).trim().slice(0, SLACK_INBOUND_MAX_CHARS);
     if (!text) return null;
     const result: { type: 'slash_command'; text: string; channelId: string; responseUrl?: string } = {
       type: 'slash_command',
@@ -61,7 +62,7 @@ export function parseSlackInbound(body: Record<string, unknown>): {
   const event = body['event'] as Record<string, unknown> | undefined;
   if (event?.['type'] === 'app_mention' && typeof event['text'] === 'string') {
     // Strip the @mention prefix: "<@U12345> fix the bug" → "fix the bug"
-    const text = (event['text'] as string).replace(/<@[A-Z0-9]+>\s*/g, '').trim();
+    const text = (event['text'] as string).replace(/<@[A-Z0-9]+>\s*/g, '').trim().slice(0, SLACK_INBOUND_MAX_CHARS);
     if (!text) return null;
     return {
       type: 'app_mention',
