@@ -63,7 +63,7 @@ vi.mock('../channels/router.js', () => ({
 }));
 
 vi.mock('../config/credentials.js', () => ({
-  readCredentials: vi.fn().mockReturnValue({}),
+  readCredentials: vi.fn().mockReturnValue({ OPENAI_API_KEY: 'test-key' }),
   writeCredential: vi.fn(),
   deleteCredential: vi.fn(),
   getCredentialsPath: vi.fn().mockReturnValue('/tmp/koa-test-creds'),
