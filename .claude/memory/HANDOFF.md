@@ -49,8 +49,9 @@ Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP2
 
 ## What's Next (Prioritized)
 
-1. **Merge to main** — open PR from `feature/web-console-and-hardening` → `main` for v1.1.0
-2. **v1.1.x bug triage** — watch for any issues post-release; memory retrieval and event bus are the newest surface area
+1. **v1.1.x bug triage** — watch for post-release issues; memory retrieval and event bus are the newest surface area
+2. **ai-review quota** — ANTHROPIC_API_KEY in CI is quota-exhausted until 2026-07-01; update the secret or wait
+3. **Remove workflow_dispatch from ci.yml** — added temporarily to manually trigger CI; can be removed or kept
 
 ## Don't Restart
 

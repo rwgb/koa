@@ -31,8 +31,10 @@
 - v1.1.0 not v1.0.0: existing v1.0.0 tag pointed to CP14–CP21 merge on main; bumping would rewrite a published tag
 
 ### Next Session
-- [ ] Open PR: feature/web-console-and-hardening → main for v1.1.0 merge
+- [x] Open PR: feature/web-console-and-hardening → main — DONE (PR #27)
+- [x] Merge PR #27 — DONE (merged 2026-06-17, admin bypass; ai-review API quota exhausted until 2026-07-01)
 - [ ] Watch memory retrieval + event bus surface area for post-release issues
+- [ ] Refresh ANTHROPIC_API_KEY CI secret after 2026-07-01
 
 ---
 
