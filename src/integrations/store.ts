@@ -24,6 +24,9 @@ export const SECRET_FIELDS: Record<string, string[]> = {
   eset: ['apiKey'],
   custom_http: ['authValue'],
   mcp_server: ['authToken'],
+  gmail: ['clientSecret', 'refreshToken'],
+  twilio: ['authToken'],
+  'google-calendar': ['clientSecret', 'refreshToken'],
 };
 
 export const ALLOWED_TYPES = new Set(Object.keys(SECRET_FIELDS));
