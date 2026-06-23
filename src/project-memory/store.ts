@@ -2,8 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { projectMemoryPaths } from './paths.js';
 
-export function ensureProjectMemoryDir(projectPath: string): void {
-  const { dir, journalDir } = projectMemoryPaths(projectPath);
+export function ensureProjectMemoryDir(projectPath: string, homeOverride?: string): void {
+  const { dir, journalDir } = projectMemoryPaths(projectPath, homeOverride);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.mkdirSync(journalDir, { recursive: true, mode: 0o700 });
 }
@@ -26,8 +26,8 @@ export function writeMarkdownFile(filePath: string, content: string): void {
   fs.renameSync(tmp, filePath);
 }
 
-export function appendJournalEntry(projectPath: string, content: string): void {
-  const { journalDir } = projectMemoryPaths(projectPath);
+export function appendJournalEntry(projectPath: string, content: string, homeOverride?: string): void {
+  const { journalDir } = projectMemoryPaths(projectPath, homeOverride);
   fs.mkdirSync(journalDir, { recursive: true });
   const today = new Date().toISOString().slice(0, 10);
   const journalFile = path.join(journalDir, `${today}.md`);
@@ -36,8 +36,8 @@ export function appendJournalEntry(projectPath: string, content: string): void {
   writeMarkdownFile(journalFile, (existing ?? '') + separator + content);
 }
 
-export function readRecentJournals(projectPath: string, count = 3): string[] {
-  const { journalDir } = projectMemoryPaths(projectPath);
+export function readRecentJournals(projectPath: string, count = 3, homeOverride?: string): string[] {
+  const { journalDir } = projectMemoryPaths(projectPath, homeOverride);
   try {
     const files = fs
       .readdirSync(journalDir)
@@ -62,8 +62,8 @@ export interface HandoffData {
   tasks?: string;
 }
 
-export function writeHandoff(projectPath: string, data: HandoffData): void {
-  const { handoffMd } = projectMemoryPaths(projectPath);
+export function writeHandoff(projectPath: string, data: HandoffData, homeOverride?: string): void {
+  const { handoffMd } = projectMemoryPaths(projectPath, homeOverride);
   const tasksSection = data.tasks ? `\n### Tasks\n${data.tasks}` : '';
   const content = `# HANDOFF.md
 

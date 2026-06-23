@@ -65,6 +65,20 @@ describe('projectMemoryDir()', () => {
     const result = projectMemoryDir('/projects/koa');
     expect(result.startsWith(os.homedir())).toBe(true);
   });
+
+  it('homeOverride takes precedence over KOA_HOME and os.homedir()', () => {
+    const override = path.join(tmpDir, 'local-home');
+    const result = projectMemoryDir('/projects/koa', override);
+    expect(result.startsWith(override)).toBe(true);
+    // Must NOT be under the KOA_HOME path
+    expect(result.startsWith(tmpDir + path.sep + '.koa')).toBe(false);
+  });
+
+  it('homeOverride path contains the expected projects/ segment', () => {
+    const override = path.join(tmpDir, 'local-home');
+    const result = projectMemoryDir('/projects/koa', override);
+    expect(result).toContain(path.join(override, 'projects'));
+  });
 });
 
 describe('projectMemoryPaths()', () => {
@@ -85,6 +99,15 @@ describe('projectMemoryPaths()', () => {
     expect(path.basename(paths.backlogMd)).toBe('BACKLOG.md');
     expect(path.basename(paths.handoffMd)).toBe('HANDOFF.md');
     expect(path.basename(paths.journalDir)).toBe('journal');
+  });
+
+  it('homeOverride routes all paths under the override directory', () => {
+    const override = path.join(tmpDir, 'local-home');
+    const paths = projectMemoryPaths('/test/project', override);
+    const { dir } = paths;
+    expect(dir.startsWith(override)).toBe(true);
+    expect(paths.projectMd.startsWith(dir)).toBe(true);
+    expect(paths.stateMd.startsWith(dir)).toBe(true);
   });
 });
 
