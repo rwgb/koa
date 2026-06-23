@@ -44,13 +44,10 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
       parsed = Object.fromEntries(new URLSearchParams(rawBody));
     }
 
-    // url_verification challenge (sent during Slack app setup — no auth needed)
-    if (parsed['type'] === 'url_verification') {
-      res.json({ challenge: parsed['challenge'] });
-      return;
-    }
-
-    // Validate signature for all other requests
+    // Validate HMAC signature FIRST — before reading any body fields or sending responses.
+    // This ensures url_verification challenges (and all other requests) are authenticated
+    // before we act on them. Previously the url_verification branch ran before this check,
+    // allowing unauthenticated callers to probe the endpoint (SEC-002).
     const allSlacks = loadIntegrations().filter(i => i.type === 'slack' && i.status === 'connected');
     const timestamp = req.headers['x-slack-request-timestamp'] as string | undefined;
     const signature = req.headers['x-slack-signature'] as string | undefined;
@@ -67,7 +64,19 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
     }
 
     if (!matchedSlack) {
-      res.status(403).json({ error: 'Invalid Slack signature' });
+      res.status(401).json({ error: 'Invalid Slack signature' });
+      return;
+    }
+
+    // url_verification challenge — signature is now confirmed valid before we echo anything.
+    // Guard the challenge value to a safe alphanumeric format before reflecting it.
+    if (parsed['type'] === 'url_verification') {
+      const challenge = parsed['challenge'];
+      if (typeof challenge !== 'string' || !/^[a-zA-Z0-9]{1,64}$/.test(challenge)) {
+        res.status(400).json({ error: 'Invalid challenge format' });
+        return;
+      }
+      res.json({ challenge });
       return;
     }
 

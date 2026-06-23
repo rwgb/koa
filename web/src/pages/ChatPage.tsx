@@ -9,7 +9,7 @@ import ChatPanel from '../components/ChatPanel.js';
 export default function ChatPage() {
   const [input, setInput] = useState('');
 
-  const { isThinking, setUsage, setAgentStatus } = useAgent();
+  const { isThinking, setUsage, setAgentStatus, statusError } = useAgent();
   const { items, classifyingTier, sendMessage, clearChat, voice } = useChat();
 
   // Refresh agent status on each visit to the chat page
@@ -30,15 +30,33 @@ export default function ChatPage() {
   };
 
   return (
-    <ChatPanel
-      items={items}
-      input={input}
-      setInput={setInput}
-      onSubmit={handleSubmit}
-      isThinking={isThinking}
-      classifyingTier={classifyingTier}
-      onClear={clearChat}
-      voice={voice}
-    />
+    <>
+      {statusError && (
+        <div
+          role="alert"
+          style={{
+            background: '#fee2e2',
+            borderBottom: '1px solid #fca5a5',
+            color: '#991b1b',
+            fontSize: '0.875rem',
+            fontWeight: 500,
+            padding: '0.625rem 1rem',
+            textAlign: 'center',
+          }}
+        >
+          {statusError}
+        </div>
+      )}
+      <ChatPanel
+        items={items}
+        input={input}
+        setInput={setInput}
+        onSubmit={handleSubmit}
+        isThinking={isThinking}
+        classifyingTier={classifyingTier}
+        onClear={clearChat}
+        voice={voice}
+      />
+    </>
   );
 }

@@ -442,7 +442,11 @@ export function streamChat(
     }
 
     // Stream closed without a done event (server error, network drop, etc.)
-    if (!doneReceived && !aborted) onDone();
+    // Calling onDone() here would silently dismiss the spinner; instead surface
+    // a visible error so the user knows the reply may be incomplete.
+    if (!doneReceived && !aborted) {
+      onError('Connection lost — reply may be incomplete. The agent is idle.');
+    }
   })();
 
   return () => controller.abort();
