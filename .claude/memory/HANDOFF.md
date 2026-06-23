@@ -1,20 +1,21 @@
 ---
 written: 2026-06-23
 branch: feature/web-console-and-hardening
-tests: 843
+tests: 910
 tsc: clean
-tip: 91858b7
+tip: b107b89
+audit: docs/AUDIT-2026-06-23.md
 ---
 
 ## Where We Are
 
-Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP29 scheduler (priority lanes) committed. 7 fixes applied. v1.0.0 track solid; CP27 retrieval and CP29 event bus deferred to v1.1.
+**2026-06-23 P0 remediation session**: All 9 P0 audit findings fully remediated as of 2026-06-23. SEC-001/002 security fixes applied, GAP-01–05 test coverage added, UX-001–003 error surfaces fixed. Branch sealed with commit b107b89.
 
-Three post-HANDOFF bug fixes landed: debug console backend routes wired + web build fix, Integrations page body made scrollable, gmail/twilio/google-calendar added to ALLOWED_TYPES.
+**2026-06-23 audit session**: Full security + QA + UI/UX audit completed. 54 findings ranked P0/P1/P2 in `docs/AUDIT-2026-06-23.md`. 910 tests passing (was 843), 55.4% statement coverage.
+
+**2026-06-23 session (earlier)**: Multi-instance integrations fully implemented and sealed (commit 91858b7). signingSecret masked, MULTI_INSTANCE_TYPES extended to gmail/google-calendar/slack/mcp_server, OAuth state carries integrationId, GmailPoller iterates all accounts, CalendarSync iterates all google-calendar instances, DB migration 11 adds source_integration_id to calendar_events, Slack webhook tries all connected secrets. Security fixes: integrationId regex-validated, KOA_WEB_TOKEN/KOA_HOME excluded from env dump, cwd removed from debug/info response.
 
 **2026-06-22 session**: KOA_PUBLIC_URL implemented + deployed. `https://koa.tailf8d66c.ts.net` live via `tailscale serve`. SSH key auth set up (root@192.168.1.200). OAuth redirect_uri now correct.
-
-**2026-06-23 session**: Multi-instance integrations fully implemented and sealed (commit 91858b7). signingSecret masked, MULTI_INSTANCE_TYPES extended to gmail/google-calendar/slack/mcp_server, OAuth state carries integrationId, GmailPoller iterates all accounts, CalendarSync iterates all google-calendar instances, DB migration 11 adds source_integration_id to calendar_events, Slack webhook tries all connected secrets. Security fixes: integrationId regex-validated, KOA_WEB_TOKEN/KOA_HOME excluded from env dump, cwd removed from debug/info response.
 
 ### What Was Done This Session
 
@@ -55,13 +56,30 @@ Three post-HANDOFF bug fixes landed: debug console backend routes wired + web bu
 
 ## What's Next (Prioritized)
 
-1. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 runs cleanly
-2. **Test multi-instance Gmail** — add a second Gmail account via UI, verify both accounts polled each tick
-3. **Verify calendar_events migration** — confirm source_integration_id column present after deploy
-4. **Google Calendar OAuth** — add ralph.brynard@gmail.com as test user in Google Cloud Console OAuth consent screen, then complete OAuth flow
-5. **v1.1.x bug triage** — watch for post-release issues; memory retrieval and event bus are the newest surface area
-6. **ai-review quota** — ANTHROPIC_API_KEY in CI is quota-exhausted until 2026-07-01; update the secret or wait
-7. **PR for unsealed fixes** — KOA_PUBLIC_URL + multi-instance changes not yet in a PR; consider opening one against main
+### P1 Security
+1. **SEC-003** — Slack response_url SSRF: validate URL against allowlist before fetching
+2. **SEC-004** — Telegram sender allowlist: silent drop + unauthorized_inbound signal for unknown senders
+3. **SEC-005** — bash tool cwd lock: jail working directory to project root
+4. **SEC-006** — debug/info key leak: scrub API keys from debug/info log output
+5. **SEC-007** — calendar OAuth error leak: sanitize OAuth error messages before surfacing to client
+6. **SEC-010** — Rate limiting on /api/chat and SSE endpoints
+7. **SEC-014** — openaiCompatibleBaseUrl SSRF: validate against SSRF blocklist before use
+8. **SEC-015** — Twilio HMAC: use raw body + X-Forwarded-For awareness
+
+### P1 QA
+9. **GAP-06** — GmailPoller unit tests (0% coverage)
+10. **GAP-07** — integrations/store atomic write tests
+11. **GAP-08** — semanticCompact fallback tests
+12. **GAP-09** — conversation export tests
+13. **GAP-10** — PUT /config endpoint tests
+14. **GAP-11** — writeMemoryEvent dedup logic tests
+15. **GAP-12** — McpManager partial failure handling tests
+
+### P1 UX
+16. **UX-004 through UX-019** — Activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications
+
+### Deploy
+17. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 ran cleanly
 
 ## Don't Restart
 

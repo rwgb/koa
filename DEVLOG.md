@@ -1,5 +1,56 @@
 # Koa — DevLog
 
+## 2026-06-23 - P0 Audit Remediation
+
+### Completed
+- SEC-001: analyze_image now jails paths through sandboxPath(); description updated; audit log added on every invocation
+- SEC-002: Slack url_verification challenge now requires valid HMAC before echoing; challenge format validated (/^[a-zA-Z0-9]{1,64}$/)
+- GAP-01: OAuth CSRF nonce integration tests — missing/replayed/exchange-failure/success branches all covered
+- GAP-02: getCalendarAccessToken unit tests with mocked googleapis — all throw paths + happy path
+- GAP-03: Graceful shutdown tests — SIGTERM/SIGINT cleanup ordering asserted, throw-in-cleanup covered
+- GAP-04: AgentLoop MAX_TOOL_ITERATIONS + toolTimeoutMs + max_tokens stop reason tests
+- GAP-05: Project budget enforcement test — overspend throws budget-exceeded error
+- UX-001: SSE unexpected close now injects visible "Connection lost" error ChatItem
+- UX-002: AgentContext fetchStatus failure surfaces visible banner in ChatPage
+- UX-003: MemoryPage loading gate added; each section has its own error state
+
+### Next Session
+- [ ] P1 security: SEC-003 (Slack response_url SSRF), SEC-004 (Telegram allowlist), SEC-005 (bash cwd lock), SEC-006 (debug/info key leak), SEC-007 (calendar OAuth error leak), SEC-010 (rate limiting), SEC-014 (openaiCompatibleBaseUrl SSRF), SEC-015 (Twilio header trust)
+- [ ] P1 QA: GAP-06 (GmailPoller tests), GAP-07 (integrations/store tests), GAP-08 (semanticCompact fallback), GAP-09 (conversation export), GAP-10 (PUT /config), GAP-11 (writeMemoryEvent dedup), GAP-12 (McpManager partial failure)
+- [ ] P1 UX: UX-004 through UX-019 (activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications)
+- [ ] Deploy to LXC + verify DB migration 11 ran cleanly
+
+### Decisions
+- P0 scope only for this run; P1/P2 are separate workflow runs
+- UX agents scoped to non-overlapping files to avoid merge conflicts in parallel execution
+
+## 2026-06-23 - Security, QA, and UI/UX Audit
+
+### Completed
+- Ran full 3-track audit workflow (security + QA coverage + UI/UX) via parallel agents
+- 910 tests all passing; 55.4% statement / 54.7% function coverage baseline measured
+- 54 findings synthesized into ranked P0/P1/P2 backlog saved to `docs/AUDIT-2026-06-23.md`
+
+### Decisions
+- Audit scope: full HTTP→middleware→handler→DB flow trace for security; coverage-weighted risk ranking for QA; all 24 web console files read in full for UX
+- User persona for UX: sole developer/admin (power user, daily driver)
+
+### Issues Found
+- **P0 (9 items):** SEC-001 `analyze_image` filesystem sandbox bypass; SEC-002 Slack url_verification reflected without signature check; GAP-01/02 OAuth CSRF nonce + calendar token refresh untested; GAP-03 graceful shutdown 0% coverage; GAP-04 `AgentLoop._turnImpl` timeout + iteration guard untested; GAP-05 budget enforcement untested; UX-001 silent SSE drop; UX-002 blank chat on AgentContext failure; UX-003 MemoryPage blank load
+- **P1 (28 items):** Telegram no sender allowlist; bash tool no cwd lock; debug/info leaks API keys; calendar sync leaks OAuth errors; no rate limiting on /api/chat or SSE; openaiCompatibleBaseUrl no SSRF check; Twilio HMAC uses proxy headers; GmailPoller 0% test; integrations store atomic write untested; semanticCompact fallback untested; widespread silent-swallow-error pattern across UI pages
+- **P2 (17 items):** SSE token in URL, debug log captures credential fragments, SSRF missing 100.64.0.0/10, single-line chat input, no keyboard shortcut to chat, Calendar nav icons both wrong direction, SettingsPage uses window.prompt()
+
+### Next Session
+- [ ] Implement P0 security fixes (SEC-001, SEC-002) — effort S each, start there
+- [ ] Add P0 QA tests (GAP-01 through GAP-05)
+- [ ] Fix P0 UX issues (UX-001 SSE silent drop, UX-002 blank chat, UX-003 MemoryPage)
+- [ ] Deploy to LXC + verify DB migration 11
+
+### Learnings
+- `analyze_image` tool explicitly advertises sandbox bypass in its own description — a self-documenting vulnerability
+- Silent error swallow pattern (`.catch(() => {})`, `/* non-fatal */`) is endemic across UI pages — needs a systematic fix pass
+- Overall coverage at 55.4% with the agent loop core at 59.5% is the highest-risk gap
+
 ## 2026-06-23 - Multi-instance integrations implementation
 
 ### Completed
