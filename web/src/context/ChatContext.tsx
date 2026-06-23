@@ -62,7 +62,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           );
         });
       })
-      .catch(err => console.error('Failed to hydrate chat transcript:', err));
+      .catch(err => {
+        console.error('Failed to hydrate chat transcript:', err);
+        setItems(prev => {
+          if (prev.length > 0) return prev;
+          return [{ kind: 'error', message: 'Could not load conversation history — starting fresh.', id: crypto.randomUUID() }];
+        });
+      });
   }, [agentStatus]);
 
   // Abort the stream only when the provider itself unmounts (full app teardown) —

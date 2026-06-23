@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchActivitySessions, fetchStatus, fetchWeeklyReport, fetchForecast, fetchProactiveAlerts, fetchConversations, fetchConversationTurns, exportConversation } from '../api.js';
 import { Icon } from '../components/Icon.js';
 import type { JournalSession, AgentStatus, WeeklyReport, ForecastSummary, ProactiveAlert, Conversation, ConversationTurn } from '../types.js';
@@ -281,11 +282,12 @@ function PricingTable() {
 
 // ── Conversations ─────────────────────────────────────────────────────────────
 
-function ConversationsTab() {
+function ConversationsTab({ openConversationId }: { openConversationId?: string }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [turns, setTurns] = useState<Record<string, ConversationTurn[]>>({});
+  const highlightedRef = useRef<HTMLLIElement | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -293,6 +295,21 @@ function ConversationsTab() {
       .then(setConversations)
       .finally(() => setLoading(false));
   }, []);
+
+  // Auto-expand and scroll to the targeted conversation once list is loaded.
+  useEffect(() => {
+    if (!openConversationId || loading) return;
+    setExpanded(openConversationId);
+    fetchConversationTurns(openConversationId).then((t) => {
+      setTurns((prev) => ({ ...prev, [openConversationId]: t }));
+    });
+  }, [openConversationId, loading]);
+
+  useEffect(() => {
+    if (highlightedRef.current) {
+      highlightedRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [expanded]);
 
   async function expandConversation(id: string) {
     if (expanded === id) { setExpanded(null); return; }
@@ -322,7 +339,11 @@ function ConversationsTab() {
   return (
     <ul className="activity-session-list">
       {conversations.map((c) => (
-        <li key={c.id} className="activity-session-item">
+        <li
+          key={c.id}
+          className={`activity-session-item${c.id === openConversationId ? ' activity-session-item--highlighted' : ''}`}
+          ref={c.id === openConversationId ? highlightedRef : null}
+        >
           <div className="activity-session-item__header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               className="activity-session-item__header"
@@ -357,12 +378,30 @@ function ConversationsTab() {
 // ── Root ─────────────────────────────────────────────────────────────────────
 
 export default function ActivityPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const openConversationId: string | undefined = (location.state as { openConversationId?: string } | null)?.openConversationId;
+
   const [sessions, setSessions] = useState<JournalSession[]>([]);
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
+  const [weeklyReportLoading, setWeeklyReportLoading] = useState(true);
+  const [weeklyReportError, setWeeklyReportError] = useState<string | null>(null);
   const [forecast, setForecast] = useState<ForecastSummary | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(true);
+  const [forecastError, setForecastError] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<ProactiveAlert[] | null>(null);
+  const [alertsLoading, setAlertsLoading] = useState(true);
+  const [alertsError, setAlertsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Clear navigation state after consuming it so back-navigation doesn't re-trigger.
+  useEffect(() => {
+    if (openConversationId) {
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     fetchActivitySessions()
@@ -373,17 +412,23 @@ export default function ActivityPage() {
       .then(setStatus)
       .catch((err) => setError((err as Error).message));
 
+    setWeeklyReportLoading(true);
     fetchWeeklyReport()
       .then(setWeeklyReport)
-      .catch(() => { /* analytics unavailable — non-fatal */ });
+      .catch((err) => setWeeklyReportError((err as Error).message))
+      .finally(() => setWeeklyReportLoading(false));
 
+    setForecastLoading(true);
     fetchForecast()
       .then(setForecast)
-      .catch(() => { /* non-fatal */ });
+      .catch((err) => setForecastError((err as Error).message))
+      .finally(() => setForecastLoading(false));
 
+    setAlertsLoading(true);
     fetchProactiveAlerts()
       .then((r) => setAlerts(r.alerts))
-      .catch(() => { /* non-fatal */ });
+      .catch((err) => setAlertsError((err as Error).message))
+      .finally(() => setAlertsLoading(false));
   }, []);
 
   if (error) return <div className="page-error">Error: {error}</div>;
@@ -402,19 +447,24 @@ export default function ActivityPage() {
           </div>
           {weeklyReport
             ? <StreakPanel report={weeklyReport} />
-            : <div className="page-loading">Loading…</div>
+            : weeklyReportLoading
+              ? <div className="page-loading">Loading…</div>
+              : <div className="mem-empty__text">Unavailable{weeklyReportError ? `: ${weeklyReportError}` : '.'}</div>
           }
         </section>
 
-        {alerts !== null && (
-          <section className="mem-section">
-            <div className="mem-section__header">
-              <h2 className="mem-section__title">Proactive Alerts</h2>
-              {alerts.length > 0 && <span className="activity-alert-badge">{alerts.length}</span>}
-            </div>
-            <ProactivePanel alerts={alerts} />
-          </section>
-        )}
+        <section className="mem-section">
+          <div className="mem-section__header">
+            <h2 className="mem-section__title">Proactive Alerts</h2>
+            {alerts !== null && alerts.length > 0 && <span className="activity-alert-badge">{alerts.length}</span>}
+          </div>
+          {alerts !== null
+            ? <ProactivePanel alerts={alerts} />
+            : alertsLoading
+              ? <div className="page-loading">Loading…</div>
+              : <div className="mem-empty__text">Unavailable{alertsError ? `: ${alertsError}` : '.'}</div>
+          }
+        </section>
 
         <section className="mem-section">
           <div className="mem-section__header">
@@ -422,7 +472,9 @@ export default function ActivityPage() {
           </div>
           {forecast
             ? <ForecastPanel forecast={forecast} />
-            : <div className="page-loading">Loading…</div>
+            : forecastLoading
+              ? <div className="page-loading">Loading…</div>
+              : <div className="mem-empty__text">Unavailable{forecastError ? `: ${forecastError}` : '.'}</div>
           }
         </section>
 
@@ -445,7 +497,7 @@ export default function ActivityPage() {
           <div className="mem-section__header">
             <h2 className="mem-section__title">Conversations</h2>
           </div>
-          <ConversationsTab />
+          <ConversationsTab openConversationId={openConversationId} />
         </section>
 
         <section className="mem-section">

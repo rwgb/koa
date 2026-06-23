@@ -550,10 +550,13 @@ export default function IntegrationsPage() {
       .then(setTelegramStatus)
       .catch(() => { /* non-fatal */ });
 
-    // After Gmail OAuth redirect, refresh the integration list
+    // After OAuth redirect, clean URL and re-fetch so the list reflects the new connection
     const params = new URLSearchParams(window.location.search);
-    if (params.get('connected') === 'gmail') {
+    if (params.get('connected') === 'gmail' || params.get('connected') === 'google-calendar') {
       window.history.replaceState({}, '', window.location.pathname);
+      fetchIntegrations()
+        .then(setIntegrations)
+        .catch(() => { /* non-fatal; primary fetch above already shows errors */ });
     }
   }, []);
 
@@ -709,13 +712,33 @@ export default function IntegrationsPage() {
             </label>
           </div>
           {braveError && <div className="slide-over__error">{braveError}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+            {braveKeySet && (
+              <button
+                className="intg-btn intg-btn--danger"
+                onClick={async () => {
+                  setBraveSaving(true); setBraveError(null);
+                  try {
+                    await updateBraveApiKey('');
+                    setBraveKeySet(false);
+                    setBraveInput('');
+                  } catch (err) {
+                    setBraveError((err as Error).message);
+                  } finally {
+                    setBraveSaving(false);
+                  }
+                }}
+                disabled={braveSaving}
+              >
+                Remove
+              </button>
+            )}
             <button
               className="intg-btn intg-btn--primary"
               onClick={handleBraveSave}
-              disabled={braveSaving || (!braveInput && braveKeySet)}
+              disabled={braveSaving || !braveInput}
             >
-              {braveSaving ? 'Saving…' : (!braveInput && braveKeySet) ? 'Remove' : 'Save'}
+              {braveSaving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -801,25 +824,47 @@ export default function IntegrationsPage() {
                 </div>
               </div>
               {elError && <p className="intg-field__error">{elError}</p>}
-              <button
-                className="btn btn--primary"
-                disabled={elSaving || (!elInput && !elKeySet)}
-                onClick={async () => {
-                  setElSaving(true); setElError('');
-                  try {
-                    await updateElevenLabsApiKey(elInput);
-                    setElKeySet(!!elInput);
-                    setElInput(''); setElSaved(true);
-                    setTimeout(() => setElSaved(false), 3000);
-                  } catch (e) {
-                    setElError(e instanceof Error ? e.message : 'Failed to save');
-                  } finally {
-                    setElSaving(false);
-                  }
-                }}
-              >
-                {elSaving ? 'Saving…' : elSaved ? 'Saved ✓' : (!elInput && elKeySet) ? 'Remove' : 'Save'}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                {elKeySet && (
+                  <button
+                    className="btn btn--danger"
+                    disabled={elSaving}
+                    onClick={async () => {
+                      setElSaving(true); setElError('');
+                      try {
+                        await updateElevenLabsApiKey('');
+                        setElKeySet(false);
+                        setElInput('');
+                      } catch (e) {
+                        setElError(e instanceof Error ? e.message : 'Failed to remove');
+                      } finally {
+                        setElSaving(false);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+                <button
+                  className="btn btn--primary"
+                  disabled={elSaving || !elInput}
+                  onClick={async () => {
+                    setElSaving(true); setElError('');
+                    try {
+                      await updateElevenLabsApiKey(elInput);
+                      setElKeySet(true);
+                      setElInput(''); setElSaved(true);
+                      setTimeout(() => setElSaved(false), 3000);
+                    } catch (e) {
+                      setElError(e instanceof Error ? e.message : 'Failed to save');
+                    } finally {
+                      setElSaving(false);
+                    }
+                  }}
+                >
+                  {elSaving ? 'Saving…' : elSaved ? 'Saved ✓' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { MODELS } from './router.js';
+import { MODEL_MAP } from '../types/index.js';
 
 export type AgentName = 'code-assistant' | 'project-manager' | 'life-manager';
 
@@ -27,13 +28,13 @@ export function buildAgentSpecs(userName: string): Record<AgentName, AgentSpec &
     'project-manager': {
       name: 'project-manager',
       label: 'PM',
-      model: MODELS.haiku,
+      model: MODEL_MAP.fast,
       systemAddition: PM_SYSTEM,
     },
     'life-manager': {
       name: 'life-manager',
       label: 'Life',
-      model: MODELS.haiku,
+      model: MODEL_MAP.fast,
       systemAddition: buildLmSystem(userName),
     },
   };

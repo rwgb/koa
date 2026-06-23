@@ -11,12 +11,14 @@ import SettingsPage from './pages/SettingsPage.js';
 import ProjectsPage from './pages/ProjectsPage.js';
 import ProjectDetailPage from './pages/ProjectDetailPage.js';
 import TaskDetailPage from './pages/TaskDetailPage.js';
+import TasksListPage from './pages/TasksListPage.js';
 import DecisionsPage from './pages/DecisionsPage.js';
 import SearchPage from './pages/SearchPage.js';
 import CalendarPage from './pages/CalendarPage.js';
 import DelegationsPage from './pages/DelegationsPage.js';
 import DebugConsolePage from './pages/DebugConsolePage.js';
 import { pingServer, verifyToken, getStoredToken, setStoredToken } from './api.js';
+import { DevModeProvider } from './context/DevModeContext.js';
 
 type AuthState = 'loading' | 'ready' | 'needs-token';
 
@@ -94,27 +96,30 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<RootLayout />}>
-          <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<ChatPage />} />
-          <Route path="memory" element={<MemoryPage />} />
-          <Route path="integrations" element={<IntegrationsPage />} />
-          <Route path="skills" element={<SkillsPage />} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="activity" element={<ActivityPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="projects/:projectId" element={<ProjectDetailPage />} />
-          <Route path="tasks/:taskId" element={<TaskDetailPage />} />
-          <Route path="decisions" element={<DecisionsPage />} />
-          <Route path="search" element={<SearchPage />} />
-          <Route path="calendar" element={<CalendarPage />} />
-          <Route path="delegations" element={<DelegationsPage />} />
-          <Route path="debug" element={<DebugConsolePage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <DevModeProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<RootLayout />}>
+            <Route index element={<Navigate to="/chat" replace />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="memory" element={<MemoryPage />} />
+            <Route path="integrations" element={<IntegrationsPage />} />
+            <Route path="skills" element={<SkillsPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="activity" element={<ActivityPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+            <Route path="tasks" element={<TasksListPage />} />
+            <Route path="tasks/:taskId" element={<TaskDetailPage />} />
+            <Route path="decisions" element={<DecisionsPage />} />
+            <Route path="search" element={<SearchPage />} />
+            <Route path="calendar" element={<CalendarPage />} />
+            <Route path="delegations" element={<DelegationsPage />} />
+            <Route path="debug" element={<DebugConsolePage />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </DevModeProvider>
   );
 }

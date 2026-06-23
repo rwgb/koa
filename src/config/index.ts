@@ -11,7 +11,7 @@ const ConfigSchema = z.object({
   projectPath: z.string(),
   engramEnabled: z.boolean().default(true),
   apiKey: z.string().optional(),
-  smartRouting: z.boolean().default(false),
+  smartRouting: z.boolean().default(true),
   maxToolOutputChars: z.number().default(12000),
   spiderBrainBrain: z.string().optional(),
   autoCheckpointTurns: z.number().default(5),
@@ -169,7 +169,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       smartRouting:
         process.env['KOA_SMART_ROUTING'] !== undefined
           ? process.env['KOA_SMART_ROUTING'] === 'true'
-          : (fileConfig.smartRouting ?? false),
+          : (fileConfig.smartRouting ?? true),
       maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
         ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
         : (fileConfig.maxToolOutputChars ?? 12000),
@@ -315,7 +315,7 @@ export function loadLocalConfig(projectPath?: string): KoaConfig {
       projectPath: resolvedPath,
       engramEnabled: false,          // local code sessions never use Engram
       apiKey,
-      smartRouting: false,
+      smartRouting: true,
       maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
         ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
         : (fileConfig.maxToolOutputChars ?? 12000),

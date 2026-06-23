@@ -139,9 +139,13 @@ export default function TaskDetailPage() {
   return (
     <div className="task-detail-page">
       <header className="page-header">
-        {project && (
+        {project ? (
           <Link to={`/projects/${project.id}`} className="proj-back-link">
             ← {project.name}
+          </Link>
+        ) : (
+          <Link to="/projects" className="proj-back-link">
+            ← Projects
           </Link>
         )}
         <h1 className="page-title">Task Detail</h1>

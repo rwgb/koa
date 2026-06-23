@@ -30,6 +30,7 @@ export default function DebugConsolePage() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [tab, setTab] = useState<Tab>('logs');
   const [error, setError] = useState<string | null>(null);
+  const [infoError, setInfoError] = useState<string | null>(null);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -48,9 +49,9 @@ export default function DebugConsolePage() {
     try {
       const data = await getDebugInfo();
       setInfo(data);
-      setError(null);
+      setInfoError(null);
     } catch (err) {
-      setError((err as Error).message);
+      setInfoError((err as Error).message);
     }
   }, []);
 
@@ -203,7 +204,9 @@ export default function DebugConsolePage() {
 
       {tab === 'info' && (
         <div style={{ overflowY: 'auto', flex: 1 }}>
-          {info === null ? (
+          {infoError !== null ? (
+            <p style={{ color: 'var(--red)' }}>Failed to load diagnostics — {infoError}</p>
+          ) : info === null ? (
             <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>

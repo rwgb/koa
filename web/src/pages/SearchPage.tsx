@@ -219,7 +219,7 @@ export default function SearchPage() {
                 <ConversationResultCard
                   key={r.turnId}
                   result={r}
-                  onClick={() => navigate('/activity')}
+                  onClick={() => navigate('/activity', { state: { openConversationId: r.conversationId } })}
                 />
               ))}
             </div>

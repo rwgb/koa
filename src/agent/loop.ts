@@ -35,6 +35,7 @@ import {
 import type { Preference } from '../engram/preferences.js';
 import { readRecentSignals } from '../engram/signals.js';
 import type { SignalType } from '../engram/signals.js';
+import { KOA_IDENTITY } from './identity.js';
 
 const MIN_PROMPT_BUDGET_TOKENS = 8_000;
 const MIN_PROMPT_BUDGET_RATIO = 0.5;
@@ -93,15 +94,7 @@ export interface TurnCallbacks {
   onChainStart?: (agent: string) => void;
 }
 
-const SYSTEM_BASE = `You are Koa, an expert software engineering assistant with persistent project memory.
-You have access to tools for reading/writing files, running shell commands, querying project history via Engram, and analyzing image files via the analyze_image tool.
-Be precise, concise, and always verify your work. Prefer editing existing files over creating new ones.
-
-Coding discipline:
-- Think before coding: state assumptions explicitly; surface tradeoffs; ask when uncertain rather than proceeding with hidden confusion.
-- Simplicity first: write the minimum code that solves the problem — no speculative features, no abstractions for single-use code.
-- Surgical changes: touch only what the request requires; match existing style; remove only what your changes made unused.
-- Goal-driven: transform vague tasks into verifiable success criteria before starting; state a brief plan for multi-step work.`;
+const SYSTEM_BASE = KOA_IDENTITY;
 
 // Approximate per-token pricing (USD) for cost estimation in logUsage.
 const PRICING: Record<string, { input: number; cacheWrite: number; cacheRead: number; output: number }> = {
@@ -305,15 +298,17 @@ export class AgentLoop {
     }
     void this.sb.autoMolt();
 
-    // Working memory
-    ensureProjectMemoryDir(this.config.projectPath);
-    const paths = projectMemoryPaths(this.config.projectPath);
+    // Working memory — use localHome when set (koa code sessions) so that data
+    // never collides with the remote server's ~/.koa/ tree.
+    const localHome = this.config.localHome;
+    ensureProjectMemoryDir(this.config.projectPath, localHome);
+    const paths = projectMemoryPaths(this.config.projectPath, localHome);
 
     const projectMd = readMarkdownFile(paths.projectMd);
     const stateMd = readMarkdownFile(paths.stateMd);
     const backlogMd = readMarkdownFile(paths.backlogMd);
     const handoffMd = readMarkdownFile(paths.handoffMd);
-    const journals = readRecentJournals(this.config.projectPath, 3);
+    const journals = readRecentJournals(this.config.projectPath, 3, localHome);
 
     this.state.projectMemory = {
       ...(projectMd !== null ? { project: projectMd } : {}),
@@ -1094,9 +1089,17 @@ export class AgentLoop {
 
     // Background preference extraction — Anthropic-only, non-blocking, non-fatal
     if (this.config.apiKey && this.anthropicClient && finalContent) {
-      void extractAndMergePreferences(userMessage, finalContent, this.preferences, this.anthropicClient)
-        .then(() => { this.preferences = loadPreferences(); })
-        .catch(() => { /* silent — never block a turn */ });
+      const PREF_KEYWORDS = ['remember', 'always', 'never', 'prefer', 'from now on',
+        'going forward', 'please stop', "don't", 'do not', 'make sure', 'keep in mind'];
+      const msgText = (typeof userMessage === 'string' ? userMessage : '').toLowerCase();
+      if (!PREF_KEYWORDS.some(kw => msgText.includes(kw))) {
+        // no preference signal in this message — skip extraction
+        process.stderr.write('[loop] preference extraction skipped — no keyword match\n');
+      } else {
+        void extractAndMergePreferences(userMessage, finalContent, this.preferences, this.anthropicClient)
+          .then(() => { this.preferences = loadPreferences(); })
+          .catch(() => { /* silent — never block a turn */ });
+      }
     }
 
     const stats = this.contextStats();
@@ -1136,7 +1139,7 @@ export class AgentLoop {
   async checkpoint(): Promise<void> {
     if (!this.config.apiKey || this.state.turnCount === 0) return;
     const summary = this.buildConversationSummary();
-    const paths = projectMemoryPaths(this.config.projectPath);
+    const paths = projectMemoryPaths(this.config.projectPath, this.config.localHome);
     const stateMd = await generateStateDoc(summary, this.state.turnCount, this.config.apiKey);
     writeMarkdownFile(paths.stateMd, stateMd);
     if (this.state.projectMemory) this.state.projectMemory.state = stateMd;
@@ -1181,14 +1184,14 @@ export class AgentLoop {
     }
 
     const summary = this.buildConversationSummary();
-    const paths = projectMemoryPaths(this.config.projectPath);
+    const paths = projectMemoryPaths(this.config.projectPath, this.config.localHome);
 
     await Promise.all([
       generateStateDoc(summary, this.state.turnCount, this.config.apiKey).then((doc) => {
         writeMarkdownFile(paths.stateMd, doc);
       }),
       generateJournalEntry(summary, this.state.turnCount, this.config.apiKey).then((entry) => {
-        appendJournalEntry(this.config.projectPath, entry);
+        appendJournalEntry(this.config.projectPath, entry, this.config.localHome);
       }),
       this.config.engramEnabled
         ? this.engram.rememberSession(`${this.state.turnCount} turns. ${summary.slice(0, 200)}`)

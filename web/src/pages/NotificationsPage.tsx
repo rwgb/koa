@@ -193,11 +193,15 @@ function EscalationSection({
   onChange,
   onSave,
   saving,
+  saveError,
+  onDismissError,
 }: {
   escalation: EscalationSettings;
   onChange: (s: EscalationSettings) => void;
   onSave: () => void;
   saving: boolean;
+  saveError: string | null;
+  onDismissError: () => void;
 }) {
   return (
     <div className="section">
@@ -207,6 +211,12 @@ function EscalationSection({
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
+      {saveError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--red)', fontSize: '13px' }}>
+          <span>Failed to save escalation settings: {saveError}</span>
+          <button className="btn btn-sm" onClick={onDismissError} style={{ padding: '0 6px', lineHeight: '18px', fontSize: '11px' }}>✕</button>
+        </div>
+      )}
       <div className="notif-escalation">
         <label className="notif-quiet__toggle">
           <input
@@ -349,11 +359,15 @@ function QuietHoursSection({
   onChange,
   onSave,
   saving,
+  saveError,
+  onDismissError,
 }: {
   qh: QuietHours;
   onChange: (qh: QuietHours) => void;
   onSave: () => void;
   saving: boolean;
+  saveError: string | null;
+  onDismissError: () => void;
 }) {
   return (
     <div className="section">
@@ -363,6 +377,12 @@ function QuietHoursSection({
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
+      {saveError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', color: 'var(--red)', fontSize: '13px' }}>
+          <span>Failed to save quiet hours: {saveError}</span>
+          <button className="btn btn-sm" onClick={onDismissError} style={{ padding: '0 6px', lineHeight: '18px', fontSize: '11px' }}>✕</button>
+        </div>
+      )}
       <div className="notif-quiet">
         <label className="notif-quiet__toggle">
           <input
@@ -415,6 +435,9 @@ export default function NotificationsPage() {
   const [savingRules, setSavingRules] = useState(false);
   const [savingQh, setSavingQh]       = useState(false);
   const [savingEscalation, setSavingEscalation] = useState(false);
+  const [errorRules, setErrorRules]         = useState<string | null>(null);
+  const [errorQh, setErrorQh]               = useState<string | null>(null);
+  const [errorEscalation, setErrorEscalation] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([fetchNotifications(), fetchIntegrations()])
@@ -433,9 +456,12 @@ export default function NotificationsPage() {
   async function handleDeleteRule(id: string) {
     const updated = rules.filter(r => r.id !== id);
     setSavingRules(true);
+    setErrorRules(null);
     try {
       await saveNotificationRules(updated);
       setRules(updated);
+    } catch (err) {
+      setErrorRules((err as Error).message);
     } finally {
       setSavingRules(false);
     }
@@ -446,11 +472,14 @@ export default function NotificationsPage() {
       ? rules.map(r => r.id === rule.id ? rule : r)
       : [...rules, rule];
     setSavingRules(true);
+    setErrorRules(null);
     try {
       await saveNotificationRules(updated);
       setRules(updated);
       setShowAddRule(false);
       setEditingRule(null);
+    } catch (err) {
+      setErrorRules((err as Error).message);
     } finally {
       setSavingRules(false);
     }
@@ -458,14 +487,26 @@ export default function NotificationsPage() {
 
   async function handleSaveQh() {
     setSavingQh(true);
-    try { await saveQuietHours(qh); }
-    finally { setSavingQh(false); }
+    setErrorQh(null);
+    try {
+      await saveQuietHours(qh);
+    } catch (err) {
+      setErrorQh((err as Error).message);
+    } finally {
+      setSavingQh(false);
+    }
   }
 
   async function handleSaveEscalation() {
     setSavingEscalation(true);
-    try { await saveEscalationSettings(escalation); }
-    finally { setSavingEscalation(false); }
+    setErrorEscalation(null);
+    try {
+      await saveEscalationSettings(escalation);
+    } catch (err) {
+      setErrorEscalation((err as Error).message);
+    } finally {
+      setSavingEscalation(false);
+    }
   }
 
   if (loading) return <div className="page-loading">Loading notifications…</div>;
@@ -550,6 +591,12 @@ export default function NotificationsPage() {
             </div>
           )}
           {savingRules && <p className="notif-saving">Saving…</p>}
+          {errorRules && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', color: 'var(--red)', fontSize: '13px' }}>
+              <span>Failed to save rules: {errorRules}</span>
+              <button className="btn btn-sm" onClick={() => setErrorRules(null)} style={{ padding: '0 6px', lineHeight: '18px', fontSize: '11px' }}>✕</button>
+            </div>
+          )}
         </div>
 
         {/* Quiet hours */}
@@ -558,6 +605,8 @@ export default function NotificationsPage() {
           onChange={setQh}
           onSave={() => void handleSaveQh()}
           saving={savingQh}
+          saveError={errorQh}
+          onDismissError={() => setErrorQh(null)}
         />
 
         {/* Escalation */}
@@ -566,6 +615,8 @@ export default function NotificationsPage() {
           onChange={setEscalation}
           onSave={() => void handleSaveEscalation()}
           saving={savingEscalation}
+          saveError={errorEscalation}
+          onDismissError={() => setErrorEscalation(null)}
         />
 
         {/* Browser push */}
