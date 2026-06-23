@@ -1,5 +1,19 @@
 # Koa — DevLog
 
+## 2026-06-23 - P1 QA Remediation
+
+### Completed
+- GAP-06: gmail_poller.test.ts — GmailPoller._pollOne dedup, rate limit, routing
+- GAP-07: integrations.test.ts — atomic write, mergeConfig secret preservation, maskSecrets, deleteIntegration
+- GAP-08: loop_compact.test.ts — semanticCompact provider-failure fallback, orphan-free invariant
+- GAP-09: server_routes.test.ts — conversation export 200/404, search empty-q 400
+- GAP-10: server_routes.test.ts — PUT /config apiKey, braveApiKey length, briefingTime format, ollamaBaseUrl SSRF
+- GAP-11: memory_events.test.ts — writeMemoryEvent dedup, FTS special chars, rowToEntry mapping
+- GAP-12: mcp_client.test.ts — McpManager partial-failure: healthy tools returned, serverStatus, disconnectAll idempotent
+
+### Next Session
+- [ ] P1 UX: UX-004 through UX-024
+
 ## 2026-06-23 - P1 Security Remediation
 
 ### Completed

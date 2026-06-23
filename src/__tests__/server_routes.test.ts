@@ -95,6 +95,31 @@ vi.mock('../proactive/delegations.js', () => ({
   runDueDelegations: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Bypass the adminUpdateRateLimit (max:2 / 10 min) so admin config tests don't
+// get 429 when multiple PUT /config calls happen within the same test run.
+vi.mock('../server/middleware.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../server/middleware.js')>();
+  return {
+    ...actual,
+    adminUpdateRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),
+  };
+});
+
+vi.mock('../db/index.js', () => ({
+  listConversations: vi.fn().mockReturnValue([]),
+  getConversation: vi.fn().mockReturnValue(null),
+  getConversationTurns: vi.fn().mockReturnValue([]),
+  searchConversations: vi.fn().mockReturnValue([]),
+  deleteConversationsBefore: vi.fn().mockReturnValue(0),
+  createConversation: vi.fn().mockReturnValue({ id: 'test-conv-id', title: null, started_at: new Date().toISOString(), ended_at: null, turn_count: 0 }),
+  addConversationTurn: vi.fn().mockReturnValue({ id: 'test-turn-id' }),
+  createDelegation: vi.fn().mockReturnValue({ id: 'test-del-id' }),
+  listDelegations: vi.fn().mockReturnValue([]),
+  getDelegation: vi.fn().mockReturnValue(null),
+  updateDelegation: vi.fn().mockReturnValue(null),
+  deleteDelegation: vi.fn().mockReturnValue(0),
+}));
+
 // ── Fake AgentLoop ──────────────────────────────────────────────────────────────
 
 function makeFakeLoop(overrides: Partial<{
@@ -106,6 +131,7 @@ function makeFakeLoop(overrides: Partial<{
   contextStats: () => object;
   initialize: () => Promise<void>;
   finalize: () => Promise<void>;
+  updateApiKey: (key: string) => void;
 }> = {}) {
   const defaultUsage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0, model: 'test', agent: 'code-assistant' as const };
   const defaultResult: TurnResult = {
@@ -134,6 +160,7 @@ function makeFakeLoop(overrides: Partial<{
     contextStats: vi.fn().mockReturnValue({ inputTokens: 0, outputTokens: 0 }),
     initialize: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
+    updateApiKey: vi.fn(),
     ...overrides,
   };
 }
@@ -654,5 +681,109 @@ describe('§B server routes — SSE busy/auth', () => {
     const app = await buildApp('tok');
     const res = await request(app).get('/api/sse/chat?message=hello&token=wrongtoken');
     expect(res.status).toBe(401);
+  });
+});
+
+// ── GAP-09: Conversations export and search routes ──────────────────────────
+
+describe('GAP-09 conversations — export and search routes', () => {
+  it('GET /api/conversations/:id/export returns 200 with Content-Disposition attachment for valid id', async () => {
+    const { getConversation, getConversationTurns } = await import('../db/index.js');
+    vi.mocked(getConversation).mockReturnValueOnce({
+      id: 'conv-abc123',
+      title: 'Test Conversation',
+      started_at: '2026-01-01T00:00:00Z',
+      ended_at: null,
+      turn_count: 1,
+      project_id: null,
+    });
+    vi.mocked(getConversationTurns).mockReturnValueOnce([]);
+
+    const app = await buildApp('tok');
+    // The JSON export path (default) doesn't set Content-Disposition; use ?format=markdown
+    const res = await request(app)
+      .get('/api/conversations/conv-abc123/export?format=markdown')
+      .set('Authorization', 'Bearer tok');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toMatch(/attachment/);
+  });
+
+  it('GET /api/conversations/:id/export returns 404 for unknown conversation id', async () => {
+    const { getConversation } = await import('../db/index.js');
+    vi.mocked(getConversation).mockReturnValueOnce(null);
+
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/conversations/nonexistent-id/export')
+      .set('Authorization', 'Bearer tok');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('GET /api/conversations/search with empty q returns 400', async () => {
+    const app = await buildApp('tok');
+    const res = await request(app)
+      .get('/api/conversations/search?q=')
+      .set('Authorization', 'Bearer tok');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('q parameter required');
+  });
+});
+
+// ── GAP-10: PUT /api/admin/config credential-write paths ────────────────────
+
+describe('GAP-10 PUT /api/admin/config', () => {
+  it('valid apiKey triggers loop.updateApiKey()', async () => {
+    const updateApiKey = vi.fn();
+    const app = await buildApp('tok', { updateApiKey });
+
+    const res = await request(app)
+      .put('/api/admin/config')
+      .set('Authorization', 'Bearer tok')
+      .send({ apiKey: 'sk-ant-api-validkey123' });
+
+    expect(res.status).toBe(200);
+    expect(updateApiKey).toHaveBeenCalledWith('sk-ant-api-validkey123');
+  });
+
+  it('braveApiKey longer than 256 chars returns 400', async () => {
+    const app = await buildApp('tok');
+    const longKey = 'x'.repeat(257);
+
+    const res = await request(app)
+      .put('/api/admin/config')
+      .set('Authorization', 'Bearer tok')
+      .send({ braveApiKey: longKey });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/braveApiKey too long/i);
+  });
+
+  it('invalid briefingTime format (not HH:MM) returns 400', async () => {
+    const app = await buildApp('tok');
+
+    const res = await request(app)
+      .put('/api/admin/config')
+      .set('Authorization', 'Bearer tok')
+      .send({ briefingTime: '8:00am' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/briefingTime must be HH:MM/i);
+  });
+
+  it('SSRF-blocked ollamaBaseUrl (public IP not in RFC1918) returns 400', async () => {
+    const app = await buildApp('tok');
+
+    // isOllamaUrl only allows loopback + RFC1918 ranges; a public IP must be rejected
+    const res = await request(app)
+      .put('/api/admin/config')
+      .set('Authorization', 'Bearer tok')
+      .send({ ollamaBaseUrl: 'http://8.8.8.8/api' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/private\/local address/i);
   });
 });

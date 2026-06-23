@@ -107,4 +107,60 @@ describe('McpManager', () => {
     expect(tools).toHaveLength(0);
     consoleErrorSpy.mockRestore();
   });
+
+  it('returns tools from healthy servers when one server fails to connect', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // First server throws; second resolves (default mockResolvedValue set in beforeEach)
+    mockConnect.mockRejectedValueOnce(new Error('ENOENT: command not found'));
+    mockListTools.mockResolvedValue({
+      tools: [{ name: 'ping', description: 'pings a host', inputSchema: { type: 'object', properties: {} } }],
+    });
+
+    const manager = new McpManager([
+      { name: 'broken', command: 'does-not-exist' },
+      { name: 'healthy', command: 'healthy-server' },
+    ]);
+    await manager.connectAll();
+    const tools = await manager.getTools();
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.name).toBe('mcp_healthy_ping');
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('serverStatus() reflects failed and healthy servers', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockConnect.mockRejectedValueOnce(new Error('ENOENT: command not found'));
+    mockListTools.mockResolvedValue({ tools: [] });
+
+    const manager = new McpManager([
+      { name: 'broken', command: 'does-not-exist' },
+      { name: 'healthy', command: 'healthy-server' },
+    ]);
+    await manager.connectAll();
+    const status = manager.serverStatus();
+
+    const brokenEntry = status.find((s) => s.name === 'broken');
+    const healthyEntry = status.find((s) => s.name === 'healthy');
+    expect(brokenEntry).toBeDefined();
+    expect(brokenEntry!.connected).toBe(false);
+    expect(healthyEntry).toBeDefined();
+    expect(healthyEntry!.connected).toBe(true);
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('disconnectAll() does not throw when called after partial failure', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockConnect.mockRejectedValueOnce(new Error('ENOENT: command not found'));
+    mockListTools.mockResolvedValue({ tools: [] });
+
+    const manager = new McpManager([
+      { name: 'broken', command: 'does-not-exist' },
+      { name: 'healthy', command: 'healthy-server' },
+    ]);
+    await manager.connectAll();
+
+    await expect(manager.disconnectAll()).resolves.not.toThrow();
+    consoleErrorSpy.mockRestore();
+  });
 });

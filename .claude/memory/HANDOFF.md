@@ -87,13 +87,7 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 8. ~~**SEC-015** — Twilio HMAC: use raw body + X-Forwarded-For awareness~~ [done]
 
 ### P1 QA
-9. **GAP-06** — GmailPoller unit tests (0% coverage)
-10. **GAP-07** — integrations/store atomic write tests
-11. **GAP-08** — semanticCompact fallback tests
-12. **GAP-09** — conversation export tests
-13. **GAP-10** — PUT /config endpoint tests
-14. **GAP-11** — writeMemoryEvent dedup logic tests
-15. **GAP-12** — McpManager partial failure handling tests
+~~GAP-06 through GAP-12 sealed 2026-06-23~~
 
 ### P1 UX
 16. **UX-004 through UX-019** — Activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications
