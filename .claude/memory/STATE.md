@@ -54,18 +54,18 @@ metadata:
 | CP27-C/D | BM25/RRF retrieval pipeline + per-turn system prompt injection | ✅ done 2026-06-16 |
 | CP29-A/B | EventBus namespace.verb pattern + action_type dispatch (notify/brief/agent) | ✅ done 2026-06-16 |
 | CP29-C | TurnScheduler replaces isBusy — priority queuing, no more 429s | ✅ done 2026-06-16 |
+| — | Multi-instance integrations (gmail, google-calendar, slack, mcp_server) + security fixes | ✅ done 2026-06-23 |
 
-## Current State (2026-06-16)
+## Current State (2026-06-23)
 
-- Branch: `feature/web-console-and-hardening` (uncommitted working tree changes)
-- Tests: 886 passing, 0 failing | tsc: clean
-- CP27-C/D complete: BM25/RRF retrieval + per-turn system prompt injection wired in
-- Production (192.168.1.200): still on v1.0.0 (CP21-era) — feature branch not yet merged/deployed
-- Hard deadline: stable release before 2026-06-26
+- Branch: `feature/web-console-and-hardening` — all changes committed (tip: 305ad38)
+- Tests: 910 passing, 0 failing | tsc: clean
+- Multi-instance integrations complete; Google Calendar OAuth working
+- Production (192.168.1.200): still on v1.0.0 — feature branch not yet merged/deployed
 
 ## Next
 
-- [ ] Commit + PR the feature branch work (fix queue + CP27-A/B/E + CP27-C/D + CP29-C + Fix 6)
-- [ ] CP28: Provider expansion (OpenAICompatible + Google + web UI)
-- [ ] CP30: MCP over stdio
-- [ ] Ansible hardening + git tag v1.1.0
+- [ ] Deploy feature branch to LXC (scripts/deploy.sh) — migration 11 will run on startup
+- [ ] Test multi-instance: add second Gmail/Calendar account from UI
+- [ ] Open PR for feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Publish Google OAuth app (removes test-user restriction permanently)
