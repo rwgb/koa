@@ -39,6 +39,7 @@ const ConfigSchema = z.object({
   browserEnabled: z.boolean().default(false),
   userName: z.string().default('User'),
   toolTimeoutMs: z.number().optional(),
+  publicUrl: z.string().url().optional(),
   mcpServers: z.array(z.object({
     name: z.string().regex(/^[a-z][a-z0-9_-]*$/),
     command: z.string().min(1),
@@ -211,6 +212,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       toolTimeoutMs: process.env['KOA_TOOL_TIMEOUT_MS']
         ? parseInt(process.env['KOA_TOOL_TIMEOUT_MS'], 10)
         : fileConfig.toolTimeoutMs,
+      publicUrl: process.env['KOA_PUBLIC_URL']?.replace(/\/$/, '') ?? undefined,
       mcpServers: fileConfig.mcpServers,
     });
   } catch (err) {

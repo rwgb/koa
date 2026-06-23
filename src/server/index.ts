@@ -39,6 +39,7 @@ export function pruneExpiredNonces(map: OAuthStateMap, ttlMs: number): void {
 
 export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173) {
   const app = express();
+  app.set('trust proxy', 1);
   installLogCapture();
 
   // CORS is only needed in development (Vite runs on a separate port from Express).

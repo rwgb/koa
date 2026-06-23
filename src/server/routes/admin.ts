@@ -91,7 +91,7 @@ export function createOAuthCallbackRouter(
     // Consume the nonce (one-time use)
     oauthState.delete(state);
 
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
+    const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/gmail/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
     exchangeCodeForTokens(code, redirectUri)
       .then(tokens => {
         const integrations = loadIntegrations();
@@ -129,7 +129,7 @@ export function createOAuthCallbackRouter(
     }
     oauthState.delete(state);
 
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
+    const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/calendar/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
     exchangeCalendarCode(code, redirectUri)
       .then(tokens => {
         const integrations = loadIntegrations();
@@ -197,7 +197,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     const nonce = crypto.randomBytes(32).toString('hex');
     oauthState.set(nonce, Date.now());
 
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
+    const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/gmail/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
     try {
       const url = generateOAuthUrl(redirectUri, nonce);
       res.json({ url });
@@ -213,7 +213,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     const nonce = crypto.randomBytes(32).toString('hex');
     oauthState.set(nonce, Date.now());
 
-    const redirectUri = `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
+    const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/calendar/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
     try {
       const url = generateCalendarOAuthUrl(redirectUri, nonce);
       res.json({ url });

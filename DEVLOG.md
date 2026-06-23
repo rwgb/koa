@@ -1,5 +1,64 @@
 # Koa — DevLog
 
+## 2026-06-23 - Multi-instance integrations architecture + LXC HTTPS
+
+### Completed
+- Architecture plan: multi-instance support for `gmail`, `google-calendar`, `slack`, `mcp_server`
+- 7-step implementation order designed (see plan summary in conversation)
+- LXC HTTPS live: `tailscale serve --bg 3000` running on LXC, `https://koa.tailf8d66c.ts.net` returns 200
+- SSH key auth established: Mac ed25519 key added to `/root/.ssh/authorized_keys` on LXC
+- KOA_PUBLIC_URL deployed to LXC via systemd drop-in + `scripts/deploy.sh`
+- Google Calendar OAuth redirect_uri now correctly generates `https://koa.tailf8d66c.ts.net/api/admin/oauth/calendar/callback`
+- OAuth flow reaches Google consent screen — blocked on Google app test user approval (Error 403: access_denied)
+
+### Decisions
+- `tailscale serve` chosen over Caddy — zero extra infrastructure, auto-manages TLS certs
+- MCP multi-instance = UI only (Option A) for now; HTTP transport + lifecycle registry deferred to separate project
+- Calendar multi-instance requires DB migration (add `source_integration_id` to calendar_events) — most invasive change
+- `signingSecret` missing from Slack `SECRET_FIELDS` identified as bug — will fix in implementation
+- Existing `"id": "gmail"` / `"id": "google-calendar"` entries are backwards-compatible — no migration needed
+
+### Issues Found
+- Google OAuth app still in Testing mode — ralph.brynard@gmail.com must be added as a test user before Calendar OAuth completes
+- `mcp_server` integration is currently a stub — UI stores config but nothing reads it to connect
+
+### Next Session
+- [ ] Add ralph.brynard@gmail.com as test user in Google Cloud Console OAuth consent screen, complete Calendar OAuth
+- [ ] Implement multi-instance integrations (7-step workflow)
+- [ ] Consider publishing Google OAuth app (removes test user restriction permanently)
+
+---
+
+## 2026-06-22 - Google Calendar OAuth + KOA_PUBLIC_URL
+
+### Completed
+- Diagnosed Google Calendar OAuth failure: server generating redirect URI from `req.host` (returned private IP `192.168.1.200:3000`); Google blocks private IPs and requires HTTPS on non-localhost hostnames
+- Architecture plan: Tailscale MagicDNS + `tailscale serve` for HTTPS (no Caddy needed); `KOA_PUBLIC_URL` env var to pin redirect URI
+- Implemented `KOA_PUBLIC_URL` across 3 files:
+  - `src/config/index.ts`: added `publicUrl` to ConfigSchema + loadConfig (from `KOA_PUBLIC_URL` env var)
+  - `src/server/index.ts`: added `app.set('trust proxy', 1)` for correct protocol behind reverse proxy
+  - `src/server/routes/admin.ts`: updated all 4 redirect URI constructions to prefer `config.publicUrl`
+  - `.env.example`: documented `KOA_PUBLIC_URL`
+- QA: tsc clean, 910 tests passing
+
+### Decisions
+- `tailscale serve` chosen over Caddy: zero extra infrastructure, auto-manages TLS certs, already installed on LXC
+- `KOA_PUBLIC_URL` is env-var only (not in config file) — it's a deployment concern, not a user setting
+- Smallstep/PKI deferred to separate project
+- LXC side of this (running `tailscale serve`, setting `KOA_PUBLIC_URL`) not yet applied — pending next session
+
+### Issues Found
+- LXC credentials were shared in chat (security concern) — need to establish SSH key auth going forward
+- `ProtectSystem=strict` in koa.service may conflict with writing to `/etc/koa/env` — verify before applying
+
+### Next Session
+- [ ] Run `tailscale serve https / http://localhost:3000` on LXC
+- [ ] Add `KOA_PUBLIC_URL=https://koa.tailf8d66c.ts.net` to koa service env on LXC
+- [ ] Restart koa on LXC, verify OAuth flow end-to-end
+- [ ] Establish SSH key auth to LXC (remove password from conversation history concern)
+
+---
+
 ## 2026-06-16 - Ansible hardening role + playbook refactor
 
 ### Completed
