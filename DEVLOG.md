@@ -1,5 +1,47 @@
 # Koa — DevLog
 
+## 2026-06-23 — UX Phase 1
+
+### Completed
+- UX-004, 005, 006, 007, 008, 009, 010, 013, 014, 017, 019, 024 (P1 UX audit items)
+- Quick wins #1–#9 from UX/Intelligence audit
+
+### Decisions
+- smartRouting default → true: all new installs get smart routing on; tests unchanged (they hardcode false explicitly)
+- Specialist model: changed from MODELS.haiku hardcode to config-driven MODEL_MAP.fast equivalent
+- KOA_IDENTITY: extracted from loop.ts SYSTEM_BASE to src/agent/identity.ts (no circular import risk)
+- Keyword gate list: explicit 11-item list; debug log emitted when extraction skipped
+- DevMode: localStorage key koa_dev_mode, default false; gates tool_call/result rows in MessageBubble
+- react-markdown: replaces pre-wrap bare text render; only for assistant/user kinds
+
+### Smoke Test Required (manual)
+See checklist in workflow output — verify textarea, markdown, devMode toggle, timestamps, all error surfaces.
+
+### Next Session
+- [ ] Deploy to LXC — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–023
+- [ ] Verify koa code via npm link on a fresh project
+
+---
+
+## 2026-06-23 - Session Checkpoint
+
+### Completed
+- P1 Security (SEC-003–015): 8 findings sealed — Slack SSRF, Telegram allowlist, bash cwd jail, debug/info env allowlist, calendar OAuth error scrub, rate limiting (60/20/2 req), openaiCompatibleBaseUrl SSRF, Twilio publicUrl HMAC
+- P1 QA (GAP-06–12): 7 coverage gaps closed — GmailPoller, integrations store, semanticCompact fallback, conversation export, PUT /config, writeMemoryEvent dedup, McpManager partial failure
+- koa code: new CLI subcommand — `koa code [directory]` runs a local project-aware agent session; config isolated to KOA_LOCAL_HOME (~/.koa-local/); CLAUDE.md injected from project root; no server required
+- Planning: remote collaboration options evaluated (A: Remote SSH, B: code-server, C: CLI remote mode); Option A recommended as immediate win; B+C as backlog
+
+### Tests
+- 910 (session start) → 959 (P1-sec) → 995 (P1-QA) → final
+
+### Next Session
+- [ ] P1 UX: UX-004 through UX-024
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–023
+- [ ] I-series quick wins: developer chrome toggle, textarea, react-markdown, smartRouting, KOA_IDENTITY, QuickTaskAdd removal, keyword gate
+- [ ] Deploy to LXC + verify DB migration 11
+- [ ] Verify koa code via npm link on a fresh project
+
 ## 2026-06-23 - P1 QA Remediation
 
 ### Completed

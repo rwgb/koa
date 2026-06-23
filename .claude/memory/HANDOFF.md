@@ -1,9 +1,9 @@
 ---
 written: 2026-06-23
 branch: feature/web-console-and-hardening
-tests: 910
+tests: 995
 tsc: clean
-tip: b107b89
+tip: 212ec82
 audit: docs/AUDIT-2026-06-23.md
 ---
 
@@ -18,6 +18,17 @@ audit: docs/AUDIT-2026-06-23.md
 **2026-06-22 session**: KOA_PUBLIC_URL implemented + deployed. `https://koa.tailf8d66c.ts.net` live via `tailscale serve`. SSH key auth set up (root@192.168.1.200). OAuth redirect_uri now correct.
 
 ### What Was Done This Session
+
+- **P1 UX (12 items)**: UX-004 ActivityPage error surfaces, UX-005 Tasks nav + TasksListPage, UX-006 search result nav, UX-007 DelegationsPage errors, UX-008 QuickTaskAdd removed, UX-009 message timestamps, UX-010 KanbanColumn title retention, UX-013 IntegrationsPage re-fetch, UX-014 Remove buttons functional, UX-017 chat history failure, UX-019 DebugConsolePage Info tab, UX-024 NotificationsPage save errors
+- **Quick wins #1–#9**: DevModeContext localStorage toggle, ChatPanel textarea auto-resize, react-markdown for messages, smartRouting default→true, KOA_IDENTITY extraction, QuickTaskAdd removal, keyword gate before preference extraction
+
+### Previously Done (prior session)
+
+- **P1 Security (8 items)**: SEC-003 Slack SSRF, SEC-004 Telegram allowlist, SEC-005 bash cwd jail + denylist + audit log, SEC-006 debug/info env allowlist, SEC-007 calendar OAuth error scrub, SEC-010 rate limiting (chat 60/min, voice 20/min, admin 2/10min), SEC-014 openaiCompatibleBaseUrl SSRF, SEC-015 Twilio publicUrl HMAC
+- **P1 QA (7 items)**: GAP-06 GmailPoller tests, GAP-07 integrations store atomic write, GAP-08 semanticCompact fallback, GAP-09 conversation export, GAP-10 PUT /config, GAP-11 writeMemoryEvent dedup, GAP-12 McpManager partial failure
+- **koa code**: new `koa code [directory]` CLI subcommand — standalone local agent session, KOA_LOCAL_HOME config isolation, CLAUDE.md injection from project root
+
+### Previously Done (prior session)
 
 - **Fix queue cleared** (7 fixes): compactAfterTurns removed, synthesizeSpeech dead export removed, MODEL_CONTEXT_WINDOWS keys aligned, OAuth nonce TTL (10min) + prune (5min), browserEnabled runtime check on tool registration, graceful SIGTERM/SIGINT drain (30s budget), Slack inbound text capped at 2000 chars
 - **CP27-A: SQLite schema** — src/memory/schema.ts (tables: memory, versions) + src/memory/db.ts (init, version mgmt); better-sqlite3 added to package.json
@@ -90,10 +101,10 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 ~~GAP-06 through GAP-12 sealed 2026-06-23~~
 
 ### P1 UX
-16. **UX-004 through UX-019** — Activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications
+~~16. **UX-004 through UX-024** — done (2026-06-23): Activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications, quick wins #1–#9~~
 
 ### Deploy
-17. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 ran cleanly
+17. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 ran cleanly — **NEXT PRIORITY**
 
 ## Don't Restart
 
