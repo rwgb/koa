@@ -57,7 +57,7 @@ const require = createRequire(import.meta.url);
 
 // Map from nonce (64-char hex) → creation timestamp (ms since epoch).
 // Nonces are consumed on first use (CSRF protection for OAuth callbacks).
-export type OAuthStateMap = Map<string, number>;
+export type OAuthStateMap = Map<string, { ts: number; integrationId: string }>;
 
 export interface AdminRouterDeps {
   loop: AgentLoop;
@@ -89,17 +89,19 @@ export function createOAuthCallbackRouter(
       return;
     }
     // Consume the nonce (one-time use)
+    const stateEntry = oauthState.get(state);
     oauthState.delete(state);
+    const integrationId = stateEntry?.integrationId ?? 'gmail';
 
     const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/gmail/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
     exchangeCodeForTokens(code, redirectUri)
       .then(tokens => {
         const integrations = loadIntegrations();
-        const existing = integrations.find(i => i.type === 'gmail');
+        const existing = integrations.find(i => i.id === integrationId);
         saveIntegration({
-          id: existing?.id ?? 'gmail',
+          id: integrationId,
           type: 'gmail',
-          name: 'Gmail',
+          name: existing?.name ?? 'Gmail',
           status: 'connected',
           config: {
             ...(existing?.config ?? {}),
@@ -127,17 +129,19 @@ export function createOAuthCallbackRouter(
       res.redirect(`/integrations?error=oauth_failed`);
       return;
     }
+    const stateEntry = oauthState.get(state);
     oauthState.delete(state);
+    const integrationId = stateEntry?.integrationId ?? 'google-calendar';
 
     const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/calendar/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
     exchangeCalendarCode(code, redirectUri)
       .then(tokens => {
         const integrations = loadIntegrations();
-        const existing = integrations.find(i => i.type === 'google-calendar');
+        const existing = integrations.find(i => i.id === integrationId);
         saveIntegration({
-          id: existing?.id ?? 'google-calendar',
+          id: integrationId,
           type: 'google-calendar',
-          name: 'Google Calendar',
+          name: existing?.name ?? 'Google Calendar',
           status: 'connected',
           config: {
             ...(existing?.config ?? {}),
@@ -195,7 +199,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
   router.get('/oauth/gmail', (req, res) => {
     // Generate CSRF nonce: 32 random bytes = 64 hex chars
     const nonce = crypto.randomBytes(32).toString('hex');
-    oauthState.set(nonce, Date.now());
+    const rawId = typeof req.query['integrationId'] === 'string' ? req.query['integrationId'] : '';
+    const integrationId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawId) ? rawId : 'gmail';
+    oauthState.set(nonce, { ts: Date.now(), integrationId });
 
     const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/gmail/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/gmail/callback`;
     try {
@@ -211,7 +217,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
 
   router.get('/oauth/calendar', (req, res) => {
     const nonce = crypto.randomBytes(32).toString('hex');
-    oauthState.set(nonce, Date.now());
+    const rawIdCal = typeof req.query['integrationId'] === 'string' ? req.query['integrationId'] : '';
+    const integrationId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawIdCal) ? rawIdCal : 'google-calendar';
+    oauthState.set(nonce, { ts: Date.now(), integrationId });
 
     const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/calendar/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
     try {
@@ -1106,8 +1114,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     }));
 
     const env: Record<string, string> = {};
+    const SENSITIVE_ENV = new Set(['KOA_WEB_TOKEN', 'KOA_HOME']);
     for (const k of Object.keys(process.env)) {
-      if (k.startsWith('KOA_') || k.startsWith('NODE_') || k === 'PORT') {
+      if ((k.startsWith('KOA_') || k.startsWith('NODE_') || k === 'PORT') && !SENSITIVE_ENV.has(k)) {
         env[k] = process.env[k] ?? '';
       }
     }
@@ -1130,7 +1139,6 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       arch: process.arch,
       pid: process.pid,
       uptime: process.uptime(),
-      cwd: process.cwd(),
       credentialKeys,
       env,
       config: cfg,

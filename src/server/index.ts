@@ -32,8 +32,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Exported for testing only — removes nonces older than ttlMs from the map. */
 export function pruneExpiredNonces(map: OAuthStateMap, ttlMs: number): void {
   const cutoff = Date.now() - ttlMs;
-  for (const [nonce, ts] of map) {
-    if (ts < cutoff) map.delete(nonce);
+  for (const [nonce, entry] of map) {
+    if (entry.ts < cutoff) map.delete(nonce);
   }
 }
 

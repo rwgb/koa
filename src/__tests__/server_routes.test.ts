@@ -531,11 +531,11 @@ describe('TTS endpoints', () => {
 describe('pruneExpiredNonces', () => {
   it('removes nonces older than ttlMs and keeps fresh ones', async () => {
     const { pruneExpiredNonces } = await import('../server/index.js');
-    const map: Map<string, number> = new Map();
+    const map: Map<string, { ts: number; integrationId: string }> = new Map();
     const oldNonce = 'old-nonce-aabbcc';
     const freshNonce = 'fresh-nonce-ddeeff';
-    map.set(oldNonce, Date.now() - 11 * 60_000);  // 11 minutes old — should be pruned
-    map.set(freshNonce, Date.now() - 1 * 60_000); // 1 minute old — should survive
+    map.set(oldNonce, { ts: Date.now() - 11 * 60_000, integrationId: 'gmail' });
+    map.set(freshNonce, { ts: Date.now() - 1 * 60_000, integrationId: 'gmail' });
 
     pruneExpiredNonces(map, 10 * 60_000);
 

@@ -16,7 +16,7 @@ export interface Integration {
 export const SECRET_FIELDS: Record<string, string[]> = {
   anthropic: ['apiKey'],
   github: ['token'],
-  slack: ['webhookUrl', 'botToken'],
+  slack: ['webhookUrl', 'botToken', 'signingSecret'],
   pushover: ['userKey', 'appToken'],
   ntfy: [],
   smtp: ['password'],

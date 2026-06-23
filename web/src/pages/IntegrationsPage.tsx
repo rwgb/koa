@@ -151,7 +151,7 @@ const CATALOG_MAP = new Map(CATALOG.map(d => [d.type, d]));
 
 // Types that may be configured multiple times (e.g. work + personal GitHub accounts).
 // Each new instance gets a unique id and a user-editable display name.
-const MULTI_INSTANCE_TYPES = new Set<IntegrationType>(['github']);
+const MULTI_INSTANCE_TYPES = new Set<IntegrationType>(['github', 'gmail', 'google-calendar', 'slack', 'mcp_server']);
 
 function statusBadge(status: string) {
   const cls =
@@ -202,7 +202,7 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
     setOauthing(true);
     setError(null);
     try {
-      const { url } = await startGmailOAuth();
+      const { url } = await startGmailOAuth(id);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       setError((err as Error).message);
@@ -215,7 +215,7 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
     setOauthing(true);
     setError(null);
     try {
-      const { url } = await startCalendarOAuth();
+      const { url } = await startCalendarOAuth(id);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       setError((err as Error).message);

@@ -250,8 +250,8 @@ export async function testIntegration(id: string): Promise<{ ok: boolean; messag
   return res.json() as Promise<{ ok: boolean; message: string }>;
 }
 
-export async function startGmailOAuth(): Promise<{ url: string }> {
-  const res = await authFetch('/api/admin/oauth/gmail');
+export async function startGmailOAuth(integrationId: string): Promise<{ url: string }> {
+  const res = await authFetch(`/api/admin/oauth/gmail?integrationId=${encodeURIComponent(integrationId)}`);
   if (!res.ok) throw new Error(`Failed to start Gmail OAuth: ${res.status}`);
   return res.json() as Promise<{ url: string }>;
 }
@@ -638,8 +638,8 @@ export async function triggerCalendarSync(): Promise<void> {
   if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
 }
 
-export async function startCalendarOAuth(): Promise<{ url: string }> {
-  const res = await authFetch('/api/admin/oauth/calendar');
+export async function startCalendarOAuth(integrationId: string): Promise<{ url: string }> {
+  const res = await authFetch(`/api/admin/oauth/calendar?integrationId=${encodeURIComponent(integrationId)}`);
   if (!res.ok) throw new Error(`OAuth init failed: ${res.status}`);
   return res.json() as Promise<{ url: string }>;
 }

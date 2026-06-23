@@ -51,15 +51,22 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
     }
 
     // Validate signature for all other requests
-    const slackIntegrations = loadIntegrations();
-    const slack = slackIntegrations.find(i => i.type === 'slack' && i.status === 'connected');
-    const signingSecret = slack?.config['signingSecret'];
-
+    const allSlacks = loadIntegrations().filter(i => i.type === 'slack' && i.status === 'connected');
     const timestamp = req.headers['x-slack-request-timestamp'] as string | undefined;
     const signature = req.headers['x-slack-signature'] as string | undefined;
 
-    if (!signingSecret || !timestamp || !signature ||
-        !validateSlackSignature(signingSecret, rawBody, timestamp, signature)) {
+    let matchedSlack: (typeof allSlacks)[0] | undefined;
+    if (timestamp && signature) {
+      for (const s of allSlacks) {
+        const signingSecret = s.config['signingSecret'];
+        if (signingSecret && validateSlackSignature(signingSecret, rawBody, timestamp, signature)) {
+          matchedSlack = s;
+          break;
+        }
+      }
+    }
+
+    if (!matchedSlack) {
       res.status(403).json({ error: 'Invalid Slack signature' });
       return;
     }
@@ -81,7 +88,7 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
       try {
         const result = await loop.turn(inbound.text);
         if (!result.content) return;
-        const botToken = slack?.config['botToken'];
+        const botToken = matchedSlack.config['botToken'];
         const replyOpts: { responseUrl?: string; channelId?: string; botToken?: string } = {
           channelId: inbound.channelId,
         };

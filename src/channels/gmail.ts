@@ -61,6 +61,14 @@ async function getAccessToken(): Promise<string> {
   return token;
 }
 
+async function getAccessTokenForIntegration(gmail: import('../integrations/store.js').Integration): Promise<string> {
+  const oauth2 = makeOAuth2Client();
+  oauth2.setCredentials({ refresh_token: gmail.config['refreshToken'] ?? null });
+  const { token } = await oauth2.getAccessToken();
+  if (!token) throw new Error(`Failed to refresh Gmail access token for ${gmail.id}`);
+  return token;
+}
+
 // ── Intent extraction ─────────────────────────────────────────────────────────
 
 const INTENT_SCHEMA = {
@@ -115,15 +123,25 @@ export class GmailPoller {
   private _running = false;
 
   start(apiKey: string): void {
-    if (this._running) return;
-    const integrations = loadIntegrations();
-    const gmail = integrations.find(i => i.type === 'gmail' && i.status === 'connected');
-    if (!gmail?.config['refreshToken']) return;
+    if (this._timer) return; // already started
+    const gmails = loadIntegrations().filter(
+      i => i.type === 'gmail' && i.status === 'connected' && i.config['refreshToken'],
+    );
+    if (!gmails.length) return;
     this._apiKey = apiKey;
     this._running = true;
-    this._timer = setInterval(() => { void this._poll(); }, POLL_INTERVAL_MS);
+    for (const gmail of gmails) {
+      void this._pollOne(gmail, apiKey);
+    }
+    this._timer = setInterval(() => {
+      const current = loadIntegrations().filter(
+        i => i.type === 'gmail' && i.status === 'connected' && i.config['refreshToken'],
+      );
+      for (const gmail of current) {
+        void this._pollOne(gmail, apiKey);
+      }
+    }, POLL_INTERVAL_MS);
     (this._timer as NodeJS.Timeout & { unref?: () => void }).unref?.();
-    void this._poll();
   }
 
   stop(): void {
@@ -142,18 +160,16 @@ export class GmailPoller {
     return this._processedTimestamps.length >= RATE_LIMIT_MAX;
   }
 
-  private async _poll(): Promise<void> {
+  private async _pollOne(gmail: import('../integrations/store.js').Integration, apiKey: string): Promise<void> {
+    const channel = `gmail:${gmail.id}`;
+    const email = gmail.config['email'] ?? '';
     let connection: ImapSimple | null = null;
     try {
-      const accessToken = await getAccessToken();
+      const accessToken = await getAccessTokenForIntegration(gmail);
       // XOAUTH2 string format required by Gmail IMAP
       const xoauth2 = Buffer.from(
-        `user=\x01auth=Bearer ${accessToken}\x01\x01`,
+        `user=${email}\x01auth=Bearer ${accessToken}\x01\x01`,
       ).toString('base64');
-
-      const integrations = loadIntegrations();
-      const gmail = integrations.find(i => i.type === 'gmail');
-      const email = gmail?.config['email'] ?? '';
 
       // imap-simple Config requires 'password' but xoauth2 supersedes it at auth time.
       // We satisfy the type with an empty string; Gmail IMAP ignores it when xoauth2 is set.
@@ -181,7 +197,7 @@ export class GmailPoller {
 
       for (const msg of messages) {
         if (this._isRateLimited()) {
-          console.warn('[gmail] rate limit reached — skipping remaining messages');
+          console.warn(`[gmail] rate limit reached — skipping remaining messages for ${email}`);
           break;
         }
 
@@ -189,10 +205,10 @@ export class GmailPoller {
         msg.parts.find((p: imapSimple.Message['parts'][number]) => p.which === 'HEADER.FIELDS (FROM SUBJECT)');
         const textPart = msg.parts.find((p: imapSimple.Message['parts'][number]) => p.which === 'TEXT');
         const body = typeof textPart?.body === 'string' ? textPart.body : '';
-        if (isDuplicate('gmail', uid)) continue;
+        if (isDuplicate(channel, uid)) continue;
 
         const hash = contentHash(body);
-        const intent = await extractIntent(body, this._apiKey);
+        const intent = await extractIntent(body, apiKey);
 
         if (intent.type === 'task' && intent.content) {
           try {
@@ -213,18 +229,16 @@ export class GmailPoller {
           }
         }
 
-        markProcessed('gmail', uid, hash, intent.type);
+        markProcessed(channel, uid, hash, intent.type);
         this._processedTimestamps.push(Date.now());
 
-        if (gmail) {
-          saveIntegration({
-            ...gmail,
-            config: { ...gmail.config, lastPolledAt: new Date().toISOString() },
-          });
-        }
+        saveIntegration({
+          ...gmail,
+          config: { ...gmail.config, lastPolledAt: new Date().toISOString() },
+        });
       }
     } catch (e) {
-      console.error('[gmail] poll error:', e);
+      console.error(`[gmail] poll error for ${email}:`, e);
     } finally {
       try { connection?.end(); } catch { /* ignore */ }
     }

@@ -37,9 +37,11 @@ export async function exchangeCalendarCode(
   };
 }
 
-export async function getCalendarAccessToken(): Promise<string> {
+export async function getCalendarAccessToken(integrationId?: string): Promise<string> {
   const integrations = loadIntegrations();
-  const cal = integrations.find(i => i.type === 'google-calendar');
+  const cal = integrationId
+    ? integrations.find(i => i.id === integrationId)
+    : integrations.find(i => i.type === 'google-calendar' && i.config['refreshToken']);
   if (!cal?.config['refreshToken']) throw new Error('Google Calendar integration not configured');
 
   const oauth2 = makeOAuth2Client();
@@ -51,6 +53,5 @@ export async function getCalendarAccessToken(): Promise<string> {
 
 export function isCalendarConfigured(): boolean {
   const integrations = loadIntegrations();
-  const cal = integrations.find(i => i.type === 'google-calendar');
-  return !!(cal?.config['refreshToken']);
+  return integrations.some(i => i.type === 'google-calendar' && !!(i.config['refreshToken']));
 }
