@@ -1,20 +1,20 @@
 ---
-written: 2026-06-22
+written: 2026-06-23
 branch: feature/web-console-and-hardening
 tests: 843
 tsc: clean
-tip: 60e5621
+tip: 91858b7
 ---
 
 ## Where We Are
 
-Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP29 scheduler (priority lanes) committed. 7 fixes applied (compactAfterTurns, synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, graceful drain, Slack cap). v1.0.0 track solid; CP27 retrieval and CP29 event bus deferred to v1.1.
+Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP29 scheduler (priority lanes) committed. 7 fixes applied. v1.0.0 track solid; CP27 retrieval and CP29 event bus deferred to v1.1.
 
-Three post-HANDOFF bug fixes landed but were never checkpointed: debug console backend routes wired + web build fix, Integrations page body made scrollable, gmail/twilio/google-calendar added to ALLOWED_TYPES.
+Three post-HANDOFF bug fixes landed: debug console backend routes wired + web build fix, Integrations page body made scrollable, gmail/twilio/google-calendar added to ALLOWED_TYPES.
 
-**2026-06-22 session**: KOA_PUBLIC_URL implemented + deployed. `https://koa.tailf8d66c.ts.net` live via `tailscale serve`. SSH key auth set up (root@192.168.1.200). OAuth redirect_uri now correct. Calendar OAuth blocked on Google test user approval.
+**2026-06-22 session**: KOA_PUBLIC_URL implemented + deployed. `https://koa.tailf8d66c.ts.net` live via `tailscale serve`. SSH key auth set up (root@192.168.1.200). OAuth redirect_uri now correct.
 
-**2026-06-23 session**: Multi-instance integrations architecture plan complete. 7-step implementation plan ready. MCP multi-instance = UI only for now.
+**2026-06-23 session**: Multi-instance integrations fully implemented and sealed (commit 91858b7). signingSecret masked, MULTI_INSTANCE_TYPES extended to gmail/google-calendar/slack/mcp_server, OAuth state carries integrationId, GmailPoller iterates all accounts, CalendarSync iterates all google-calendar instances, DB migration 11 adds source_integration_id to calendar_events, Slack webhook tries all connected secrets. Security fixes: integrationId regex-validated, KOA_WEB_TOKEN/KOA_HOME excluded from env dump, cwd removed from debug/info response.
 
 ### What Was Done This Session
 
@@ -55,11 +55,13 @@ Three post-HANDOFF bug fixes landed but were never checkpointed: debug console b
 
 ## What's Next (Prioritized)
 
-1. **Google Calendar OAuth** — add ralph.brynard@gmail.com as test user in Google Cloud Console OAuth consent screen, then complete OAuth flow
-2. **Multi-instance integrations** — implement 7-step plan (frontend → OAuth state → bug fix → Gmail registry → Calendar registry + DB migration → Slack inbound → MCP UI)
-3. **v1.1.x bug triage** — watch for post-release issues; memory retrieval and event bus are the newest surface area
-4. **ai-review quota** — ANTHROPIC_API_KEY in CI is quota-exhausted until 2026-07-01; update the secret or wait
-5. **PR for unsealed fixes** — KOA_PUBLIC_URL + multi-instance changes not yet in a PR; consider opening one against main
+1. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 runs cleanly
+2. **Test multi-instance Gmail** — add a second Gmail account via UI, verify both accounts polled each tick
+3. **Verify calendar_events migration** — confirm source_integration_id column present after deploy
+4. **Google Calendar OAuth** — add ralph.brynard@gmail.com as test user in Google Cloud Console OAuth consent screen, then complete OAuth flow
+5. **v1.1.x bug triage** — watch for post-release issues; memory retrieval and event bus are the newest surface area
+6. **ai-review quota** — ANTHROPIC_API_KEY in CI is quota-exhausted until 2026-07-01; update the secret or wait
+7. **PR for unsealed fixes** — KOA_PUBLIC_URL + multi-instance changes not yet in a PR; consider opening one against main
 
 ## Don't Restart
 

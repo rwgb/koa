@@ -1,5 +1,30 @@
 # Koa — DevLog
 
+## 2026-06-23 - Multi-instance integrations implementation
+
+### Completed
+- signingSecret added to SECRET_FIELDS.slack (was unmasked in API responses)
+- MULTI_INSTANCE_TYPES extended: gmail, google-calendar, slack, mcp_server (was github-only)
+- startGmailOAuth(integrationId) + startCalendarOAuth(integrationId) pass target id to backend
+- OAuthStateMap now carries integrationId alongside ts; callbacks save to the correct instance
+- GmailPoller.start() iterates all connected gmail integrations; _pollOne() parameterized per account
+- CalendarSync._sync() iterates all connected google-calendar integrations
+- DB migration 11: source_integration_id column on calendar_events (DEFAULT 'google-calendar')
+- deleteCalendarEventsNotIn() scoped to source_integration_id — prevents cross-account deletes
+- Slack webhook handler tries all connected Slack integrations' signing secrets
+- Security fixes: integrationId query param validated with regex; KOA_WEB_TOKEN/KOA_HOME excluded from env dump; cwd removed from debug/info response
+
+### Decisions
+- mcp_server multi-instance = UI only; no lifecycle registry (deferred)
+- google_id stays as UNIQUE conflict key; source_integration_id updated on upsert (acceptable for shared calendars)
+- Single GmailPoller timer iterates all accounts each tick (simpler than per-account timers)
+- integrationId validated as /^[a-zA-Z0-9_-]{1,64}$/ before storing in OAuth state
+
+### Next Session
+- [ ] Deploy to LXC (sync .env, restart koa service)
+- [ ] Test multi-instance Gmail: add second account, verify both polled
+- [ ] Verify calendar events table has source_integration_id after migration runs
+
 ## 2026-06-23 - Multi-instance integrations architecture + LXC HTTPS
 
 ### Completed
