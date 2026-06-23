@@ -2,6 +2,7 @@ import express, { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
+import { voiceRateLimit } from '../middleware.js';
 import { loadIntegrations } from '../../integrations/store.js';
 import { isDuplicate, markProcessed, contentHash } from '../../channels/dedup.js';
 import { parseTwilioBody, validateTwilioSignature } from '../../channels/sms.js';
@@ -122,7 +123,12 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
       return;
     }
     const sig = req.headers['x-twilio-signature'] as string | undefined;
-    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+    // SEC-015: Derive the callback URL from config.publicUrl (KOA_PUBLIC_URL) when set so
+    // the HMAC base string cannot be spoofed via X-Forwarded-Proto / X-Forwarded-Host headers
+    // that an attacker could inject if they reach Node.js directly, bypassing the reverse proxy.
+    const url = config.publicUrl
+      ? `${config.publicUrl}${req.originalUrl}`
+      : `${req.protocol}://${req.get('host')}${req.originalUrl}`;
     if (!sig || !validateTwilioSignature(twilio.config['authToken'], url, body, sig)) {
       res.status(403).type('text/xml').send('<Response/>');
       return;
@@ -181,7 +187,7 @@ export function createVoiceRouter(deps: Pick<WebhooksRouterDeps, 'rawBodyMap'>):
   // ── POST /tts — synthesize text to audio/mpeg via ElevenLabs ─────────────────
   // Input is capped at 2000 chars before cleanText (which further slices to 500).
   // This prevents large-payload regex work even though express.json() has a 100KB default limit.
-  router.post('/tts', async (req: Request, res: Response) => {
+  router.post('/tts', voiceRateLimit, async (req: Request, res: Response) => {
     const body = req.body as Record<string, unknown>;
     const rawText = body['text'];
 

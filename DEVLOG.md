@@ -1,5 +1,51 @@
 # Koa — DevLog
 
+## 2026-06-23 - P1 Security Remediation
+
+### Completed
+- SEC-003: Slack response_url SSRF — validateSafeUrl called before fetch in replyToSlack()
+- SEC-004: Telegram sender allowlist — chatId checked against TELEGRAM_ALLOWED_CHAT_IDS before loop.turn()
+- SEC-005: bash tool cwd lock — projectRoot locked at startup, reverse-shell denylist, audit log on every exec
+- SEC-006: debug/info env dump — flipped to allowlist; KEY/TOKEN/SECRET/PASSWORD names auto-redacted; PID removed
+- SEC-007: calendar sync error leak — raw Google OAuth error no longer returned to client
+- SEC-010: rate limiting — chatRateLimit (60/min), voiceRateLimit (20/min), adminUpdateRateLimit (2/10min) applied
+- SEC-014: openaiCompatibleBaseUrl — validateSafeUrl called before saving
+- SEC-015: Twilio HMAC — URL derived from config.publicUrl when set
+
+### Next Session
+- [ ] P1 QA: GAP-06 through GAP-12
+- [ ] P1 UX: UX-004 through UX-024
+
+## 2026-06-23 - UX/Intelligence Planning Audit (Top 10 Findings)
+
+### Completed
+- Ran 5-dimension planning workflow against the web console (input UX, markdown rendering, immersion, user profile, LLM backend)
+- Surfaced top 10 ranked root-cause findings with file-level specificity and actionable recommendations
+- Backlog items added by user: auto-expanding chat input, user profile personalization, markdown rendering, immersion/developer chrome
+
+### Findings Summary (ranked by impact × effort)
+1. **Immersion** Developer telemetry always-on (badges, cost, ctx%, turn count, routing flash) — `MessageBubble.tsx`, `TopNav.tsx`, `ChatPanel.tsx`, `NavRail.tsx` — small effort
+2. **UI** `<input>` not auto-expanding — `ChatPanel.tsx:154` — small effort
+3. **UI** No markdown library installed — `MessageBubble.tsx:69`, `web/package.json` — small effort
+4. **Intelligence** No persistent user profile across sessions — `memory/store.ts`, `engram/preferences.ts`, `memory/db.ts` fragmented — large effort
+5. **Immersion** tool_call/tool_result render as conversation rows — `ChatContext.tsx` — medium effort
+6. **LLM-Backend** `smartRouting` defaults to off; specialists hardcode Haiku — `router.ts`, `specialists.ts` — small effort
+7. **LLM-Backend** Koa persona split across 3 independent string constants — `loop.ts`, `specialists.ts` — small effort
+8. **Immersion** QuickTaskAdd inline in chat bar — `ChatPanel.tsx:151` — small effort
+9. **Intelligence** Preference extraction fires Haiku call every turn — `loop.ts:1097` — small effort
+10. **Architecture** `trigger_pattern` in schema but never evaluated at runtime — `memory/schema.ts`, `loop.ts` — medium effort
+
+### Decisions
+- Developer-mode toggle (finding #1) is the highest-leverage single change — gates findings #1, #5, #8 simultaneously
+- User profile (#4) is phased: Phase 1 (keyword gate + dedup cap) is small effort; Phase 3 (store consolidation) is large effort
+- LLM immersion scope (finding #6, #7) extended to cover configured backend persona consistency, not just UI chrome
+
+### Next Session
+- [ ] Implement findings #1–#3 and #6–#9 (all small effort, high/medium impact)
+- [ ] Phase 1 of finding #4 (preference dedup + keyword gate)
+- [ ] Finding #10 trigger_pattern evaluation (medium effort)
+- [ ] Continue P1 security/QA backlog from prior audit
+
 ## 2026-06-23 - P0 Audit Remediation
 
 ### Completed

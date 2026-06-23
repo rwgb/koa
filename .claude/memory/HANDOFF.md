@@ -54,17 +54,37 @@ audit: docs/AUDIT-2026-06-23.md
 
 `feature/web-console-and-hardening` — all pushed.
 
+## UX/Intelligence Audit — Top 10 Findings (2026-06-23)
+
+Planning workflow completed. 10 root-cause findings ranked. All have file-level specificity + recommendations.
+
+**Quick wins (small effort, high impact) — do first:**
+- #1 Developer chrome always-on → `developerMode` localStorage toggle (gates #5, #8 too)
+- #2 `<input>` → `<textarea>` auto-resize at `ChatPanel.tsx:154`
+- #3 `npm install react-markdown` + wrap `MessageBubble.tsx:69`
+- #6 Flip `smartRouting` default to `true`; fix specialist Haiku hardcode
+- #7 Extract `KOA_IDENTITY` constant to `src/agent/identity.ts`
+- #8 Remove `<QuickTaskAdd />` from `ChatPanel.tsx:151`
+- #9 Keyword gate before preference extraction in `loop.ts:1097`
+
+**Medium effort:**
+- #5 Gate tool_call/result rows behind dev-mode flag
+- #10 Wire `trigger_pattern` evaluation into agent loop
+
+**Large effort (phased):**
+- #4 User profile: Phase 1 (dedup+cap) → Phase 2 (user_fact type + injection) → Phase 3 (store consolidation)
+
 ## What's Next (Prioritized)
 
 ### P1 Security
-1. **SEC-003** — Slack response_url SSRF: validate URL against allowlist before fetching
-2. **SEC-004** — Telegram sender allowlist: silent drop + unauthorized_inbound signal for unknown senders
-3. **SEC-005** — bash tool cwd lock: jail working directory to project root
-4. **SEC-006** — debug/info key leak: scrub API keys from debug/info log output
-5. **SEC-007** — calendar OAuth error leak: sanitize OAuth error messages before surfacing to client
-6. **SEC-010** — Rate limiting on /api/chat and SSE endpoints
-7. **SEC-014** — openaiCompatibleBaseUrl SSRF: validate against SSRF blocklist before use
-8. **SEC-015** — Twilio HMAC: use raw body + X-Forwarded-For awareness
+1. ~~**SEC-003** — Slack response_url SSRF: validate URL against allowlist before fetching~~ [done]
+2. ~~**SEC-004** — Telegram sender allowlist: silent drop + unauthorized_inbound signal for unknown senders~~ [done]
+3. ~~**SEC-005** — bash tool cwd lock: jail working directory to project root~~ [done]
+4. ~~**SEC-006** — debug/info key leak: scrub API keys from debug/info log output~~ [done]
+5. ~~**SEC-007** — calendar OAuth error leak: sanitize OAuth error messages before surfacing to client~~ [done]
+6. ~~**SEC-010** — Rate limiting on /api/chat and SSE endpoints~~ [done]
+7. ~~**SEC-014** — openaiCompatibleBaseUrl SSRF: validate against SSRF blocklist before use~~ [done]
+8. ~~**SEC-015** — Twilio HMAC: use raw body + X-Forwarded-For awareness~~ [done]
 
 ### P1 QA
 9. **GAP-06** — GmailPoller unit tests (0% coverage)

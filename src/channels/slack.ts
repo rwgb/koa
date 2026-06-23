@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { loadIntegrations } from '../integrations/store.js';
+import { validateSafeUrl } from '../utils/ssrf.js';
 import type { ChannelSendResult } from './types.js';
 
 const SLACK_MAX_CHARS = 4000;
@@ -85,6 +86,12 @@ export async function replyToSlack(
   const truncated = text.length > SLACK_MAX_CHARS ? text.slice(0, SLACK_MAX_CHARS - 3) + '...' : text;
 
   if (opts.responseUrl) {
+    try {
+      validateSafeUrl(opts.responseUrl, h => h.endsWith('.slack.com'));
+    } catch (e) {
+      console.error('replyToSlack: blocked unsafe responseUrl:', (e as Error).message);
+      return;
+    }
     await fetch(opts.responseUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

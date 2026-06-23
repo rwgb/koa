@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { getLogBuffer, clearLogBuffer } from '../debug-log.js';
+import { adminUpdateRateLimit } from '../middleware.js';
 import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
 import { readKoaConfigFile, writeKoaConfigFile, setApiKey } from '../../config/index.js';
@@ -364,7 +365,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     });
   });
 
-  router.put('/config', (req: Request, res: Response) => {
+  router.put('/config', adminUpdateRateLimit, (req: Request, res: Response) => {
     const body = req.body as {
       model?: unknown;
       maxTokens?: unknown;
@@ -532,12 +533,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     if (typeof body.openaiCompatibleBaseUrl === 'string' && body.openaiCompatibleBaseUrl.trim()) {
       const rawUrl = body.openaiCompatibleBaseUrl.trim();
       try {
-        const parsed = new URL(rawUrl);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          return res.status(400).json({ error: 'openaiCompatibleBaseUrl must be http or https' });
-        }
+        validateSafeUrl(rawUrl);
       } catch {
-        return res.status(400).json({ error: 'openaiCompatibleBaseUrl is not a valid URL' });
+        return res.status(400).json({ error: 'Invalid or unsafe URL' });
       }
       updates['openaiCompatibleBaseUrl'] = rawUrl;
       config.openaiCompatibleBaseUrl = rawUrl;
@@ -1081,7 +1079,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     res.json(result);
   });
 
-  router.post('/update', async (req, res: Response) => {
+  router.post('/update', adminUpdateRateLimit, async (req, res: Response) => {
     const body = req.body as { test?: unknown };
     const runTests = body.test !== false; // default true
     const { runUpdate } = await import('../../updater/index.js');
@@ -1113,12 +1111,20 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       set: !!(process.env[key] ?? creds[key]),
     }));
 
+    // Allowlist: only expose env vars whose names do not contain KEY, TOKEN, SECRET, or PASSWORD,
+    // plus a fixed set of explicitly safe KOA_* vars. Never expose KOA_WEB_TOKEN or KOA_HOME.
+    const SENSITIVE_PATTERN = /KEY|TOKEN|SECRET|PASSWORD/i;
+    const EXPLICIT_SAFE_KOA_VARS = new Set([
+      'KOA_MODEL', 'KOA_PROVIDER', 'KOA_SANDBOX_BACKEND', 'KOA_PUBLIC_URL',
+    ]);
     const env: Record<string, string> = {};
-    const SENSITIVE_ENV = new Set(['KOA_WEB_TOKEN', 'KOA_HOME']);
     for (const k of Object.keys(process.env)) {
-      if ((k.startsWith('KOA_') || k.startsWith('NODE_') || k === 'PORT') && !SENSITIVE_ENV.has(k)) {
-        env[k] = process.env[k] ?? '';
-      }
+      const isKoa = k.startsWith('KOA_');
+      const isNode = k.startsWith('NODE_');
+      const isPort = k === 'PORT';
+      if (!isKoa && !isNode && !isPort) continue;
+      if (SENSITIVE_PATTERN.test(k) && !EXPLICIT_SAFE_KOA_VARS.has(k)) continue;
+      env[k] = process.env[k] ?? '';
     }
 
     const cfg: Record<string, unknown> = {
@@ -1137,7 +1143,6 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       nodeVersion: process.version,
       platform: process.platform,
       arch: process.arch,
-      pid: process.pid,
       uptime: process.uptime(),
       credentialKeys,
       env,

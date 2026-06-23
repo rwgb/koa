@@ -16,6 +16,37 @@ export const authRateLimit = rateLimit({
   message: { error: 'Too many attempts — try again later' },
 });
 
+// Rate-limiter for POST /api/chat and GET /api/sse/chat.
+// Caps conversational throughput to prevent runaway agent costs.
+export const chatRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded — try again later' },
+});
+
+// Rate-limiter for POST /api/voice/tts (text-to-speech synthesis).
+// TTS is more expensive per-request than chat; tighter limit prevents cost abuse.
+export const voiceRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded — try again later' },
+});
+
+// Rate-limiter for PUT /api/admin/config and POST /api/admin/update.
+// Destructive/expensive admin mutations should be rare; very tight window prevents
+// accidental or malicious rapid config churn or repeated update triggers.
+export const adminUpdateRateLimit = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 2,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded — try again later' },
+});
+
 // Bearer token guard for all /api/ routes.
 // When a token is configured: enforce Bearer auth (or ?token= query param for SSE).
 // When NO token is configured: deny all /api/ requests with 403 — the server must
