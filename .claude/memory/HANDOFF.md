@@ -120,3 +120,4 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 | — | mattpocock/skills: productivity + misc buckets installed (9 skills) | done |
 | CP30 | MCP over stdio | done |
 | — | Ansible hardening role + playbook refactor | done |
+| — | koa code: local project agent subcommand | done |

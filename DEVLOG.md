@@ -4028,4 +4028,22 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 ### Next Session
 - [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider)
 - [ ] CP30: MCP over stdio
+
+## 2026-06-23 - koa code: local project-aware agent subcommand
+
+### Completed
+- New "koa code [directory]" subcommand in src/cli/index.ts
+- Config isolation via KOA_LOCAL_HOME (default ~/.koa-local/) — separate from remote server KOA_HOME
+- CLAUDE.md injection from project root on session start
+- ensureLocalHome() helper for first-run directory creation
+- Security: bash tool cwd lock correctly scoped to project directory
+
+### Decisions
+- AgentLoop already standalone (no server required) — koa code is a thin wrapper on existing chat subcommand
+- KOA_LOCAL_HOME isolates local sessions from remote server config
+- v1 scope: same tools as chat subcommand; no new tools or integrations
+
+### Next Session
+- [ ] P1 UX: UX-004 through UX-024
+- [ ] Verify npm link install story on a fresh machine
 - [ ] Tag v1.0.0
