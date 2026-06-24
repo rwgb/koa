@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { AgentLoop } from '../agent/loop.js';
 import type { KoaConfig } from '../config/index.js';
-import type { LlmProvider, LlmStream } from '../agent/providers/types.js';
+import type { LlmStream } from '../agent/providers/types.js';
 
 // ── Module mocks (mirrors loop_turn.test.ts baseline) ────────────────────────
 
