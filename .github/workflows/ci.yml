@@ -48,13 +48,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Runs on the self-hosted runner installed on the LXC (192.168.1.200).
-  # Restricted to direct pushes on main/feature branch -- PRs from forks
-  # never reach the homelab runner.
-  deploy:
-    name: Deploy to LXC
+  # Build on a hosted runner (7 GB RAM) where TypeScript compilation is safe.
+  # Uploads dist/ and web/dist/ as artifacts for the deploy job.
+  build:
+    name: Build
     needs: test
-    runs-on: [self-hosted, koa-lxc]
+    runs-on: ubuntu-latest
     if: |
       github.event_name == 'push' && (
         github.ref == 'refs/heads/main' ||
@@ -77,14 +76,44 @@ jobs:
       - name: Build web UI
         run: npm run build:web
 
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: koa-build-${{ github.sha }}
+          path: |
+            dist/
+            web/dist/
+            package.json
+            package-lock.json
+          retention-days: 3
+
+  # Deploy on the self-hosted LXC runner. Downloads the pre-built artifacts
+  # from the build job -- no TypeScript compilation needed on the LXC.
+  # Restricted to direct pushes only; PRs from forks never reach the homelab.
+  deploy:
+    name: Deploy to LXC
+    needs: build
+    runs-on: [self-hosted, koa-lxc]
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: koa-build-${{ github.sha }}
+
       - name: Deploy to /opt/koa
         run: |
+          ARTIFACTS="$(pwd)"
+          # Sync lock files before npm ci (required)
+          cp "$ARTIFACTS/package.json" /opt/koa/package.json
+          cp "$ARTIFACTS/package-lock.json" /opt/koa/package-lock.json
+          # Install/update production deps only (skips tsc, vitest, vite, etc.)
+          cd /opt/koa && npm ci --omit=dev
+          # Recompile native module for this exact kernel/glibc
+          npm rebuild better-sqlite3
+          # Swap in the new build
           systemctl stop koa
-          rsync -a --delete dist/ /opt/koa/dist/
-          rsync -a --delete web/dist/ /opt/koa/web/dist/
-          rsync -a --delete --exclude=.cache node_modules/ /opt/koa/node_modules/
-          cp package.json /opt/koa/package.json
-          cd /opt/koa && npm rebuild better-sqlite3
+          rsync -a --delete "$ARTIFACTS/dist/" /opt/koa/dist/
+          rsync -a --delete "$ARTIFACTS/web/dist/" /opt/koa/web/dist/
           chown -R koa:koa /opt/koa
           systemctl start koa
 
