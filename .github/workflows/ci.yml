@@ -1,10 +1,9 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main, develop]
   push:
-    branches: [develop, main]
+    branches: ['**']
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -15,9 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '20'
           cache: npm
 
       - run: npm ci
@@ -33,3 +32,65 @@ jobs:
         env:
           NODE_ENV: test
           KOA_HOME: /tmp/koa-ci
+
+      # AI security + quality review on PRs. continue-on-error so quota
+      # exhaustion (until 2026-07-01) doesn't block merges.
+      - name: AI code review
+        if: github.event_name == 'pull_request'
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          prompt: >
+            Review this PR for security issues (OWASP top 10), type safety problems,
+            and logic errors. Focus on HIGH and MEDIUM severity findings only. Post a
+            concise summary comment on the PR.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Runs on the self-hosted runner installed on the LXC (192.168.1.200).
+  # Restricted to direct pushes on main/feature branch -- PRs from forks
+  # never reach the homelab runner.
+  deploy:
+    name: Deploy to LXC
+    needs: test
+    runs-on: [self-hosted, koa-lxc]
+    if: |
+      github.event_name == 'push' && (
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/feature/web-console-and-hardening'
+      )
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build server
+        run: npm run build
+
+      - name: Build web UI
+        run: npm run build:web
+
+      - name: Deploy to /opt/koa
+        run: |
+          systemctl stop koa
+          rsync -a --delete dist/ /opt/koa/dist/
+          rsync -a --delete web/dist/ /opt/koa/web/dist/
+          rsync -a --delete --exclude=.cache node_modules/ /opt/koa/node_modules/
+          cp package.json /opt/koa/package.json
+          cd /opt/koa && npm rebuild better-sqlite3
+          chown -R koa:koa /opt/koa
+          systemctl start koa
+
+      - name: Verify service health
+        run: |
+          sleep 3
+          systemctl is-active --quiet koa \
+            && echo "koa is running" \
+            || { journalctl -u koa --lines=30; exit 1; }

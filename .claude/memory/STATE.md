@@ -55,17 +55,24 @@ metadata:
 | CP29-A/B | EventBus namespace.verb pattern + action_type dispatch (notify/brief/agent) | ✅ done 2026-06-16 |
 | CP29-C | TurnScheduler replaces isBusy — priority queuing, no more 429s | ✅ done 2026-06-16 |
 | — | Multi-instance integrations (gmail, google-calendar, slack, mcp_server) + security fixes | ✅ done 2026-06-23 |
+| — | All P0/P1 audit findings (9 P0 + 28 P1) remediated | ✅ done 2026-06-23 |
+| — | Deploy to LXC — migration 11 applied, service active | ✅ done 2026-06-24 |
+| — | CI/CD: GitHub Actions workflow + self-hosted runner (koa-lxc) online | ✅ done 2026-06-24 |
+| — | Calendar: timezone support, credential fallback, cleanup on delete | ✅ done 2026-06-24 |
 
-## Current State (2026-06-23)
+## Current State (2026-06-24)
 
-- Branch: `feature/web-console-and-hardening` — all changes committed (tip: 305ad38)
-- Tests: 910 passing, 0 failing | tsc: clean
-- Multi-instance integrations complete; Google Calendar OAuth working
-- Production (192.168.1.200): still on v1.0.0 — feature branch not yet merged/deployed
+- Branch: `feature/web-console-and-hardening` — changes pending commit
+- Tests: 1029 passing, 0 failing | tsc: clean
+- Production (192.168.1.200): deployed, migration 11 live
+- API quota exhausted on LXC until 2026-07-01 UTC (non-blocking)
+- Calendar integration: working locally (4 events synced); LXC has no google-calendar credentials yet
 
 ## Next
 
-- [ ] Deploy feature branch to LXC (scripts/deploy.sh) — migration 11 will run on startup
-- [ ] Test multi-instance: add second Gmail/Calendar account from UI
-- [ ] Open PR for feature/web-console-and-hardening → main (v1.1.0)
-- [ ] Publish Google OAuth app (removes test-user restriction permanently)
+- [ ] Trigger test push to verify CI pipeline runs end-to-end on GitHub
+- [ ] Add ANTHROPIC_API_KEY to rwgb/koa repo secrets (for AI review, quota resets 2026-07-01)
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022 (17 items)
+- [ ] Verify koa code via npm link on a fresh project
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Sync calendar OAuth credentials to LXC production instance

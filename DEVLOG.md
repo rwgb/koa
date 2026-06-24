@@ -1,5 +1,72 @@
 # Koa — DevLog
 
+## 2026-06-24 — CI/CD pipeline + LXC self-hosted runner
+
+### Completed
+- Updated `.github/workflows/ci.yml`: triggers on all branch pushes + PRs, Node 20, lint/typecheck/test jobs, AI code review on PRs (continue-on-error for quota)
+- Added deploy job: runs on `[self-hosted, koa-lxc]` runner, only on direct pushes to main/feature branch (PRs from forks never reach homelab runner)
+- Installed GitHub Actions self-hosted runner on LXC (192.168.1.200): /opt/actions-runner, registered as `koa-lxc`, running as root with RUNNER_ALLOW_RUNASROOT=1
+- Runner status: online + idle (confirmed via gh api)
+- Created `scripts/setup-lxc-runner.sh` for future runner reinstalls
+- Calendar fixes committed: timezone support, credential fallback, error logging, cleanup on integration delete
+
+### Decisions
+- Runner runs as root (homelab acceptable; no multi-tenant risk)
+- Deploy restricted to direct pushes (not PRs) to prevent fork code on LXC
+- `continue-on-error: true` on AI review — quota exhausted until 2026-07-01 UTC
+- Node 20 pinned in CI to match LXC runtime
+
+### Next Session
+- [ ] Trigger a test push to verify CI pipeline runs end-to-end
+- [ ] Add ANTHROPIC_API_KEY secret to rwgb/koa repo settings (for AI review once quota resets)
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Sync calendar OAuth credentials to LXC
+
+---
+
+## 2026-06-24 — Calendar integration fix + credentials fallback
+
+### Completed
+- Diagnosed calendar sync 400 error: root cause was missing Google OAuth credentials (no google-calendar entry in integrations.json, no env vars set locally)
+- Fix 1 (admin.ts): OAuth callback now persists clientId + clientSecret alongside refreshToken — prevents 400 on token refresh in envs without env vars (e.g. LXC)
+- Fix 2 (sync.ts): Error logging now extracts Google API HTTP status code + message from e.response.data.error for faster diagnosis
+- Fix 3 (write.ts + calendar_write.ts): Added optional timeZone field to CalendarEventDraft and agent tools — prevents 400 on event creation when dateTime lacks UTC offset
+- Fix 4 (oauth.ts): Wired readCredentials() into makeOAuth2Client() so GOOGLE_CLIENT_ID/SECRET in ~/.koa/credentials is respected (consistent with all other koa credentials)
+- Completed OAuth flow locally with new dev credentials → 4 events synced from Google Calendar
+- Auto-sync confirmed working (calendarSync.start() already wired at server boot in server/index.ts:155)
+- 1029 tests passing, tsc clean
+
+### Decisions
+- credentials file fallback added to oauth.ts: priority order is integration config → GOOGLE_CALENDAR_* env → GOOGLE_* env → readCredentials()
+- clientSecret persisted to integrations.json (MEDIUM security finding accepted: file is 0o600 + masked to *** in API responses, consistent with other secret storage)
+
+### Next Session
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022
+- [ ] Verify koa code via npm link on a fresh project
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Sync calendar OAuth credentials to LXC (production currently has no google-calendar integration)
+
+---
+
+## 2026-06-24 — Cleanup + Deploy to LXC
+
+### Completed
+- Committed 5 uncommitted changes from prior session: homeOverride thread-through for project-memory, config test coverage (loadLocalConfig/koaLocalDir/ensureLocalHome + smartRouting default fix), react-markdown dep, audit doc, DEVLOG+HANDOFF
+- Deployed feature/web-console-and-hardening to LXC (192.168.1.200) via scripts/deploy.sh
+- Migration 11 confirmed applied on startup: `source_integration_id` column added to `calendar_events`, backup `koa.db.bak-v10` created
+- Service running (active), 1029 tests passing, tsc clean
+
+### Known Issues
+- LXC API quota exhausted until 2026-07-01 UTC — PROJECT.md generation fails at startup (non-blocking; quota resets automatically)
+
+### Next Session
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022
+- [ ] Verify koa code via npm link on a fresh project
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+
+---
+
 ## 2026-06-23 — UX Phase 1
 
 ### Completed
