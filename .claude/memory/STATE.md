@@ -59,20 +59,18 @@ metadata:
 | — | Deploy to LXC — migration 11 applied, service active | ✅ done 2026-06-24 |
 | — | CI/CD: GitHub Actions workflow + self-hosted runner (koa-lxc) online + pipeline green | ✅ done 2026-06-24 |
 | — | Calendar: timezone support, credential fallback, cleanup on delete | ✅ done 2026-06-24 |
+| P2 Audit | SEC-008/009/011/012/013 + GAP-13/14/15 + UX-011–023 (17 items) + post-gate fixes | ✅ done 2026-06-24 |
+
+| v1.2.0 | PR #31 merged → main; tagged v1.2.0 @ 6f0b42a | ✅ done 2026-06-24 |
 
 ## Current State (2026-06-24)
 
-- Branch: `feature/web-console-and-hardening` — changes pending commit
-- Tests: 1029 passing, 0 failing | tsc: clean
-- Production (192.168.1.200): deployed, migration 11 live
-- API quota exhausted on LXC until 2026-07-01 UTC (non-blocking)
-- Calendar integration: working locally (4 events synced); LXC has no google-calendar credentials yet
+- Branch: `main` @ 6f0b42a — v1.2.0 released
+- Tests: 1058 passing, 0 failing | tsc: clean (root + web)
+- Production (192.168.1.200): deployed @ c53d8b5 (P2 hardening); v1.2.0 merge will auto-deploy via CI
+- CI/CD: green — koa-lxc runner active
+- Calendar: credentials synced to LXC
 
 ## Next
 
-- [x] Trigger test push to verify CI pipeline runs end-to-end on GitHub ✅
-- [x] Add ANTHROPIC_API_KEY to rwgb/koa repo secrets ✅ (user confirmed)
-- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022 (17 items)
-- [ ] Verify koa code via npm link on a fresh project
-- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
-- [ ] Sync calendar OAuth credentials to LXC production instance
+- Nothing outstanding — v1.2.0 shipped

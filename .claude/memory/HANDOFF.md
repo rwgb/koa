@@ -104,7 +104,7 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 ~~16. **UX-004 through UX-024** — done (2026-06-23): Activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications, quick wins #1–#9~~
 
 ### Deploy
-17. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 ran cleanly — **NEXT PRIORITY**
+17. ~~**Deploy to LXC**~~ — **done 2026-06-24**: P2 fixes deployed @ c53d8b5, migration 11 confirmed live, service active, undici absent, better-sqlite3 native binding verified
 
 ## Don't Restart
 
