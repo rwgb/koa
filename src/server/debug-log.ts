@@ -12,10 +12,10 @@ export function getLogBuffer(): LogEntry[] { return [..._buffer]; }
 export function clearLogBuffer(): void { _buffer.length = 0; }
 
 const SENSITIVE_RE = [
-  /Bearer [^\s"]+/g,
-  /refresh_token[=:][^\s"&]+/g,
-  /access_token[=:][^\s"&]+/g,
-  /client_secret[=:][^\s"&]+/g,
+  /Bearer\s+[^\s"]+/gi,
+  /refresh_token["']?\s*[=:]\s*["']?[^\s"&,}]+/gi,
+  /access_token["']?\s*[=:]\s*["']?[^\s"&,}]+/gi,
+  /client_secret["']?\s*[=:]\s*["']?[^\s"&,}]+/gi,
 ];
 
 export function scrubSensitive(msg: string): string {

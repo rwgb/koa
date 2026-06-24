@@ -290,7 +290,7 @@ describe('dependency add/remove roundtrip — real DB', () => {
 
     vi.mocked(dbModule.getTaskDependencies).mockImplementation((taskId: string) => {
       const deps = depMap.get(taskId) ?? new Set<string>();
-      return [...deps].map(id => ({ id, title: `Task ${id}`, status: 'todo', priority: 3 }));
+      return [...deps].map(id => ({ id, title: `Task ${id}`, status: 'todo', priority: 3 } as unknown as ReturnType<typeof dbModule.getTaskDependencies>[number]));
     });
 
     const { createDbRouter } = await import('../server/routes/db.js');

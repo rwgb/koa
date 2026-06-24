@@ -223,7 +223,8 @@ function makeLoop(configOverrides: Partial<KoaConfig> = {}): any {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const textBlock = (text: string): any => ({ type: 'text', text });
 
-function makeMessage(overrides: Partial<Anthropic.Message> = {}): Anthropic.Message {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeMessage(overrides: Record<string, any> = {}): Anthropic.Message {
   return {
     id: 'msg_test',
     type: 'message',

@@ -11,6 +11,7 @@ export interface SseTicket {
 export const ticketStore = new Map<string, SseTicket>();
 
 const TICKET_TTL_MS = 30_000;
+const MAX_TICKETS = 50;
 
 function pruneExpired(): void {
   const cutoff = Date.now() - TICKET_TTL_MS;
@@ -25,6 +26,11 @@ function pruneExpired(): void {
  */
 export function issueTicket(token: string): string {
   pruneExpired();
+  if (ticketStore.size >= MAX_TICKETS) {
+    // Evict the oldest entry to bound memory under runaway retry loops.
+    const oldest = ticketStore.keys().next().value;
+    if (oldest !== undefined) ticketStore.delete(oldest);
+  }
   const ticketId = crypto.randomBytes(32).toString('hex');
   ticketStore.set(ticketId, { token, createdAt: Date.now() });
   return ticketId;
