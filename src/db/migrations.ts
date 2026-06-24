@@ -214,6 +214,12 @@ const MIGRATIONS: [number, string][] = [
     ALTER TABLE projects ADD COLUMN budget_usd REAL DEFAULT NULL;
     `,
   ],
+  [
+    11,
+    `
+    ALTER TABLE calendar_events ADD COLUMN source_integration_id TEXT NOT NULL DEFAULT 'google-calendar';
+    `,
+  ],
 ];
 
 export function runMigrations(db: Database.Database): void {

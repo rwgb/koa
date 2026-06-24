@@ -2,6 +2,7 @@ import express, { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
+import { voiceRateLimit } from '../middleware.js';
 import { loadIntegrations } from '../../integrations/store.js';
 import { isDuplicate, markProcessed, contentHash } from '../../channels/dedup.js';
 import { parseTwilioBody, validateTwilioSignature } from '../../channels/sms.js';
@@ -44,23 +45,39 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
       parsed = Object.fromEntries(new URLSearchParams(rawBody));
     }
 
-    // url_verification challenge (sent during Slack app setup — no auth needed)
-    if (parsed['type'] === 'url_verification') {
-      res.json({ challenge: parsed['challenge'] });
-      return;
-    }
-
-    // Validate signature for all other requests
-    const slackIntegrations = loadIntegrations();
-    const slack = slackIntegrations.find(i => i.type === 'slack' && i.status === 'connected');
-    const signingSecret = slack?.config['signingSecret'];
-
+    // Validate HMAC signature FIRST — before reading any body fields or sending responses.
+    // This ensures url_verification challenges (and all other requests) are authenticated
+    // before we act on them. Previously the url_verification branch ran before this check,
+    // allowing unauthenticated callers to probe the endpoint (SEC-002).
+    const allSlacks = loadIntegrations().filter(i => i.type === 'slack' && i.status === 'connected');
     const timestamp = req.headers['x-slack-request-timestamp'] as string | undefined;
     const signature = req.headers['x-slack-signature'] as string | undefined;
 
-    if (!signingSecret || !timestamp || !signature ||
-        !validateSlackSignature(signingSecret, rawBody, timestamp, signature)) {
-      res.status(403).json({ error: 'Invalid Slack signature' });
+    let matchedSlack: (typeof allSlacks)[0] | undefined;
+    if (timestamp && signature) {
+      for (const s of allSlacks) {
+        const signingSecret = s.config['signingSecret'];
+        if (signingSecret && validateSlackSignature(signingSecret, rawBody, timestamp, signature)) {
+          matchedSlack = s;
+          break;
+        }
+      }
+    }
+
+    if (!matchedSlack) {
+      res.status(401).json({ error: 'Invalid Slack signature' });
+      return;
+    }
+
+    // url_verification challenge — signature is now confirmed valid before we echo anything.
+    // Guard the challenge value to a safe alphanumeric format before reflecting it.
+    if (parsed['type'] === 'url_verification') {
+      const challenge = parsed['challenge'];
+      if (typeof challenge !== 'string' || !/^[a-zA-Z0-9]{1,64}$/.test(challenge)) {
+        res.status(400).json({ error: 'Invalid challenge format' });
+        return;
+      }
+      res.json({ challenge });
       return;
     }
 
@@ -81,7 +98,7 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
       try {
         const result = await loop.turn(inbound.text);
         if (!result.content) return;
-        const botToken = slack?.config['botToken'];
+        const botToken = matchedSlack.config['botToken'];
         const replyOpts: { responseUrl?: string; channelId?: string; botToken?: string } = {
           channelId: inbound.channelId,
         };
@@ -106,7 +123,12 @@ export function createWebhooksRouter(deps: WebhooksRouterDeps): Router {
       return;
     }
     const sig = req.headers['x-twilio-signature'] as string | undefined;
-    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+    // SEC-015: Derive the callback URL from config.publicUrl (KOA_PUBLIC_URL) when set so
+    // the HMAC base string cannot be spoofed via X-Forwarded-Proto / X-Forwarded-Host headers
+    // that an attacker could inject if they reach Node.js directly, bypassing the reverse proxy.
+    const url = config.publicUrl
+      ? `${config.publicUrl}${req.originalUrl}`
+      : `${req.protocol}://${req.get('host')}${req.originalUrl}`;
     if (!sig || !validateTwilioSignature(twilio.config['authToken'], url, body, sig)) {
       res.status(403).type('text/xml').send('<Response/>');
       return;
@@ -165,7 +187,7 @@ export function createVoiceRouter(deps: Pick<WebhooksRouterDeps, 'rawBodyMap'>):
   // ── POST /tts — synthesize text to audio/mpeg via ElevenLabs ─────────────────
   // Input is capped at 2000 chars before cleanText (which further slices to 500).
   // This prevents large-payload regex work even though express.json() has a 100KB default limit.
-  router.post('/tts', async (req: Request, res: Response) => {
+  router.post('/tts', voiceRateLimit, async (req: Request, res: Response) => {
     const body = req.body as Record<string, unknown>;
     const rawText = body['text'];
 

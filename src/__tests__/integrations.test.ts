@@ -172,6 +172,143 @@ describe('maskSecrets()', () => {
   });
 });
 
+// ── saveIntegration / loadIntegrations — round-trip ──────────────────────────
+
+describe('saveIntegration / loadIntegrations — atomic write', () => {
+  it('persists an integration and loads it back with matching data', async () => {
+    const { saveIntegration, loadIntegrations } = await import('../integrations/store.js');
+
+    const integration = makeIntegration({ id: 'rt-1', name: 'Round Trip' });
+    saveIntegration(integration);
+
+    const loaded = loadIntegrations();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toEqual(integration);
+  });
+
+  it('overwrites an existing integration when saved again with a change', async () => {
+    const { saveIntegration, loadIntegrations } = await import('../integrations/store.js');
+
+    saveIntegration(makeIntegration({ id: 'rt-2', name: 'Before' }));
+    saveIntegration(makeIntegration({ id: 'rt-2', name: 'After' }));
+
+    const loaded = loadIntegrations();
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]!.name).toBe('After');
+  });
+});
+
+// ── mergeConfig — secret preservation ────────────────────────────────────────
+
+describe('mergeConfig — secret preservation', () => {
+  it('retains the original secret when submitted value is "***"', async () => {
+    const { mergeConfig } = await import('../integrations/store.js');
+
+    const existing = { botToken: 'xoxb-real-secret', channel: '#general' };
+    const submitted = { botToken: '***', channel: '#announcements' };
+
+    const merged = mergeConfig(existing, submitted, 'slack');
+
+    // Secret must not be overwritten with the placeholder
+    expect(merged['botToken']).toBe('xoxb-real-secret');
+    // Non-secret field must be updated
+    expect(merged['channel']).toBe('#announcements');
+  });
+
+  it('updates a secret field when a real value (not "***") is submitted', async () => {
+    const { mergeConfig } = await import('../integrations/store.js');
+
+    const existing = { botToken: 'xoxb-old', channel: '#general' };
+    const submitted = { botToken: 'xoxb-new', channel: '#general' };
+
+    const merged = mergeConfig(existing, submitted, 'slack');
+
+    expect(merged['botToken']).toBe('xoxb-new');
+  });
+});
+
+// ── maskSecrets — field-level coverage ───────────────────────────────────────
+
+describe('maskSecrets — SECRET_FIELDS replacement', () => {
+  it('replaces exactly the SECRET_FIELDS values with "***"', async () => {
+    const { maskSecrets } = await import('../integrations/store.js');
+
+    // github has a single secret field: token
+    const integration = makeIntegration({
+      id: 'gh-1',
+      type: 'github',
+      config: { token: 'ghp_supersecret', org: 'rwgb' },
+    });
+    const masked = maskSecrets(integration);
+
+    expect(masked.config['token']).toBe('***');
+  });
+
+  it('leaves non-secret fields untouched', async () => {
+    const { maskSecrets } = await import('../integrations/store.js');
+
+    const integration = makeIntegration({
+      id: 'gh-2',
+      type: 'github',
+      config: { token: 'ghp_supersecret', org: 'rwgb' },
+    });
+    const masked = maskSecrets(integration);
+
+    expect(masked.config['org']).toBe('rwgb');
+  });
+
+  it('does not mutate the original integration object', async () => {
+    const { maskSecrets } = await import('../integrations/store.js');
+
+    const integration = makeIntegration();
+    maskSecrets(integration);
+
+    // original must still hold the real secret
+    expect(integration.config['botToken']).toBe('xoxb-secret');
+  });
+});
+
+// ── deleteIntegration — return value and removal ──────────────────────────────
+
+describe('deleteIntegration', () => {
+  it('returns false for an unknown id', async () => {
+    const { deleteIntegration } = await import('../integrations/store.js');
+
+    const result = deleteIntegration('does-not-exist');
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true and removes the integration for a known id', async () => {
+    const { saveIntegration, loadIntegrations, deleteIntegration } = await import(
+      '../integrations/store.js'
+    );
+
+    saveIntegration(makeIntegration({ id: 'to-delete' }));
+
+    const result = deleteIntegration('to-delete');
+
+    expect(result).toBe(true);
+    const remaining = loadIntegrations();
+    expect(remaining.find(i => i.id === 'to-delete')).toBeUndefined();
+  });
+
+  it('leaves other integrations intact after deletion', async () => {
+    const { saveIntegration, loadIntegrations, deleteIntegration } = await import(
+      '../integrations/store.js'
+    );
+
+    saveIntegration(makeIntegration({ id: 'keep-me' }));
+    saveIntegration(makeIntegration({ id: 'remove-me' }));
+
+    deleteIntegration('remove-me');
+
+    const remaining = loadIntegrations();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.id).toBe('keep-me');
+  });
+});
+
 // ── atomic write ──────────────────────────────────────────────────────────────
 
 describe('atomic write', () => {

@@ -1,78 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ChatItem } from '../types.js';
 import MessageBubble from './MessageBubble.js';
 import { Icon } from './Icon.js';
-import { fetchProjects, createTask } from '../api.js';
-import type { Project } from '../types.js';
 import type { VoiceState } from '../hooks/useSpeech.js';
-
-function QuickTaskAdd() {
-  const [open, setOpen] = useState(false);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectId, setProjectId] = useState('');
-  const [title, setTitle] = useState('');
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (open && projects.length === 0) {
-      fetchProjects().then(setProjects).catch(() => {});
-    }
-  }, [open]);
-
-  async function handleAdd() {
-    if (!projectId || !title.trim()) return;
-    setSaving(true);
-    try {
-      await createTask(projectId, title.trim());
-      setTitle('');
-      setToast({ msg: 'Task added', ok: true });
-    } catch {
-      setToast({ msg: 'Failed to add task', ok: false });
-    } finally {
-      setSaving(false);
-      setTimeout(() => setToast(null), 2000);
-    }
-  }
-
-  return (
-    <div className="quick-task">
-      <button className="quick-task__toggle" onClick={() => setOpen(o => !o)}>
-        <Icon name="plus" size={12} />
-        Quick task
-      </button>
-      {open && (
-        <div className="quick-task__form">
-          <select
-            className="quick-task__select"
-            value={projectId}
-            onChange={e => setProjectId(e.target.value)}
-          >
-            <option value="">Project…</option>
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          <input
-            className="quick-task__input"
-            placeholder="Task title…"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') void handleAdd(); }}
-          />
-          <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={saving || !projectId || !title.trim()}>
-            Add
-          </button>
-        </div>
-      )}
-      {toast && (
-        <div className={`quick-task__toast quick-task__toast--${toast.ok ? 'ok' : 'err'}`}>
-          {toast.msg}
-        </div>
-      )}
-    </div>
-  );
-}
+import { useDevMode } from '../context/DevModeContext.js';
 
 interface Props {
   items: ChatItem[];
@@ -87,12 +18,13 @@ interface Props {
 
 export default function ChatPanel({ items, input, setInput, onSubmit, isThinking, classifyingTier, onClear, voice }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const { devMode, toggleDevMode } = useDevMode();
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       onSubmit();
@@ -148,19 +80,32 @@ export default function ChatPanel({ items, input, setInput, onSubmit, isThinking
         <div className="classifying-badge">Routing{classifyingTier !== '…' ? ` → ${classifyingTier}` : '…'}</div>
       )}
 
-      <QuickTaskAdd />
-
       <div className="input-row">
-        <input
+        <textarea
           className="input-row__input"
-          type="text"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onInput={e => {
+            const t = e.currentTarget;
+            t.style.height = 'auto';
+            t.style.height = Math.min(t.scrollHeight, 120) + 'px';
+          }}
           disabled={isThinking}
           placeholder="Ask Koa anything…"
           autoFocus
+          rows={1}
+          style={{ resize: 'none', overflow: 'hidden' }}
         />
+        <button
+          className={`input-row__dev-toggle${devMode ? ' input-row__dev-toggle--active' : ''}`}
+          onClick={toggleDevMode}
+          type="button"
+          title="Toggle dev mode"
+          aria-pressed={devMode}
+        >
+          Dev
+        </button>
         <button
           className="input-row__send"
           onClick={onSubmit}

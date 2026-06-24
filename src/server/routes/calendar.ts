@@ -42,7 +42,7 @@ export function createCalendarRouter(): Router {
     }
     calendarSync.syncNow()
       .then(() => res.json({ ok: true }))
-      .catch(e => res.status(500).json({ error: (e as Error).message }));
+      .catch(e => { console.error('[koa/calendar] sync error:', e); res.status(500).json({ error: 'Calendar sync failed' }); });
   });
 
   return router;

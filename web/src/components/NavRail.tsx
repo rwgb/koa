@@ -5,6 +5,7 @@ import type { IconName } from './Icon.js';
 const NAV_ITEMS: { to: string; label: string; icon: IconName }[] = [
   { to: '/chat',     label: 'Chat',     icon: 'chat' },
   { to: '/projects', label: 'Projects', icon: 'folder' },
+  { to: '/tasks',    label: 'Tasks',    icon: 'kanban' },
   { to: '/calendar', label: 'Calendar', icon: 'calendar' },
 ];
 

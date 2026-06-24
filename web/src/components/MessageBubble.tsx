@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import type { ChatItem } from '../types.js';
 import { Icon } from './Icon.js';
+import { useDevMode } from '../context/DevModeContext.js';
 
 interface Props {
   item: ChatItem;
@@ -9,6 +11,7 @@ interface Props {
 export default function MessageBubble({ item }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { devMode } = useDevMode();
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -26,6 +29,11 @@ export default function MessageBubble({ item }: Props) {
       <div className="bubble bubble--user">
         <div className="bubble__meta">
           <span className="bubble__role bubble__role--user">You</span>
+          {item.timestamp && (
+            <span className="bubble__timestamp">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           {channelIcon && (
             <span className="bubble__channel-badge" title={`via ${item.channel}`}>
               <Icon name={channelIcon} size={11} />
@@ -33,7 +41,7 @@ export default function MessageBubble({ item }: Props) {
             </span>
           )}
         </div>
-        <div className="bubble__content">{item.content}</div>
+        <div className="bubble__content"><ReactMarkdown>{item.content}</ReactMarkdown></div>
       </div>
     );
   }
@@ -52,6 +60,11 @@ export default function MessageBubble({ item }: Props) {
       <div className="bubble bubble--assistant bubble--hoverable">
         <div className="bubble__meta">
           <span className="bubble__role bubble__role--assistant">Koa</span>
+          {item.timestamp && (
+            <span className="bubble__timestamp">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
           <span className={`bubble__agent-badge bubble__agent-badge--${agent}`}>
             {agentLabel[agent] ?? agent}
           </span>
@@ -66,14 +79,13 @@ export default function MessageBubble({ item }: Props) {
               : <Icon name="copy" size={12} />}
           </button>
         </div>
-        <div className="bubble__content" style={{ whiteSpace: 'pre-wrap' }}>
-          {item.content}
-        </div>
+        <div className="bubble__content"><ReactMarkdown>{item.content}</ReactMarkdown></div>
       </div>
     );
   }
 
   if (item.kind === 'tool_call') {
+    if (!devMode) return null;
     return (
       <div className="bubble bubble--tool">
         <button
@@ -93,19 +105,26 @@ export default function MessageBubble({ item }: Props) {
   }
 
   if (item.kind === 'tool_result') {
+    if (!devMode) return null;
+    const resultStr = typeof item.result === 'string' ? item.result : JSON.stringify(item.result);
+    const isError = resultStr.startsWith('Error:');
+    const preview = resultStr.length > 60 ? resultStr.slice(0, 60) + '…' : resultStr;
     return (
-      <div className="bubble bubble--result">
+      <div className={`bubble bubble--result${isError ? ' bubble--result-error' : ''}`}>
         <button
-          className="bubble__tool-header bubble__tool-header--result"
+          className={`bubble__tool-header bubble__tool-header--result${isError ? ' bubble__tool-header--error' : ''}`}
           onClick={() => setExpanded(e => !e)}
           aria-expanded={expanded}
         >
-          <Icon name="check" size={12} className="bubble__tool-icon" />
+          <Icon name={isError ? 'alert' : 'check'} size={12} className="bubble__tool-icon" />
           <span className="bubble__tool-name">{item.name}</span>
+          {!expanded && (
+            <span className="bubble__tool-preview">{preview}</span>
+          )}
           <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} />
         </button>
         {expanded && (
-          <pre className="bubble__pre">{item.result}</pre>
+          <pre className="bubble__pre">{resultStr}</pre>
         )}
       </div>
     );
@@ -117,6 +136,11 @@ export default function MessageBubble({ item }: Props) {
         <div className="bubble__meta">
           <Icon name="alert" size={12} />
           <span className="bubble__role bubble__role--error">Error</span>
+          {item.timestamp && (
+            <span className="bubble__timestamp">
+              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
         <div className="bubble__content bubble__content--error">{item.message}</div>
       </div>

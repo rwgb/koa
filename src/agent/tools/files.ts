@@ -128,16 +128,19 @@ export function createFileTools(projectRoot: string): Tool[] {
   const analyzeImageTool: Tool = {
     name: 'analyze_image',
     description:
-      'Read an image file from disk and return it for visual analysis. Accepts absolute paths anywhere on the filesystem (not restricted to project root). Supported types: jpg, jpeg, png, gif, webp.',
+      'Read an image file from within the project directory and return it for visual analysis. The image path must be inside the project root. Supported types: jpg, jpeg, png, gif, webp.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Absolute path to the image file' },
+        path: { type: 'string', description: 'Path to the image file (must be within the project directory)' },
       },
       required: ['path'],
     },
     async execute(input: ToolInput): Promise<ToolResultContent> {
-      const filePath = path.resolve(input['path'] as string);
+      const resolved = path.resolve(input['path'] as string);
+      // Enforce sandbox — throws if path escapes the project root
+      const filePath = sandboxPath(resolved, projectRoot);
+      console.log(`[analyze_image] path=${filePath}`);
       const ext = path.extname(filePath).toLowerCase();
       const mediaType = IMAGE_TYPES[ext];
       if (!mediaType) {

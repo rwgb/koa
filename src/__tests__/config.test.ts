@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { loadConfig, getEngramBrainPath, validateClaudeCodePath } from '../config/index.js';
+import { loadConfig, loadLocalConfig, ensureLocalHome, koaLocalDir, getEngramBrainPath, validateClaudeCodePath } from '../config/index.js';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
@@ -59,9 +59,9 @@ describe('loadConfig', () => {
     expect(loadConfig('/tmp').apiKey).toBe('sk-test-key');
   });
 
-  it('smartRouting defaults to false', () => {
+  it('smartRouting defaults to true', () => {
     delete process.env['KOA_SMART_ROUTING'];
-    expect(loadConfig('/tmp').smartRouting).toBe(false);
+    expect(loadConfig('/tmp').smartRouting).toBe(true);
   });
 
   it('enables smartRouting when KOA_SMART_ROUTING=true', () => {
@@ -266,5 +266,175 @@ describe('getEngramBrainPath', () => {
   it('maps a project with spaces in its own name correctly', () => {
     const result = getEngramBrainPath('/projects/my cool app');
     expect(result).toBe(path.join(os.homedir(), '.engram', 'brains', 'my-cool-app', 'brain.db'));
+  });
+});
+
+describe('koaLocalDir', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('defaults to ~/.koa-local when KOA_LOCAL_HOME is unset', () => {
+    delete process.env['KOA_LOCAL_HOME'];
+    expect(koaLocalDir()).toBe(path.join(os.homedir(), '.koa-local'));
+  });
+
+  it('uses KOA_LOCAL_HOME when set', () => {
+    process.env['KOA_LOCAL_HOME'] = '/custom/local';
+    expect(koaLocalDir()).toBe('/custom/local');
+  });
+
+  it('does NOT use KOA_HOME — local dir is independent of the server dir', () => {
+    process.env['KOA_HOME'] = '/some/server/home';
+    delete process.env['KOA_LOCAL_HOME'];
+    // koaLocalDir() must not be influenced by KOA_HOME
+    expect(koaLocalDir()).toBe(path.join(os.homedir(), '.koa-local'));
+  });
+});
+
+describe('ensureLocalHome', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-local-home-test-'));
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('creates the localHome directory and projects subdirectory', () => {
+    ensureLocalHome(tmpDir);
+    expect(fs.existsSync(tmpDir)).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, 'projects'))).toBe(true);
+  });
+
+  it('is idempotent — does not throw when called twice', () => {
+    ensureLocalHome(tmpDir);
+    expect(() => ensureLocalHome(tmpDir)).not.toThrow();
+  });
+});
+
+describe('loadLocalConfig', () => {
+  const originalEnv = process.env;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-local-cfg-test-'));
+    process.env['KOA_LOCAL_HOME'] = tmpDir;
+    ensureLocalHome(tmpDir);
+    process.env['ANTHROPIC_API_KEY'] = 'sk-test';
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('sets localHome to the KOA_LOCAL_HOME path', () => {
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.localHome).toBe(tmpDir);
+  });
+
+  it('sets projectPath to the provided path', () => {
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.projectPath).toBe('/tmp/myproject');
+  });
+
+  it('defaults projectPath to cwd when not provided', () => {
+    const config = loadLocalConfig();
+    expect(config.projectPath).toBe(process.cwd());
+  });
+
+  it('disables Engram by default', () => {
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.engramEnabled).toBe(false);
+  });
+
+  it('disables auto-checkpoints by default', () => {
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.autoCheckpointTurns).toBe(0);
+    expect(config.autoCheckpointMinutes).toBe(0);
+  });
+
+  it('disables browser by default', () => {
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.browserEnabled).toBe(false);
+  });
+
+  it('reads config.json from localHome not from ~/.koa/', () => {
+    // Write a local config.json with a custom model
+    fs.writeFileSync(
+      path.join(tmpDir, 'config.json'),
+      JSON.stringify({ model: 'claude-sonnet-4-6' }),
+    );
+    // Also write a server config.json with a different model (should be ignored)
+    const serverHome = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-server-cfg-'));
+    try {
+      process.env['KOA_HOME'] = serverHome;
+      fs.mkdirSync(path.join(serverHome, '.koa'), { recursive: true });
+      fs.writeFileSync(
+        path.join(serverHome, '.koa', 'config.json'),
+        JSON.stringify({ model: 'claude-haiku-4-5-20251001' }),
+      );
+      const config = loadLocalConfig('/tmp/myproject');
+      // Should use local config model, not server model
+      expect(config.model).toBe('claude-sonnet-4-6');
+    } finally {
+      fs.rmSync(serverHome, { recursive: true, force: true });
+    }
+  });
+
+  it('reads API key from localHome/credentials when not in env', () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+    fs.writeFileSync(
+      path.join(tmpDir, 'credentials'),
+      'ANTHROPIC_API_KEY=sk-local-key\n',
+      { mode: 0o600 },
+    );
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.apiKey).toBe('sk-local-key');
+  });
+
+  it('env var ANTHROPIC_API_KEY takes precedence over local credentials file', () => {
+    process.env['ANTHROPIC_API_KEY'] = 'sk-env-key';
+    fs.writeFileSync(
+      path.join(tmpDir, 'credentials'),
+      'ANTHROPIC_API_KEY=sk-local-key\n',
+      { mode: 0o600 },
+    );
+    const config = loadLocalConfig('/tmp/myproject');
+    expect(config.apiKey).toBe('sk-env-key');
+  });
+
+  it('does NOT read credentials from KOA_HOME/.koa/credentials', () => {
+    delete process.env['ANTHROPIC_API_KEY'];
+    // Write the key only to the server credentials location
+    const serverHome = fs.mkdtempSync(path.join(os.tmpdir(), 'koa-server-creds-'));
+    try {
+      const serverKoaDir = path.join(serverHome, '.koa');
+      process.env['KOA_HOME'] = serverHome;
+      fs.mkdirSync(serverKoaDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(serverKoaDir, 'credentials'),
+        'ANTHROPIC_API_KEY=sk-server-key\n',
+        { mode: 0o600 },
+      );
+      // loadLocalConfig should NOT find sk-server-key since it reads localHome/credentials
+      process.env['KOA_PROVIDER'] = 'ollama'; // avoid apiKey validation throwing
+      const config = loadLocalConfig('/tmp/myproject');
+      expect(config.apiKey).toBeUndefined();
+    } finally {
+      fs.rmSync(serverHome, { recursive: true, force: true });
+      delete process.env['KOA_PROVIDER'];
+    }
   });
 });

@@ -1,16 +1,34 @@
 ---
-written: 2026-06-16
+written: 2026-06-23
 branch: feature/web-console-and-hardening
-tests: 843
+tests: 995
 tsc: clean
-tip: e2877d8 (+ session work: fix queue + CP27-A/B/E + CP27-C/D + CP29-C + Fix 6)
+tip: 212ec82
+audit: docs/AUDIT-2026-06-23.md
 ---
 
 ## Where We Are
 
-Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP29 scheduler (priority lanes) committed. 7 fixes applied (compactAfterTurns, synthesizeSpeech, MODEL_CONTEXT_WINDOWS, OAuth TTL, browserEnabled, graceful drain, Slack cap). v1.0.0 track solid; CP27 retrieval and CP29 event bus deferred to v1.1.
+**2026-06-23 P0 remediation session**: All 9 P0 audit findings fully remediated as of 2026-06-23. SEC-001/002 security fixes applied, GAP-01–05 test coverage added, UX-001–003 error surfaces fixed. Branch sealed with commit b107b89.
+
+**2026-06-23 audit session**: Full security + QA + UI/UX audit completed. 54 findings ranked P0/P1/P2 in `docs/AUDIT-2026-06-23.md`. 910 tests passing (was 843), 55.4% statement coverage.
+
+**2026-06-23 session (earlier)**: Multi-instance integrations fully implemented and sealed (commit 91858b7). signingSecret masked, MULTI_INSTANCE_TYPES extended to gmail/google-calendar/slack/mcp_server, OAuth state carries integrationId, GmailPoller iterates all accounts, CalendarSync iterates all google-calendar instances, DB migration 11 adds source_integration_id to calendar_events, Slack webhook tries all connected secrets. Security fixes: integrationId regex-validated, KOA_WEB_TOKEN/KOA_HOME excluded from env dump, cwd removed from debug/info response.
+
+**2026-06-22 session**: KOA_PUBLIC_URL implemented + deployed. `https://koa.tailf8d66c.ts.net` live via `tailscale serve`. SSH key auth set up (root@192.168.1.200). OAuth redirect_uri now correct.
 
 ### What Was Done This Session
+
+- **P1 UX (12 items)**: UX-004 ActivityPage error surfaces, UX-005 Tasks nav + TasksListPage, UX-006 search result nav, UX-007 DelegationsPage errors, UX-008 QuickTaskAdd removed, UX-009 message timestamps, UX-010 KanbanColumn title retention, UX-013 IntegrationsPage re-fetch, UX-014 Remove buttons functional, UX-017 chat history failure, UX-019 DebugConsolePage Info tab, UX-024 NotificationsPage save errors
+- **Quick wins #1–#9**: DevModeContext localStorage toggle, ChatPanel textarea auto-resize, react-markdown for messages, smartRouting default→true, KOA_IDENTITY extraction, QuickTaskAdd removal, keyword gate before preference extraction
+
+### Previously Done (prior session)
+
+- **P1 Security (8 items)**: SEC-003 Slack SSRF, SEC-004 Telegram allowlist, SEC-005 bash cwd jail + denylist + audit log, SEC-006 debug/info env allowlist, SEC-007 calendar OAuth error scrub, SEC-010 rate limiting (chat 60/min, voice 20/min, admin 2/10min), SEC-014 openaiCompatibleBaseUrl SSRF, SEC-015 Twilio publicUrl HMAC
+- **P1 QA (7 items)**: GAP-06 GmailPoller tests, GAP-07 integrations store atomic write, GAP-08 semanticCompact fallback, GAP-09 conversation export, GAP-10 PUT /config, GAP-11 writeMemoryEvent dedup, GAP-12 McpManager partial failure
+- **koa code**: new `koa code [directory]` CLI subcommand — standalone local agent session, KOA_LOCAL_HOME config isolation, CLAUDE.md injection from project root
+
+### Previously Done (prior session)
 
 - **Fix queue cleared** (7 fixes): compactAfterTurns removed, synthesizeSpeech dead export removed, MODEL_CONTEXT_WINDOWS keys aligned, OAuth nonce TTL (10min) + prune (5min), browserEnabled runtime check on tool registration, graceful SIGTERM/SIGINT drain (30s budget), Slack inbound text capped at 2000 chars
 - **CP27-A: SQLite schema** — src/memory/schema.ts (tables: memory, versions) + src/memory/db.ts (init, version mgmt); better-sqlite3 added to package.json
@@ -47,10 +65,46 @@ Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP2
 
 `feature/web-console-and-hardening` — all pushed.
 
+## UX/Intelligence Audit — Top 10 Findings (2026-06-23)
+
+Planning workflow completed. 10 root-cause findings ranked. All have file-level specificity + recommendations.
+
+**Quick wins (small effort, high impact) — do first:**
+- #1 Developer chrome always-on → `developerMode` localStorage toggle (gates #5, #8 too)
+- #2 `<input>` → `<textarea>` auto-resize at `ChatPanel.tsx:154`
+- #3 `npm install react-markdown` + wrap `MessageBubble.tsx:69`
+- #6 Flip `smartRouting` default to `true`; fix specialist Haiku hardcode
+- #7 Extract `KOA_IDENTITY` constant to `src/agent/identity.ts`
+- #8 Remove `<QuickTaskAdd />` from `ChatPanel.tsx:151`
+- #9 Keyword gate before preference extraction in `loop.ts:1097`
+
+**Medium effort:**
+- #5 Gate tool_call/result rows behind dev-mode flag
+- #10 Wire `trigger_pattern` evaluation into agent loop
+
+**Large effort (phased):**
+- #4 User profile: Phase 1 (dedup+cap) → Phase 2 (user_fact type + injection) → Phase 3 (store consolidation)
+
 ## What's Next (Prioritized)
 
-1. **Merge to main** — open PR from `feature/web-console-and-hardening` → `main` for v1.1.0
-2. **v1.1.x bug triage** — watch for any issues post-release; memory retrieval and event bus are the newest surface area
+### P1 Security
+1. ~~**SEC-003** — Slack response_url SSRF: validate URL against allowlist before fetching~~ [done]
+2. ~~**SEC-004** — Telegram sender allowlist: silent drop + unauthorized_inbound signal for unknown senders~~ [done]
+3. ~~**SEC-005** — bash tool cwd lock: jail working directory to project root~~ [done]
+4. ~~**SEC-006** — debug/info key leak: scrub API keys from debug/info log output~~ [done]
+5. ~~**SEC-007** — calendar OAuth error leak: sanitize OAuth error messages before surfacing to client~~ [done]
+6. ~~**SEC-010** — Rate limiting on /api/chat and SSE endpoints~~ [done]
+7. ~~**SEC-014** — openaiCompatibleBaseUrl SSRF: validate against SSRF blocklist before use~~ [done]
+8. ~~**SEC-015** — Twilio HMAC: use raw body + X-Forwarded-For awareness~~ [done]
+
+### P1 QA
+~~GAP-06 through GAP-12 sealed 2026-06-23~~
+
+### P1 UX
+~~16. **UX-004 through UX-024** — done (2026-06-23): Activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications, quick wins #1–#9~~
+
+### Deploy
+17. **Deploy to LXC** — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11 ran cleanly — **NEXT PRIORITY**
 
 ## Don't Restart
 
@@ -77,3 +131,4 @@ Fix queue cleared. CP27 write path (SQLite schema + typed events) committed. CP2
 | — | mattpocock/skills: productivity + misc buckets installed (9 skills) | done |
 | CP30 | MCP over stdio | done |
 | — | Ansible hardening role + playbook refactor | done |
+| — | koa code: local project agent subcommand | done |

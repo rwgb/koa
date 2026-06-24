@@ -247,11 +247,11 @@ export default function CalendarPage() {
       <div className="cal-topbar">
         <div className="cal-topbar__nav">
           <button className="cal-nav-btn" onClick={prevMonth} aria-label="Previous month">
-            <Icon name="chevron-down" size={14} className="cal-nav-btn__icon--left" />
+            <Icon name="chevron-left" size={14} />
           </button>
           <span className="cal-topbar__month">{monthLabel}</span>
           <button className="cal-nav-btn" onClick={nextMonth} aria-label="Next month">
-            <Icon name="chevron-down" size={14} />
+            <Icon name="chevron-right" size={14} />
           </button>
         </div>
         <div className="cal-topbar__actions">

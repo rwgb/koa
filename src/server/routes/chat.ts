@@ -7,6 +7,7 @@ import type { SseEvent } from '../events.js';
 import { routeResponse } from '../../channels/router.js';
 import { synthesizeStream } from '../../voice/tts.js';
 import type { TurnResult } from '../../types/index.js';
+import { chatRateLimit } from '../middleware.js';
 
 export interface ChatRouterDeps {
   loop: AgentLoop;
@@ -134,7 +135,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
       });
   });
 
-  router.post('/chat', (req, res) => {
+  router.post('/chat', chatRateLimit, (req, res) => {
     const message = (req.body as { message?: string }).message;
     if (!message?.trim()) {
       res.status(400).json({ error: 'message is required' });
@@ -173,7 +174,7 @@ export function createChatRouter(deps: ChatRouterDeps): Router {
   // iOS URLSession / native EventSource can only issue GET requests for SSE.
   // Message arrives as a query param; ?format=brief strips ANSI and caps tool
   // output at 500 chars, keeping payloads small for mobile data.
-  router.get('/sse/chat', (req, res) => {
+  router.get('/sse/chat', chatRateLimit, (req, res) => {
     const q = req.query as Record<string, string>;
     const message = q['message'];
     const brief = q['format'] === 'brief';

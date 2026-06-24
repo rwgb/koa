@@ -401,10 +401,30 @@ export interface ProactiveAlert {
   taskCount: number;
 }
 
+// ── Debug Console ─────────────────────────────────────────────────────────────
+
+export interface DebugLogEntry {
+  ts: number;
+  level: 'log' | 'warn' | 'error' | 'debug';
+  msg: string;
+}
+
+export interface DebugInfo {
+  nodeVersion: string;
+  platform: string;
+  arch: string;
+  pid: number;
+  uptime: number;
+  cwd: string;
+  credentialKeys: Array<{ key: string; set: boolean }>;
+  env: Record<string, string>;
+  config: Record<string, unknown>;
+}
+
 // Discriminated union of everything that can appear in the chat timeline
 export type ChatItem =
-  | { kind: 'user'; content: string; id: string; channel?: InboundChannel }
-  | { kind: 'assistant'; content: string; id: string; tier?: string; agent?: string }
+  | { kind: 'user'; content: string; id: string; channel?: InboundChannel; timestamp?: number }
+  | { kind: 'assistant'; content: string; id: string; tier?: string; agent?: string; timestamp?: number }
   | { kind: 'tool_call'; name: string; input: Record<string, unknown>; id: string }
   | { kind: 'tool_result'; name: string; result: string; id: string }
-  | { kind: 'error'; message: string; id: string };
+  | { kind: 'error'; message: string; id: string; timestamp?: number };

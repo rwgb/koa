@@ -657,13 +657,13 @@ function rowToCalendarEvent(row: CalendarEventRow): CalendarEvent {
   return base;
 }
 
-export function upsertCalendarEvent(event: Omit<CalendarEvent, 'id' | 'synced_at'>): CalendarEvent {
+export function upsertCalendarEvent(event: Omit<CalendarEvent, 'id' | 'synced_at'> & { source_integration_id?: string }): CalendarEvent {
   const db = getDb();
   const id = `cal-${event.google_id}`;
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO calendar_events (id, google_id, title, start_at, end_at, all_day, location, description, attendees, recurrence, synced_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO calendar_events (id, google_id, title, start_at, end_at, all_day, location, description, attendees, recurrence, synced_at, source_integration_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(google_id) DO UPDATE SET
       title = excluded.title,
       start_at = excluded.start_at,
@@ -673,13 +673,15 @@ export function upsertCalendarEvent(event: Omit<CalendarEvent, 'id' | 'synced_at
       description = excluded.description,
       attendees = excluded.attendees,
       recurrence = excluded.recurrence,
-      synced_at = excluded.synced_at
+      synced_at = excluded.synced_at,
+      source_integration_id = excluded.source_integration_id
   `).run(
     id, event.google_id, event.title, event.start_at, event.end_at,
     event.all_day ? 1 : 0,
     event.location ?? null, event.description ?? null,
     JSON.stringify(event.attendees),
     event.recurrence ?? null, now,
+    event.source_integration_id ?? 'google-calendar',
   );
   const result: CalendarEvent = {
     id,
@@ -708,14 +710,18 @@ export function listCalendarEvents(startIso: string, endIso: string): CalendarEv
   return rows.map(rowToCalendarEvent);
 }
 
-export function deleteCalendarEventsNotIn(googleIds: string[]): void {
+export function deleteCalendarEventsNotIn(googleIds: string[], integrationId: string): void {
   const db = getDb();
   if (googleIds.length === 0) {
-    db.prepare('DELETE FROM calendar_events').run();
+    db.prepare('DELETE FROM calendar_events WHERE source_integration_id = ?').run(integrationId);
     return;
   }
   const placeholders = googleIds.map(() => '?').join(',');
-  db.prepare(`DELETE FROM calendar_events WHERE google_id NOT IN (${placeholders})`).run(...googleIds);
+  db.prepare(`DELETE FROM calendar_events WHERE source_integration_id = ? AND google_id NOT IN (${placeholders})`).run(integrationId, ...googleIds);
+}
+
+export function deleteCalendarEventsBySourceId(integrationId: string): void {
+  getDb().prepare('DELETE FROM calendar_events WHERE source_integration_id = ?').run(integrationId);
 }
 
 // ── Notification log ────────────────────────────────────────────────────────

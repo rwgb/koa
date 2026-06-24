@@ -2,6 +2,8 @@
 import { Command } from 'commander';
 import { render } from 'ink';
 import React from 'react';
+import path from 'path';
+import fs from 'fs';
 import { App } from '../tui/App.js';
 import { AgentLoop } from '../agent/loop.js';
 import { ToolRegistry } from '../agent/tools/registry.js';
@@ -26,8 +28,9 @@ import { loadPlugins } from '../plugins/loader.js';
 import { createPluginTool } from '../plugins/bridge.js';
 import { EngramClient } from '../engram/client.js';
 import { SpiderBrainClient } from '../spiderbrain/client.js';
-import { loadConfig, writeKoaConfigFile, generateWebToken, setWebToken } from '../config/index.js';
+import { loadConfig, loadLocalConfig, ensureLocalHome, koaLocalDir, writeKoaConfigFile, generateWebToken, setWebToken } from '../config/index.js';
 import type { KoaConfig } from '../config/index.js';
+import type { AgentState } from '../types/index.js';
 import { createRunner } from '../sandbox/index.js';
 import { UsageTracker } from '../agent/usage.js';
 import { writeCredential, deleteCredential, readCredentials, getCredentialsPath } from '../config/credentials.js';
@@ -396,6 +399,79 @@ program
   .action(async (opts: { reset?: boolean; headless?: boolean }) => {
     const { runSetupWizard } = await import('./setup.js');
     await runSetupWizard(opts);
+  });
+
+program
+  .command('code [directory]')
+  .description('Start a code-focused session scoped to a local directory (uses ~/.koa-local/ by default)')
+  .option('-m, --model <model>', 'Claude model to use (fast|standard|powerful or full model name)')
+  .option('--no-cache', 'Disable response cache')
+  .option('--provider <provider>', 'LLM provider: anthropic, ollama, or claude-code')
+  .action(async (directory: string | undefined, opts: { model?: string; cache: boolean; provider?: string }) => {
+    // Resolve target directory — defaults to cwd when not provided.
+    const targetDir = directory ? path.resolve(directory) : process.cwd();
+
+    // Config isolation: derive the localHome path BEFORE calling loadLocalConfig()
+    // so we can create the directory tree first.  Never mutate process.env['KOA_HOME']
+    // — that would corrupt the shared koaDir() used by the server's code paths.
+    const localHome = koaLocalDir();
+    ensureLocalHome(localHome);
+
+    // loadLocalConfig reads credentials and config.json from localHome, not from
+    // ~/.koa/, and disables Engram/SpiderBrain/checkpoints by default.
+    const config = loadLocalConfig(targetDir);
+
+    if (opts.model) config.model = opts.model;
+    if (!opts.cache) config.noCache = true;
+    if (opts.provider === 'anthropic' || opts.provider === 'ollama' || opts.provider === 'claude-code') {
+      config.provider = opts.provider as 'anthropic' | 'ollama' | 'claude-code';
+    }
+
+    if (config.provider !== 'ollama' && config.provider !== 'claude-code' && !config.apiKey) {
+      console.error('Error: ANTHROPIC_API_KEY environment variable is required');
+      console.error(`  Set it via the environment or add it to ${path.join(localHome, 'credentials')}`);
+      process.exit(1);
+    }
+
+    // Engram is disabled in local mode; pass a no-op EngramClient.
+    const engram = new EngramClient(config.projectPath);
+    // SpiderBrain context is skipped (config.spiderBrainBrain is undefined).
+    const sb = new SpiderBrainClient(config.projectPath, config.spiderBrainBrain, process.cwd());
+    const registry = buildRegistry(engram, config.projectPath, sb, config);
+    const loop = new AgentLoop(config, registry, engram, new UsageTracker(), sb);
+    await loop.initialize();
+
+    // Inject CLAUDE.md from the target directory into project memory so it flows
+    // through every turn via buildSystemBlocks().  The `project` slot is the right
+    // carrier: it is a stable cached block injected before dynamic context.
+    const claudeMdPath = path.join(targetDir, 'CLAUDE.md');
+    try {
+      const claudeMdContent = fs.readFileSync(claudeMdPath, 'utf8');
+      // getState() returns Readonly<AgentState> — cast to mutable for this one-time init.
+      const state = loop.getState() as AgentState;
+      if (!state.projectMemory) state.projectMemory = {};
+      const existing = state.projectMemory.project ?? '';
+      const separator = existing ? '\n\n---\n\n' : '';
+      // Prepend so CLAUDE.md instructions take priority over generated PROJECT.md content.
+      state.projectMemory.project = `<local_instructions source="CLAUDE.md">\n${claudeMdContent}\n</local_instructions>${separator}${existing}`;
+    } catch {
+      // CLAUDE.md not present — continue without it.
+    }
+
+    const engramContext = loop.getState().engramContext;
+
+    // Suppress stderr writes while Ink is running (same reason as chat subcommand).
+    const origStderrWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as unknown as { write: () => boolean }).write = () => true;
+
+    const { waitUntilExit } = render(
+      React.createElement(App, { loop, config, engramContext }),
+      { exitOnCtrlC: false },
+    );
+
+    await waitUntilExit();
+    process.stderr.write = origStderrWrite;
+    process.exit(0);
   });
 
 program.parse(process.argv);

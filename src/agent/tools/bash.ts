@@ -1,6 +1,17 @@
 import { execa } from 'execa';
 import type { Tool, ToolInput } from '../../types/index.js';
 
+const projectRoot = process.cwd();
+
+const BLOCKED_PATTERNS = [
+  /curl\s.*|s*(ba)?sh/,
+  /wget\s.*|s*(ba)?sh/,
+  /nc\s+-e/,
+  /\/dev\/tcp\//,
+  /bash\s+-i/,
+  /python[23]?\s+-c\s.*socket/,
+];
+
 export const bashTool: Tool = {
   name: 'bash',
   description:
@@ -25,10 +36,19 @@ export const bashTool: Tool = {
     const rawTimeout = (input['timeout'] as number | undefined) ?? 30_000;
     const timeout = Math.min(Math.max(rawTimeout, 1_000), MAX_TIMEOUT);
 
+    for (const pattern of BLOCKED_PATTERNS) {
+      if (pattern.test(command)) {
+        throw new Error('Command blocked by security policy');
+      }
+    }
+
+    process.stderr.write('[koa/bash-audit] exec: ' + command.slice(0, 200) + '\n');
+
     const result = await execa('bash', ['-c', command], {
       reject: false,
       timeout,
       all: true,
+      cwd: projectRoot,
     });
 
     const output = result.all ?? result.stdout ?? '';

@@ -5,7 +5,7 @@
 export type IconName =
   | 'chat' | 'memory' | 'plug' | 'wrench' | 'bell'
   | 'chart' | 'gear' | 'send' | 'trash' | 'copy'
-  | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-up'
+  | 'eye' | 'eye-off' | 'chevron-down' | 'chevron-up' | 'chevron-left' | 'chevron-right'
   | 'x' | 'check' | 'alert'
   | 'anthropic' | 'github' | 'envelope' | 'server'
   | 'shield' | 'link' | 'phone'
@@ -88,6 +88,10 @@ const PATHS: Record<IconName, React.ReactNode> = {
   'chevron-down': <path d="M3.5 5.5l4.5 5 4.5-5" />,
 
   'chevron-up': <path d="M3.5 10.5l4.5-5 4.5 5" />,
+
+  'chevron-left': <path d="M10.5 3.5l-5 4.5 5 4.5" />,
+
+  'chevron-right': <path d="M5.5 3.5l5 4.5-5 4.5" />,
 
   x: <path d="M3 3l10 10M13 3L3 13" />,
 

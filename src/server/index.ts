@@ -32,13 +32,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Exported for testing only — removes nonces older than ttlMs from the map. */
 export function pruneExpiredNonces(map: OAuthStateMap, ttlMs: number): void {
   const cutoff = Date.now() - ttlMs;
-  for (const [nonce, ts] of map) {
-    if (ts < cutoff) map.delete(nonce);
+  for (const [nonce, entry] of map) {
+    if (entry.ts < cutoff) map.delete(nonce);
   }
 }
 
 export function createServer(loop: AgentLoop, config: KoaConfig, devPort = 5173) {
   const app = express();
+  app.set('trust proxy', 1);
   installLogCapture();
 
   // CORS is only needed in development (Vite runs on a separate port from Express).

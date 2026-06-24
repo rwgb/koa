@@ -11,7 +11,7 @@ const ConfigSchema = z.object({
   projectPath: z.string(),
   engramEnabled: z.boolean().default(true),
   apiKey: z.string().optional(),
-  smartRouting: z.boolean().default(false),
+  smartRouting: z.boolean().default(true),
   maxToolOutputChars: z.number().default(12000),
   spiderBrainBrain: z.string().optional(),
   autoCheckpointTurns: z.number().default(5),
@@ -39,6 +39,10 @@ const ConfigSchema = z.object({
   browserEnabled: z.boolean().default(false),
   userName: z.string().default('User'),
   toolTimeoutMs: z.number().optional(),
+  publicUrl: z.string().url().optional(),
+  // Absolute path to the local home directory used by `koa code` sessions.
+  // Defaults to ~/.koa-local/ when KOA_LOCAL_HOME is unset.
+  localHome: z.string().optional(),
   mcpServers: z.array(z.object({
     name: z.string().regex(/^[a-z][a-z0-9_-]*$/),
     command: z.string().min(1),
@@ -52,6 +56,27 @@ export type KoaConfig = z.infer<typeof ConfigSchema>;
 
 function koaDir(): string {
   return path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa');
+}
+
+// KOA_LOCAL_HOME isolates koa code sessions from the remote server's ~/.koa/.
+// Default: ~/.koa-local/  (note: no nested ".koa" — the suffix is already in the dir name)
+export function koaLocalDir(): string {
+  const base = process.env['KOA_LOCAL_HOME'];
+  if (base) return base;
+  return path.join(os.homedir(), '.koa-local');
+}
+
+/**
+ * Ensure the local home directory tree exists without running the interactive
+ * setup wizard.  Creates only what is strictly necessary:
+ *   <localHome>/
+ *   <localHome>/projects/
+ *
+ * Safe to call on every startup — mkdirSync with { recursive: true } is a no-op
+ * when the directories already exist.
+ */
+export function ensureLocalHome(localHome: string): void {
+  fs.mkdirSync(path.join(localHome, 'projects'), { recursive: true, mode: 0o700 });
 }
 
 export interface KoaConfigFile {
@@ -144,7 +169,7 @@ export function loadConfig(projectPath?: string): KoaConfig {
       smartRouting:
         process.env['KOA_SMART_ROUTING'] !== undefined
           ? process.env['KOA_SMART_ROUTING'] === 'true'
-          : (fileConfig.smartRouting ?? false),
+          : (fileConfig.smartRouting ?? true),
       maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
         ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
         : (fileConfig.maxToolOutputChars ?? 12000),
@@ -211,6 +236,8 @@ export function loadConfig(projectPath?: string): KoaConfig {
       toolTimeoutMs: process.env['KOA_TOOL_TIMEOUT_MS']
         ? parseInt(process.env['KOA_TOOL_TIMEOUT_MS'], 10)
         : fileConfig.toolTimeoutMs,
+      publicUrl: process.env['KOA_PUBLIC_URL']?.replace(/\/$/, '') ?? undefined,
+      localHome: koaLocalDir(),
       mcpServers: fileConfig.mcpServers,
     });
   } catch (err) {
@@ -220,6 +247,146 @@ export function loadConfig(projectPath?: string): KoaConfig {
     throw err;
   }
   validateConfig(parsed);
+  return parsed;
+}
+
+/**
+ * Variant of loadConfig used by the `koa code` subcommand.
+ *
+ * Differences from loadConfig:
+ *  - Reads credentials from <localHome>/credentials (not ~/.koa/credentials)
+ *  - Reads config.json from <localHome>/config.json  (not ~/.koa/config.json)
+ *  - Sets localHome on the returned config so downstream code can store
+ *    data (koa.db, memory.db, logs, project memories) under localHome
+ *    instead of the shared ~/.koa/ tree.
+ *
+ * The caller is responsible for calling ensureLocalHome(localHome) before
+ * this function so that the directory tree is in place.
+ */
+export function loadLocalConfig(projectPath?: string): KoaConfig {
+  const localHome = koaLocalDir();
+
+  // Read a local config.json if one exists — isolated from the server's config
+  let fileConfig: KoaConfigFile = {};
+  try {
+    const raw = fs.readFileSync(path.join(localHome, 'config.json'), 'utf8');
+    fileConfig = JSON.parse(raw) as KoaConfigFile;
+  } catch {
+    // no local config.json yet — that is normal on first run
+  }
+
+  const resolvedPath = projectPath ?? fileConfig.defaultProjectPath ?? process.cwd();
+
+  // Read credentials from the local home, falling back to env vars
+  let localCredentials: Record<string, string> = {};
+  try {
+    const credRaw = fs.readFileSync(path.join(localHome, 'credentials'), 'utf8');
+    for (const line of credRaw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const k = trimmed.slice(0, eq).trim();
+      const v = trimmed.slice(eq + 1).trim();
+      if (k) localCredentials[k] = v;
+    }
+  } catch {
+    // no local credentials file yet
+  }
+
+  const apiKey =
+    process.env['ANTHROPIC_API_KEY'] ?? localCredentials['ANTHROPIC_API_KEY'];
+
+  const tierAliases: Record<string, string> = {
+    fast: 'claude-haiku-4-5-20251001',
+    standard: 'claude-sonnet-4-6',
+    powerful: 'claude-opus-4-7',
+  };
+  const rawModel = process.env['KOA_MODEL'] ?? fileConfig.model ?? 'claude-haiku-4-5-20251001';
+  const resolvedModel = tierAliases[rawModel] ?? rawModel;
+
+  let parsed: KoaConfig;
+  try {
+    parsed = ConfigSchema.parse({
+      model: resolvedModel,
+      maxTokens: process.env['KOA_MAX_TOKENS']
+        ? parseInt(process.env['KOA_MAX_TOKENS'], 10)
+        : (fileConfig.maxTokens ?? 8192),
+      projectPath: resolvedPath,
+      engramEnabled: false,          // local code sessions never use Engram
+      apiKey,
+      smartRouting: true,
+      maxToolOutputChars: process.env['KOA_MAX_TOOL_OUTPUT']
+        ? parseInt(process.env['KOA_MAX_TOOL_OUTPUT'], 10)
+        : (fileConfig.maxToolOutputChars ?? 12000),
+      spiderBrainBrain: undefined,   // no SpiderBrain in local mode
+      autoCheckpointTurns: 0,
+      autoCheckpointMinutes: 0,
+      noCache: process.env['KOA_NO_CACHE'] === 'true' || (fileConfig.noCache ?? false),
+      autoChaining: false,
+      briefingEnabled: false,
+      briefingTime: '08:00',
+      ttsProvider: 'none',
+      elevenLabsVoiceId: '21m00Tcm4TlvDq8ikWAM',
+      elevenLabsModel: 'eleven_turbo_v2_5',
+      provider:
+        (process.env['KOA_PROVIDER'] as
+          | 'anthropic'
+          | 'ollama'
+          | 'claude-code'
+          | 'auto'
+          | 'openai-compatible'
+          | 'google'
+          | undefined) ??
+        fileConfig.provider ??
+        'anthropic',
+      ollamaModel: process.env['KOA_OLLAMA_MODEL'] ?? fileConfig.ollamaModel ?? 'llama3.2',
+      ollamaBaseUrl:
+        process.env['KOA_OLLAMA_BASE_URL'] ??
+        fileConfig.ollamaBaseUrl ??
+        'http://localhost:11434',
+      openaiCompatibleBaseUrl:
+        process.env['KOA_OPENAI_COMPAT_BASE_URL'] ?? fileConfig.openaiCompatibleBaseUrl,
+      openaiCompatibleApiKey:
+        process.env['KOA_OPENAI_COMPAT_API_KEY'] ?? fileConfig.openaiCompatibleApiKey,
+      openaiCompatibleModel:
+        process.env['KOA_OPENAI_COMPAT_MODEL'] ?? fileConfig.openaiCompatibleModel ?? 'gpt-4o-mini',
+      googleApiKey: process.env['KOA_GOOGLE_API_KEY'] ?? fileConfig.googleApiKey,
+      googleModel: process.env['KOA_GOOGLE_MODEL'] ?? fileConfig.googleModel ?? 'gemini-2.0-flash',
+      claudeCodePath: (() => {
+        const raw = process.env['KOA_CLAUDE_CODE_PATH'] ?? fileConfig.claudeCodePath;
+        if (raw !== undefined) validateClaudeCodePath(raw);
+        return raw ?? 'claude';
+      })(),
+      quotaFallback:
+        process.env['KOA_QUOTA_FALLBACK'] !== undefined
+          ? process.env['KOA_QUOTA_FALLBACK'] !== 'false'
+          : (fileConfig.quotaFallback ?? true),
+      sandboxBackend:
+        (process.env['KOA_SANDBOX_BACKEND'] as 'local' | 'docker' | undefined) ??
+        fileConfig.sandboxBackend ??
+        'local',
+      sandboxTimeoutMs: process.env['KOA_SANDBOX_TIMEOUT_MS']
+        ? parseInt(process.env['KOA_SANDBOX_TIMEOUT_MS'], 10)
+        : (fileConfig.sandboxTimeoutMs ?? 10000),
+      browserEnabled: false,
+      userName: process.env['KOA_USER_NAME'] ?? fileConfig.userName ?? 'User',
+      toolTimeoutMs: process.env['KOA_TOOL_TIMEOUT_MS']
+        ? parseInt(process.env['KOA_TOOL_TIMEOUT_MS'], 10)
+        : fileConfig.toolTimeoutMs,
+      publicUrl: undefined,
+      localHome,
+      mcpServers: fileConfig.mcpServers,
+    });
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      throw new Error(formatConfigError(err));
+    }
+    throw err;
+  }
+  // Skip API key check here — the `koa code` subcommand checks apiKey itself and
+  // emits a message that points at the local credentials path, not ~/.koa/credentials.
+  validateConfig(parsed, { skipApiKeyCheck: true });
   return parsed;
 }
 
@@ -273,16 +440,20 @@ export function validateClaudeCodePath(p: string): void {
 
 // Enforces provider<->credential coherence that the schema can't express, with
 // one-line actionable errors instead of a mid-turn provider failure.
-export function validateConfig(config: KoaConfig): void {
+//
+// skipApiKeyCheck: set to true in loadLocalConfig so the `koa code` subcommand
+// can emit its own error message that points at the local credentials file path
+// rather than the shared ~/.koa/credentials path.
+export function validateConfig(config: KoaConfig, { skipApiKeyCheck = false } = {}): void {
   const errors: string[] = [];
 
-  if (config.provider === 'anthropic' && !config.apiKey) {
+  if (!skipApiKeyCheck && config.provider === 'anthropic' && !config.apiKey) {
     errors.push(
       'provider is "anthropic" but no API key is set. ' +
         'Run `koa config set api-key <key>` or set ANTHROPIC_API_KEY.',
     );
   }
-  if (config.provider === 'auto' && !config.apiKey) {
+  if (!skipApiKeyCheck && config.provider === 'auto' && !config.apiKey) {
     errors.push(
       'provider is "auto" but no Anthropic API key is set; auto cannot fall back to ' +
         'Anthropic. Set ANTHROPIC_API_KEY or choose provider "ollama"/"claude-code".',

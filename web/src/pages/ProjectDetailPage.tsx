@@ -60,16 +60,21 @@ function KanbanColumn({
   const [showAdd, setShowAdd] = useState(false);
   const [title, setTitle] = useState('');
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
     setAdding(true);
+    setAddError(null);
     try {
       const task = await createTask(projectId, title.trim());
       onTaskCreated(task);
       setTitle('');
       setShowAdd(false);
+    } catch (err) {
+      // Retain the title so the user doesn't lose their input on failure.
+      setAddError(err instanceof Error ? err.message : 'Failed to create task. Please try again.');
     } finally {
       setAdding(false);
     }
@@ -92,17 +97,30 @@ function KanbanColumn({
               type="text"
               placeholder="Task title…"
               value={title}
-              onChange={e => setTitle(e.target.value)}
+              onChange={e => { setTitle(e.target.value); setAddError(null); }}
               autoFocus
             />
             <div className="kanban-add-form__actions">
               <button className="kanban-add-form__btn" type="submit" disabled={adding || !title.trim()}>
                 {adding ? '…' : 'Add'}
               </button>
-              <button className="kanban-add-form__btn kanban-add-form__btn--cancel" type="button" onClick={() => setShowAdd(false)}>
+              <button className="kanban-add-form__btn kanban-add-form__btn--cancel" type="button" onClick={() => { setShowAdd(false); setAddError(null); }}>
                 Cancel
               </button>
             </div>
+            {addError && (
+              <div className="kanban-add-form__error">
+                <span>{addError}</span>
+                <button
+                  className="kanban-add-form__error-dismiss"
+                  type="button"
+                  aria-label="Dismiss error"
+                  onClick={() => setAddError(null)}
+                >
+                  &times;
+                </button>
+              </div>
+            )}
           </form>
         ) : (
           <button className="kanban-col__add-btn" onClick={() => setShowAdd(true)}>

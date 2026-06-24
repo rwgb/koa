@@ -54,18 +54,25 @@ metadata:
 | CP27-C/D | BM25/RRF retrieval pipeline + per-turn system prompt injection | ✅ done 2026-06-16 |
 | CP29-A/B | EventBus namespace.verb pattern + action_type dispatch (notify/brief/agent) | ✅ done 2026-06-16 |
 | CP29-C | TurnScheduler replaces isBusy — priority queuing, no more 429s | ✅ done 2026-06-16 |
+| — | Multi-instance integrations (gmail, google-calendar, slack, mcp_server) + security fixes | ✅ done 2026-06-23 |
+| — | All P0/P1 audit findings (9 P0 + 28 P1) remediated | ✅ done 2026-06-23 |
+| — | Deploy to LXC — migration 11 applied, service active | ✅ done 2026-06-24 |
+| — | CI/CD: GitHub Actions workflow + self-hosted runner (koa-lxc) online + pipeline green | ✅ done 2026-06-24 |
+| — | Calendar: timezone support, credential fallback, cleanup on delete | ✅ done 2026-06-24 |
 
-## Current State (2026-06-16)
+## Current State (2026-06-24)
 
-- Branch: `feature/web-console-and-hardening` (uncommitted working tree changes)
-- Tests: 886 passing, 0 failing | tsc: clean
-- CP27-C/D complete: BM25/RRF retrieval + per-turn system prompt injection wired in
-- Production (192.168.1.200): still on v1.0.0 (CP21-era) — feature branch not yet merged/deployed
-- Hard deadline: stable release before 2026-06-26
+- Branch: `feature/web-console-and-hardening` — changes pending commit
+- Tests: 1029 passing, 0 failing | tsc: clean
+- Production (192.168.1.200): deployed, migration 11 live
+- API quota exhausted on LXC until 2026-07-01 UTC (non-blocking)
+- Calendar integration: working locally (4 events synced); LXC has no google-calendar credentials yet
 
 ## Next
 
-- [ ] Commit + PR the feature branch work (fix queue + CP27-A/B/E + CP27-C/D + CP29-C + Fix 6)
-- [ ] CP28: Provider expansion (OpenAICompatible + Google + web UI)
-- [ ] CP30: MCP over stdio
-- [ ] Ansible hardening + git tag v1.1.0
+- [x] Trigger test push to verify CI pipeline runs end-to-end on GitHub ✅
+- [x] Add ANTHROPIC_API_KEY to rwgb/koa repo secrets ✅ (user confirmed)
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022 (17 items)
+- [ ] Verify koa code via npm link on a fresh project
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Sync calendar OAuth credentials to LXC production instance

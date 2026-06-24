@@ -1,10 +1,9 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main, develop]
   push:
-    branches: [develop, main]
+    branches: ['**']
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -15,9 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '20'
           cache: npm
 
       - run: npm ci
@@ -33,3 +32,97 @@ jobs:
         env:
           NODE_ENV: test
           KOA_HOME: /tmp/koa-ci
+
+      # AI security + quality review on PRs. continue-on-error so quota
+      # exhaustion (until 2026-07-01) doesn't block merges.
+      - name: AI code review
+        if: github.event_name == 'pull_request'
+        uses: anthropics/claude-code-action@v1
+        continue-on-error: true
+        with:
+          prompt: >
+            Review this PR for security issues (OWASP top 10), type safety problems,
+            and logic errors. Focus on HIGH and MEDIUM severity findings only. Post a
+            concise summary comment on the PR.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Build on a hosted runner (7 GB RAM) where TypeScript compilation is safe.
+  # Uploads dist/ and web/dist/ as artifacts for the deploy job.
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' && (
+        github.ref == 'refs/heads/main' ||
+        github.ref == 'refs/heads/feature/web-console-and-hardening'
+      )
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Build server
+        run: npm run build
+
+      - name: Build web UI
+        run: npm run build:web
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: koa-build-${{ github.sha }}
+          path: |
+            dist/
+            web/dist/
+            package.json
+            package-lock.json
+          retention-days: 3
+
+  # Deploy on the self-hosted LXC runner. Downloads the pre-built artifacts
+  # from the build job -- no TypeScript compilation needed on the LXC.
+  # Restricted to direct pushes only; PRs from forks never reach the homelab.
+  deploy:
+    name: Deploy to LXC
+    needs: build
+    runs-on: [self-hosted, koa-lxc]
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: koa-build-${{ github.sha }}
+
+      - name: Deploy to /opt/koa
+        run: |
+          ARTIFACTS="$(pwd)"
+          # Sync lock files before npm ci (required)
+          cp "$ARTIFACTS/package.json" /opt/koa/package.json
+          cp "$ARTIFACTS/package-lock.json" /opt/koa/package-lock.json
+          # Install/update production deps only (skips tsc, vitest, vite, etc.)
+          cd /opt/koa && npm ci --omit=dev
+          # Recompile native module for this exact kernel/glibc
+          npm rebuild better-sqlite3
+          # Swap in the new build
+          systemctl stop koa
+          rsync -a --delete "$ARTIFACTS/dist/" /opt/koa/dist/
+          rsync -a --delete "$ARTIFACTS/web/dist/" /opt/koa/web/dist/
+          chown -R koa:koa /opt/koa
+          systemctl start koa
+
+      - name: Verify service health
+        run: |
+          sleep 3
+          systemctl is-active --quiet koa \
+            && echo "koa is running" \
+            || { journalctl -u koa --lines=30; exit 1; }

@@ -30,6 +30,8 @@ import type {
   Conversation,
   ConversationTurn,
   ConversationSearchResult,
+  DebugLogEntry,
+  DebugInfo,
 } from './types.js';
 
 // ── Token storage ─────────────────────────────────────────────────────────────
@@ -248,8 +250,8 @@ export async function testIntegration(id: string): Promise<{ ok: boolean; messag
   return res.json() as Promise<{ ok: boolean; message: string }>;
 }
 
-export async function startGmailOAuth(): Promise<{ url: string }> {
-  const res = await authFetch('/api/admin/oauth/gmail');
+export async function startGmailOAuth(integrationId: string): Promise<{ url: string }> {
+  const res = await authFetch(`/api/admin/oauth/gmail?integrationId=${encodeURIComponent(integrationId)}`);
   if (!res.ok) throw new Error(`Failed to start Gmail OAuth: ${res.status}`);
   return res.json() as Promise<{ url: string }>;
 }
@@ -350,6 +352,18 @@ export async function fetchPlugins(): Promise<LoadedPlugin[]> {
   return res.json() as Promise<LoadedPlugin[]>;
 }
 
+// ── SSE Ticket ────────────────────────────────────────────────────────────────
+
+// Obtain a one-time short-lived ticket for SSE connections.
+// Use the returned ticket as ?ticket= instead of ?token= to avoid exposing the
+// long-lived bearer token in URLs (proxy logs, browser history, server access logs).
+export async function fetchSseTicket(): Promise<string> {
+  const res = await authFetch('/api/admin/auth/sse-ticket', { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to obtain SSE ticket: ${res.status}`);
+  const data = (await res.json()) as { ticket: string };
+  return data.ticket;
+}
+
 // ── Chat (SSE) ────────────────────────────────────────────────────────────────
 
 export function streamChat(
@@ -440,7 +454,11 @@ export function streamChat(
     }
 
     // Stream closed without a done event (server error, network drop, etc.)
-    if (!doneReceived && !aborted) onDone();
+    // Calling onDone() here would silently dismiss the spinner; instead surface
+    // a visible error so the user knows the reply may be incomplete.
+    if (!doneReceived && !aborted) {
+      onError('Connection lost — reply may be incomplete. The agent is idle.');
+    }
   })();
 
   return () => controller.abort();
@@ -636,8 +654,8 @@ export async function triggerCalendarSync(): Promise<void> {
   if (!res.ok) throw new Error(`Sync failed: ${res.status}`);
 }
 
-export async function startCalendarOAuth(): Promise<{ url: string }> {
-  const res = await authFetch('/api/admin/oauth/calendar');
+export async function startCalendarOAuth(integrationId: string): Promise<{ url: string }> {
+  const res = await authFetch(`/api/admin/oauth/calendar?integrationId=${encodeURIComponent(integrationId)}`);
   if (!res.ok) throw new Error(`OAuth init failed: ${res.status}`);
   return res.json() as Promise<{ url: string }>;
 }
@@ -765,10 +783,10 @@ export async function runUpdate(opts: { test?: boolean } = {}): Promise<{ status
 
 // ── Debug Console ─────────────────────────────────────────────────────────────
 
-export async function getDebugLogs(): Promise<import('./types.js').DebugLogEntry[]> {
+export async function getDebugLogs(): Promise<DebugLogEntry[]> {
   const res = await authFetch('/api/admin/debug/logs');
   if (!res.ok) throw new Error('HTTP ' + String(res.status));
-  const data = await res.json() as { entries: import('./types.js').DebugLogEntry[] };
+  const data = await res.json() as { entries: DebugLogEntry[] };
   return data.entries;
 }
 
@@ -777,8 +795,8 @@ export async function clearDebugLogs(): Promise<void> {
   if (!res.ok) throw new Error('HTTP ' + String(res.status));
 }
 
-export async function getDebugInfo(): Promise<import('./types.js').DebugInfo> {
+export async function getDebugInfo(): Promise<DebugInfo> {
   const res = await authFetch('/api/admin/debug/info');
   if (!res.ok) throw new Error('HTTP ' + String(res.status));
-  return res.json() as Promise<import('./types.js').DebugInfo>;
+  return res.json() as Promise<DebugInfo>;
 }

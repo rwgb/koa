@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   fetchTask,
   fetchProjects,
   fetchTaskDependencies,
+  fetchTasks,
   updateTask,
   addTaskDependency,
   removeTaskDependency,
@@ -47,6 +48,12 @@ export default function TaskDetailPage() {
   const [depAdding, setDepAdding] = useState(false);
   const [depError, setDepError] = useState<string | null>(null);
 
+  // Dependency combobox
+  const [depQuery, setDepQuery] = useState('');
+  const [depCandidates, setDepCandidates] = useState<Task[]>([]);
+  const [depOpen, setDepOpen] = useState(false);
+  const depComboRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!taskId) return;
 
@@ -78,6 +85,25 @@ export default function TaskDetailPage() {
 
     void load();
   }, [taskId]);
+
+  // Fetch project tasks when combobox opens
+  useEffect(() => {
+    if (!depOpen || !task) return;
+    fetchTasks({ projectId: task.project_id })
+      .then(all => setDepCandidates(all.filter(t => t.id !== task.id)))
+      .catch(() => setDepCandidates([]));
+  }, [depOpen, task]);
+
+  // Close combobox on outside click
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (depComboRef.current && !depComboRef.current.contains(e.target as Node)) {
+        setDepOpen(false);
+      }
+    }
+    if (depOpen) document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [depOpen]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -139,9 +165,13 @@ export default function TaskDetailPage() {
   return (
     <div className="task-detail-page">
       <header className="page-header">
-        {project && (
+        {project ? (
           <Link to={`/projects/${project.id}`} className="proj-back-link">
             ← {project.name}
+          </Link>
+        ) : (
+          <Link to="/projects" className="proj-back-link">
+            ← Projects
           </Link>
         )}
         <h1 className="page-title">Task Detail</h1>
@@ -279,13 +309,68 @@ export default function TaskDetailPage() {
           )}
 
           <form className="task-deps__add-form" onSubmit={handleAddDep}>
-            <input
-              className="task-field__input"
-              type="text"
-              placeholder="Task ID to depend on…"
-              value={depInput}
-              onChange={e => setDepInput(e.target.value)}
-            />
+            <div className="task-deps__combobox" ref={depComboRef} style={{ position: 'relative', flex: 1 }}>
+              <input
+                className="task-field__input"
+                type="text"
+                placeholder="Search tasks to depend on…"
+                value={depQuery}
+                onFocus={() => setDepOpen(true)}
+                onChange={e => { setDepQuery(e.target.value); setDepOpen(true); setDepInput(''); }}
+                autoComplete="off"
+              />
+              {depOpen && (
+                <div
+                  className="task-deps__dropdown"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    right: 0,
+                    zIndex: 100,
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    maxHeight: '200px',
+                    overflowY: 'auto',
+                    marginTop: '2px',
+                  }}
+                >
+                  {depCandidates
+                    .filter(c => !depQuery.trim() || c.title.toLowerCase().includes(depQuery.toLowerCase()))
+                    .map(c => (
+                      <div
+                        key={c.id}
+                        className="task-deps__dropdown-item"
+                        style={{
+                          padding: '6px 10px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '2px',
+                        }}
+                        onMouseDown={e => {
+                          e.preventDefault();
+                          setDepInput(c.id);
+                          setDepQuery(c.title);
+                          setDepOpen(false);
+                        }}
+                      >
+                        <span style={{ fontSize: '13px' }}>{c.title}</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                          {c.id.slice(0, 8)}…
+                        </span>
+                      </div>
+                    ))
+                  }
+                  {depCandidates.filter(c => !depQuery.trim() || c.title.toLowerCase().includes(depQuery.toLowerCase())).length === 0 && (
+                    <div style={{ padding: '8px 10px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      No matching tasks
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <button className="task-field__save-btn" type="submit" disabled={depAdding || !depInput.trim()}>
               {depAdding ? '…' : 'Add'}
             </button>

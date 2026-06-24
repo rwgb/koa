@@ -151,7 +151,7 @@ const CATALOG_MAP = new Map(CATALOG.map(d => [d.type, d]));
 
 // Types that may be configured multiple times (e.g. work + personal GitHub accounts).
 // Each new instance gets a unique id and a user-editable display name.
-const MULTI_INSTANCE_TYPES = new Set<IntegrationType>(['github']);
+const MULTI_INSTANCE_TYPES = new Set<IntegrationType>(['github', 'gmail', 'google-calendar', 'slack', 'mcp_server']);
 
 function statusBadge(status: string) {
   const cls =
@@ -202,7 +202,7 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
     setOauthing(true);
     setError(null);
     try {
-      const { url } = await startGmailOAuth();
+      const { url } = await startGmailOAuth(id);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       setError((err as Error).message);
@@ -215,7 +215,7 @@ function SlideOver({ def, integration, onClose, onSaved, onDeleted }: SlideOverP
     setOauthing(true);
     setError(null);
     try {
-      const { url } = await startCalendarOAuth();
+      const { url } = await startCalendarOAuth(id);
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       setError((err as Error).message);
@@ -550,10 +550,13 @@ export default function IntegrationsPage() {
       .then(setTelegramStatus)
       .catch(() => { /* non-fatal */ });
 
-    // After Gmail OAuth redirect, refresh the integration list
+    // After OAuth redirect, clean URL and re-fetch so the list reflects the new connection
     const params = new URLSearchParams(window.location.search);
-    if (params.get('connected') === 'gmail') {
+    if (params.get('connected') === 'gmail' || params.get('connected') === 'google-calendar') {
       window.history.replaceState({}, '', window.location.pathname);
+      fetchIntegrations()
+        .then(setIntegrations)
+        .catch(() => { /* non-fatal; primary fetch above already shows errors */ });
     }
   }, []);
 
@@ -660,8 +663,9 @@ export default function IntegrationsPage() {
         </button>
       </div>
 
+      <div className="intg-page__body">
       {integrations.length === 0 ? (
-        <div className="empty-state" style={{ flex: 1 }}>
+        <div className="empty-state">
           <div className="empty-state__icon">
             <Icon name="plug" size={40} aria-hidden />
           </div>
@@ -708,13 +712,33 @@ export default function IntegrationsPage() {
             </label>
           </div>
           {braveError && <div className="slide-over__error">{braveError}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', paddingTop: '0.5rem' }}>
+            {braveKeySet && (
+              <button
+                className="intg-btn intg-btn--danger"
+                onClick={async () => {
+                  setBraveSaving(true); setBraveError(null);
+                  try {
+                    await updateBraveApiKey('');
+                    setBraveKeySet(false);
+                    setBraveInput('');
+                  } catch (err) {
+                    setBraveError((err as Error).message);
+                  } finally {
+                    setBraveSaving(false);
+                  }
+                }}
+                disabled={braveSaving}
+              >
+                Remove
+              </button>
+            )}
             <button
               className="intg-btn intg-btn--primary"
               onClick={handleBraveSave}
-              disabled={braveSaving || (!braveInput && braveKeySet)}
+              disabled={braveSaving || !braveInput}
             >
-              {braveSaving ? 'Saving…' : (!braveInput && braveKeySet) ? 'Remove' : 'Save'}
+              {braveSaving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -800,29 +824,52 @@ export default function IntegrationsPage() {
                 </div>
               </div>
               {elError && <p className="intg-field__error">{elError}</p>}
-              <button
-                className="btn btn--primary"
-                disabled={elSaving || (!elInput && !elKeySet)}
-                onClick={async () => {
-                  setElSaving(true); setElError('');
-                  try {
-                    await updateElevenLabsApiKey(elInput);
-                    setElKeySet(!!elInput);
-                    setElInput(''); setElSaved(true);
-                    setTimeout(() => setElSaved(false), 3000);
-                  } catch (e) {
-                    setElError(e instanceof Error ? e.message : 'Failed to save');
-                  } finally {
-                    setElSaving(false);
-                  }
-                }}
-              >
-                {elSaving ? 'Saving…' : elSaved ? 'Saved ✓' : (!elInput && elKeySet) ? 'Remove' : 'Save'}
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                {elKeySet && (
+                  <button
+                    className="btn btn--danger"
+                    disabled={elSaving}
+                    onClick={async () => {
+                      setElSaving(true); setElError('');
+                      try {
+                        await updateElevenLabsApiKey('');
+                        setElKeySet(false);
+                        setElInput('');
+                      } catch (e) {
+                        setElError(e instanceof Error ? e.message : 'Failed to remove');
+                      } finally {
+                        setElSaving(false);
+                      }
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+                <button
+                  className="btn btn--primary"
+                  disabled={elSaving || !elInput}
+                  onClick={async () => {
+                    setElSaving(true); setElError('');
+                    try {
+                      await updateElevenLabsApiKey(elInput);
+                      setElKeySet(true);
+                      setElInput(''); setElSaved(true);
+                      setTimeout(() => setElSaved(false), 3000);
+                    } catch (e) {
+                      setElError(e instanceof Error ? e.message : 'Failed to save');
+                    } finally {
+                      setElSaving(false);
+                    }
+                  }}
+                >
+                  {elSaving ? 'Saving…' : elSaved ? 'Saved ✓' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
+      </div>{/* intg-page__body */}
 
       {showPicker && (
         <TypePicker

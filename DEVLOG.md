@@ -1,5 +1,309 @@
 # Koa — DevLog
 
+## 2026-06-24 — CI/CD pipeline + LXC self-hosted runner
+
+### Completed
+- Updated `.github/workflows/ci.yml`: triggers on all branch pushes + PRs, Node 20, lint/typecheck/test jobs, AI code review on PRs (continue-on-error for quota)
+- Added deploy job: runs on `[self-hosted, koa-lxc]` runner, only on direct pushes to main/feature branch (PRs from forks never reach homelab runner)
+- Installed GitHub Actions self-hosted runner on LXC (192.168.1.200): /opt/actions-runner, registered as `koa-lxc`, running as root with RUNNER_ALLOW_RUNASROOT=1
+- Runner status: online + idle (confirmed via gh api)
+- Created `scripts/setup-lxc-runner.sh` for future runner reinstalls
+- Calendar fixes committed: timezone support, credential fallback, error logging, cleanup on integration delete
+
+### Decisions
+- Runner runs as root (homelab acceptable; no multi-tenant risk)
+- Deploy restricted to direct pushes (not PRs) to prevent fork code on LXC
+- `continue-on-error: true` on AI review — quota exhausted until 2026-07-01 UTC
+- Node 20 pinned in CI to match LXC runtime
+
+### Next Session
+- [ ] Trigger a test push to verify CI pipeline runs end-to-end
+- [ ] Add ANTHROPIC_API_KEY secret to rwgb/koa repo settings (for AI review once quota resets)
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Sync calendar OAuth credentials to LXC
+
+---
+
+## 2026-06-24 — Calendar integration fix + credentials fallback
+
+### Completed
+- Diagnosed calendar sync 400 error: root cause was missing Google OAuth credentials (no google-calendar entry in integrations.json, no env vars set locally)
+- Fix 1 (admin.ts): OAuth callback now persists clientId + clientSecret alongside refreshToken — prevents 400 on token refresh in envs without env vars (e.g. LXC)
+- Fix 2 (sync.ts): Error logging now extracts Google API HTTP status code + message from e.response.data.error for faster diagnosis
+- Fix 3 (write.ts + calendar_write.ts): Added optional timeZone field to CalendarEventDraft and agent tools — prevents 400 on event creation when dateTime lacks UTC offset
+- Fix 4 (oauth.ts): Wired readCredentials() into makeOAuth2Client() so GOOGLE_CLIENT_ID/SECRET in ~/.koa/credentials is respected (consistent with all other koa credentials)
+- Completed OAuth flow locally with new dev credentials → 4 events synced from Google Calendar
+- Auto-sync confirmed working (calendarSync.start() already wired at server boot in server/index.ts:155)
+- 1029 tests passing, tsc clean
+
+### Decisions
+- credentials file fallback added to oauth.ts: priority order is integration config → GOOGLE_CALENDAR_* env → GOOGLE_* env → readCredentials()
+- clientSecret persisted to integrations.json (MEDIUM security finding accepted: file is 0o600 + masked to *** in API responses, consistent with other secret storage)
+
+### Next Session
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022
+- [ ] Verify koa code via npm link on a fresh project
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+- [ ] Sync calendar OAuth credentials to LXC (production currently has no google-calendar integration)
+
+---
+
+## 2026-06-24 — Cleanup + Deploy to LXC
+
+### Completed
+- Committed 5 uncommitted changes from prior session: homeOverride thread-through for project-memory, config test coverage (loadLocalConfig/koaLocalDir/ensureLocalHome + smartRouting default fix), react-markdown dep, audit doc, DEVLOG+HANDOFF
+- Deployed feature/web-console-and-hardening to LXC (192.168.1.200) via scripts/deploy.sh
+- Migration 11 confirmed applied on startup: `source_integration_id` column added to `calendar_events`, backup `koa.db.bak-v10` created
+- Service running (active), 1029 tests passing, tsc clean
+
+### Known Issues
+- LXC API quota exhausted until 2026-07-01 UTC — PROJECT.md generation fails at startup (non-blocking; quota resets automatically)
+
+### Next Session
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022
+- [ ] Verify koa code via npm link on a fresh project
+- [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)
+
+---
+
+## 2026-06-23 — UX Phase 1
+
+### Completed
+- UX-004, 005, 006, 007, 008, 009, 010, 013, 014, 017, 019, 024 (P1 UX audit items)
+- Quick wins #1–#9 from UX/Intelligence audit
+
+### Decisions
+- smartRouting default → true: all new installs get smart routing on; tests unchanged (they hardcode false explicitly)
+- Specialist model: changed from MODELS.haiku hardcode to config-driven MODEL_MAP.fast equivalent
+- KOA_IDENTITY: extracted from loop.ts SYSTEM_BASE to src/agent/identity.ts (no circular import risk)
+- Keyword gate list: explicit 11-item list; debug log emitted when extraction skipped
+- DevMode: localStorage key koa_dev_mode, default false; gates tool_call/result rows in MessageBubble
+- react-markdown: replaces pre-wrap bare text render; only for assistant/user kinds
+
+### Smoke Test Required (manual)
+See checklist in workflow output — verify textarea, markdown, devMode toggle, timestamps, all error surfaces.
+
+### Next Session
+- [ ] Deploy to LXC — sync .env to LXC (192.168.1.200), restart koa service, verify DB migration 11
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–023
+- [ ] Verify koa code via npm link on a fresh project
+
+---
+
+## 2026-06-23 - Session Checkpoint
+
+### Completed
+- P1 Security (SEC-003–015): 8 findings sealed — Slack SSRF, Telegram allowlist, bash cwd jail, debug/info env allowlist, calendar OAuth error scrub, rate limiting (60/20/2 req), openaiCompatibleBaseUrl SSRF, Twilio publicUrl HMAC
+- P1 QA (GAP-06–12): 7 coverage gaps closed — GmailPoller, integrations store, semanticCompact fallback, conversation export, PUT /config, writeMemoryEvent dedup, McpManager partial failure
+- koa code: new CLI subcommand — `koa code [directory]` runs a local project-aware agent session; config isolated to KOA_LOCAL_HOME (~/.koa-local/); CLAUDE.md injected from project root; no server required
+- Planning: remote collaboration options evaluated (A: Remote SSH, B: code-server, C: CLI remote mode); Option A recommended as immediate win; B+C as backlog
+
+### Tests
+- 910 (session start) → 959 (P1-sec) → 995 (P1-QA) → final
+
+### Next Session
+- [ ] P1 UX: UX-004 through UX-024
+- [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–023
+- [ ] I-series quick wins: developer chrome toggle, textarea, react-markdown, smartRouting, KOA_IDENTITY, QuickTaskAdd removal, keyword gate
+- [ ] Deploy to LXC + verify DB migration 11
+- [ ] Verify koa code via npm link on a fresh project
+
+## 2026-06-23 - P1 QA Remediation
+
+### Completed
+- GAP-06: gmail_poller.test.ts — GmailPoller._pollOne dedup, rate limit, routing
+- GAP-07: integrations.test.ts — atomic write, mergeConfig secret preservation, maskSecrets, deleteIntegration
+- GAP-08: loop_compact.test.ts — semanticCompact provider-failure fallback, orphan-free invariant
+- GAP-09: server_routes.test.ts — conversation export 200/404, search empty-q 400
+- GAP-10: server_routes.test.ts — PUT /config apiKey, braveApiKey length, briefingTime format, ollamaBaseUrl SSRF
+- GAP-11: memory_events.test.ts — writeMemoryEvent dedup, FTS special chars, rowToEntry mapping
+- GAP-12: mcp_client.test.ts — McpManager partial-failure: healthy tools returned, serverStatus, disconnectAll idempotent
+
+### Next Session
+- [ ] P1 UX: UX-004 through UX-024
+
+## 2026-06-23 - P1 Security Remediation
+
+### Completed
+- SEC-003: Slack response_url SSRF — validateSafeUrl called before fetch in replyToSlack()
+- SEC-004: Telegram sender allowlist — chatId checked against TELEGRAM_ALLOWED_CHAT_IDS before loop.turn()
+- SEC-005: bash tool cwd lock — projectRoot locked at startup, reverse-shell denylist, audit log on every exec
+- SEC-006: debug/info env dump — flipped to allowlist; KEY/TOKEN/SECRET/PASSWORD names auto-redacted; PID removed
+- SEC-007: calendar sync error leak — raw Google OAuth error no longer returned to client
+- SEC-010: rate limiting — chatRateLimit (60/min), voiceRateLimit (20/min), adminUpdateRateLimit (2/10min) applied
+- SEC-014: openaiCompatibleBaseUrl — validateSafeUrl called before saving
+- SEC-015: Twilio HMAC — URL derived from config.publicUrl when set
+
+### Next Session
+- [ ] P1 QA: GAP-06 through GAP-12
+- [ ] P1 UX: UX-004 through UX-024
+
+## 2026-06-23 - UX/Intelligence Planning Audit (Top 10 Findings)
+
+### Completed
+- Ran 5-dimension planning workflow against the web console (input UX, markdown rendering, immersion, user profile, LLM backend)
+- Surfaced top 10 ranked root-cause findings with file-level specificity and actionable recommendations
+- Backlog items added by user: auto-expanding chat input, user profile personalization, markdown rendering, immersion/developer chrome
+
+### Findings Summary (ranked by impact × effort)
+1. **Immersion** Developer telemetry always-on (badges, cost, ctx%, turn count, routing flash) — `MessageBubble.tsx`, `TopNav.tsx`, `ChatPanel.tsx`, `NavRail.tsx` — small effort
+2. **UI** `<input>` not auto-expanding — `ChatPanel.tsx:154` — small effort
+3. **UI** No markdown library installed — `MessageBubble.tsx:69`, `web/package.json` — small effort
+4. **Intelligence** No persistent user profile across sessions — `memory/store.ts`, `engram/preferences.ts`, `memory/db.ts` fragmented — large effort
+5. **Immersion** tool_call/tool_result render as conversation rows — `ChatContext.tsx` — medium effort
+6. **LLM-Backend** `smartRouting` defaults to off; specialists hardcode Haiku — `router.ts`, `specialists.ts` — small effort
+7. **LLM-Backend** Koa persona split across 3 independent string constants — `loop.ts`, `specialists.ts` — small effort
+8. **Immersion** QuickTaskAdd inline in chat bar — `ChatPanel.tsx:151` — small effort
+9. **Intelligence** Preference extraction fires Haiku call every turn — `loop.ts:1097` — small effort
+10. **Architecture** `trigger_pattern` in schema but never evaluated at runtime — `memory/schema.ts`, `loop.ts` — medium effort
+
+### Decisions
+- Developer-mode toggle (finding #1) is the highest-leverage single change — gates findings #1, #5, #8 simultaneously
+- User profile (#4) is phased: Phase 1 (keyword gate + dedup cap) is small effort; Phase 3 (store consolidation) is large effort
+- LLM immersion scope (finding #6, #7) extended to cover configured backend persona consistency, not just UI chrome
+
+### Next Session
+- [ ] Implement findings #1–#3 and #6–#9 (all small effort, high/medium impact)
+- [ ] Phase 1 of finding #4 (preference dedup + keyword gate)
+- [ ] Finding #10 trigger_pattern evaluation (medium effort)
+- [ ] Continue P1 security/QA backlog from prior audit
+
+## 2026-06-23 - P0 Audit Remediation
+
+### Completed
+- SEC-001: analyze_image now jails paths through sandboxPath(); description updated; audit log added on every invocation
+- SEC-002: Slack url_verification challenge now requires valid HMAC before echoing; challenge format validated (/^[a-zA-Z0-9]{1,64}$/)
+- GAP-01: OAuth CSRF nonce integration tests — missing/replayed/exchange-failure/success branches all covered
+- GAP-02: getCalendarAccessToken unit tests with mocked googleapis — all throw paths + happy path
+- GAP-03: Graceful shutdown tests — SIGTERM/SIGINT cleanup ordering asserted, throw-in-cleanup covered
+- GAP-04: AgentLoop MAX_TOOL_ITERATIONS + toolTimeoutMs + max_tokens stop reason tests
+- GAP-05: Project budget enforcement test — overspend throws budget-exceeded error
+- UX-001: SSE unexpected close now injects visible "Connection lost" error ChatItem
+- UX-002: AgentContext fetchStatus failure surfaces visible banner in ChatPage
+- UX-003: MemoryPage loading gate added; each section has its own error state
+
+### Next Session
+- [ ] P1 security: SEC-003 (Slack response_url SSRF), SEC-004 (Telegram allowlist), SEC-005 (bash cwd lock), SEC-006 (debug/info key leak), SEC-007 (calendar OAuth error leak), SEC-010 (rate limiting), SEC-014 (openaiCompatibleBaseUrl SSRF), SEC-015 (Twilio header trust)
+- [ ] P1 QA: GAP-06 (GmailPoller tests), GAP-07 (integrations/store tests), GAP-08 (semanticCompact fallback), GAP-09 (conversation export), GAP-10 (PUT /config), GAP-11 (writeMemoryEvent dedup), GAP-12 (McpManager partial failure)
+- [ ] P1 UX: UX-004 through UX-019 (activity spinners, search nav, delegations errors, task creation errors, timestamps, notifications)
+- [ ] Deploy to LXC + verify DB migration 11 ran cleanly
+
+### Decisions
+- P0 scope only for this run; P1/P2 are separate workflow runs
+- UX agents scoped to non-overlapping files to avoid merge conflicts in parallel execution
+
+## 2026-06-23 - Security, QA, and UI/UX Audit
+
+### Completed
+- Ran full 3-track audit workflow (security + QA coverage + UI/UX) via parallel agents
+- 910 tests all passing; 55.4% statement / 54.7% function coverage baseline measured
+- 54 findings synthesized into ranked P0/P1/P2 backlog saved to `docs/AUDIT-2026-06-23.md`
+
+### Decisions
+- Audit scope: full HTTP→middleware→handler→DB flow trace for security; coverage-weighted risk ranking for QA; all 24 web console files read in full for UX
+- User persona for UX: sole developer/admin (power user, daily driver)
+
+### Issues Found
+- **P0 (9 items):** SEC-001 `analyze_image` filesystem sandbox bypass; SEC-002 Slack url_verification reflected without signature check; GAP-01/02 OAuth CSRF nonce + calendar token refresh untested; GAP-03 graceful shutdown 0% coverage; GAP-04 `AgentLoop._turnImpl` timeout + iteration guard untested; GAP-05 budget enforcement untested; UX-001 silent SSE drop; UX-002 blank chat on AgentContext failure; UX-003 MemoryPage blank load
+- **P1 (28 items):** Telegram no sender allowlist; bash tool no cwd lock; debug/info leaks API keys; calendar sync leaks OAuth errors; no rate limiting on /api/chat or SSE; openaiCompatibleBaseUrl no SSRF check; Twilio HMAC uses proxy headers; GmailPoller 0% test; integrations store atomic write untested; semanticCompact fallback untested; widespread silent-swallow-error pattern across UI pages
+- **P2 (17 items):** SSE token in URL, debug log captures credential fragments, SSRF missing 100.64.0.0/10, single-line chat input, no keyboard shortcut to chat, Calendar nav icons both wrong direction, SettingsPage uses window.prompt()
+
+### Next Session
+- [ ] Implement P0 security fixes (SEC-001, SEC-002) — effort S each, start there
+- [ ] Add P0 QA tests (GAP-01 through GAP-05)
+- [ ] Fix P0 UX issues (UX-001 SSE silent drop, UX-002 blank chat, UX-003 MemoryPage)
+- [ ] Deploy to LXC + verify DB migration 11
+
+### Learnings
+- `analyze_image` tool explicitly advertises sandbox bypass in its own description — a self-documenting vulnerability
+- Silent error swallow pattern (`.catch(() => {})`, `/* non-fatal */`) is endemic across UI pages — needs a systematic fix pass
+- Overall coverage at 55.4% with the agent loop core at 59.5% is the highest-risk gap
+
+## 2026-06-23 - Multi-instance integrations implementation
+
+### Completed
+- signingSecret added to SECRET_FIELDS.slack (was unmasked in API responses)
+- MULTI_INSTANCE_TYPES extended: gmail, google-calendar, slack, mcp_server (was github-only)
+- startGmailOAuth(integrationId) + startCalendarOAuth(integrationId) pass target id to backend
+- OAuthStateMap now carries integrationId alongside ts; callbacks save to the correct instance
+- GmailPoller.start() iterates all connected gmail integrations; _pollOne() parameterized per account
+- CalendarSync._sync() iterates all connected google-calendar integrations
+- DB migration 11: source_integration_id column on calendar_events (DEFAULT 'google-calendar')
+- deleteCalendarEventsNotIn() scoped to source_integration_id — prevents cross-account deletes
+- Slack webhook handler tries all connected Slack integrations' signing secrets
+- Security fixes: integrationId query param validated with regex; KOA_WEB_TOKEN/KOA_HOME excluded from env dump; cwd removed from debug/info response
+
+### Decisions
+- mcp_server multi-instance = UI only; no lifecycle registry (deferred)
+- google_id stays as UNIQUE conflict key; source_integration_id updated on upsert (acceptable for shared calendars)
+- Single GmailPoller timer iterates all accounts each tick (simpler than per-account timers)
+- integrationId validated as /^[a-zA-Z0-9_-]{1,64}$/ before storing in OAuth state
+
+### Next Session
+- [ ] Deploy to LXC (sync .env, restart koa service)
+- [ ] Test multi-instance Gmail: add second account, verify both polled
+- [ ] Verify calendar events table has source_integration_id after migration runs
+
+## 2026-06-23 - Multi-instance integrations architecture + LXC HTTPS
+
+### Completed
+- Architecture plan: multi-instance support for `gmail`, `google-calendar`, `slack`, `mcp_server`
+- 7-step implementation order designed (see plan summary in conversation)
+- LXC HTTPS live: `tailscale serve --bg 3000` running on LXC, `https://koa.tailf8d66c.ts.net` returns 200
+- SSH key auth established: Mac ed25519 key added to `/root/.ssh/authorized_keys` on LXC
+- KOA_PUBLIC_URL deployed to LXC via systemd drop-in + `scripts/deploy.sh`
+- Google Calendar OAuth redirect_uri now correctly generates `https://koa.tailf8d66c.ts.net/api/admin/oauth/calendar/callback`
+- OAuth flow reaches Google consent screen — blocked on Google app test user approval (Error 403: access_denied)
+
+### Decisions
+- `tailscale serve` chosen over Caddy — zero extra infrastructure, auto-manages TLS certs
+- MCP multi-instance = UI only (Option A) for now; HTTP transport + lifecycle registry deferred to separate project
+- Calendar multi-instance requires DB migration (add `source_integration_id` to calendar_events) — most invasive change
+- `signingSecret` missing from Slack `SECRET_FIELDS` identified as bug — will fix in implementation
+- Existing `"id": "gmail"` / `"id": "google-calendar"` entries are backwards-compatible — no migration needed
+
+### Issues Found
+- Google OAuth app still in Testing mode — ralph.brynard@gmail.com must be added as a test user before Calendar OAuth completes
+- `mcp_server` integration is currently a stub — UI stores config but nothing reads it to connect
+
+### Next Session
+- [ ] Add ralph.brynard@gmail.com as test user in Google Cloud Console OAuth consent screen, complete Calendar OAuth
+- [ ] Implement multi-instance integrations (7-step workflow)
+- [ ] Consider publishing Google OAuth app (removes test user restriction permanently)
+
+---
+
+## 2026-06-22 - Google Calendar OAuth + KOA_PUBLIC_URL
+
+### Completed
+- Diagnosed Google Calendar OAuth failure: server generating redirect URI from `req.host` (returned private IP `192.168.1.200:3000`); Google blocks private IPs and requires HTTPS on non-localhost hostnames
+- Architecture plan: Tailscale MagicDNS + `tailscale serve` for HTTPS (no Caddy needed); `KOA_PUBLIC_URL` env var to pin redirect URI
+- Implemented `KOA_PUBLIC_URL` across 3 files:
+  - `src/config/index.ts`: added `publicUrl` to ConfigSchema + loadConfig (from `KOA_PUBLIC_URL` env var)
+  - `src/server/index.ts`: added `app.set('trust proxy', 1)` for correct protocol behind reverse proxy
+  - `src/server/routes/admin.ts`: updated all 4 redirect URI constructions to prefer `config.publicUrl`
+  - `.env.example`: documented `KOA_PUBLIC_URL`
+- QA: tsc clean, 910 tests passing
+
+### Decisions
+- `tailscale serve` chosen over Caddy: zero extra infrastructure, auto-manages TLS certs, already installed on LXC
+- `KOA_PUBLIC_URL` is env-var only (not in config file) — it's a deployment concern, not a user setting
+- Smallstep/PKI deferred to separate project
+- LXC side of this (running `tailscale serve`, setting `KOA_PUBLIC_URL`) not yet applied — pending next session
+
+### Issues Found
+- LXC credentials were shared in chat (security concern) — need to establish SSH key auth going forward
+- `ProtectSystem=strict` in koa.service may conflict with writing to `/etc/koa/env` — verify before applying
+
+### Next Session
+- [ ] Run `tailscale serve https / http://localhost:3000` on LXC
+- [ ] Add `KOA_PUBLIC_URL=https://koa.tailf8d66c.ts.net` to koa service env on LXC
+- [ ] Restart koa on LXC, verify OAuth flow end-to-end
+- [ ] Establish SSH key auth to LXC (remove password from conversation history concern)
+
+---
+
 ## 2026-06-16 - Ansible hardening role + playbook refactor
 
 ### Completed
@@ -31,8 +335,10 @@
 - v1.1.0 not v1.0.0: existing v1.0.0 tag pointed to CP14–CP21 merge on main; bumping would rewrite a published tag
 
 ### Next Session
-- [ ] Open PR: feature/web-console-and-hardening → main for v1.1.0 merge
+- [x] Open PR: feature/web-console-and-hardening → main — DONE (PR #27)
+- [x] Merge PR #27 — DONE (merged 2026-06-17, admin bypass; ai-review API quota exhausted until 2026-07-01)
 - [ ] Watch memory retrieval + event bus surface area for post-release issues
+- [ ] Refresh ANTHROPIC_API_KEY CI secret after 2026-07-01
 
 ---
 
@@ -3831,4 +4137,22 @@ Think of it as a self-built personal AI assistant. Every architectural decision 
 ### Next Session
 - [ ] CP28: Provider expansion (OpenAICompatibleProvider + GoogleProvider)
 - [ ] CP30: MCP over stdio
+
+## 2026-06-23 - koa code: local project-aware agent subcommand
+
+### Completed
+- New "koa code [directory]" subcommand in src/cli/index.ts
+- Config isolation via KOA_LOCAL_HOME (default ~/.koa-local/) — separate from remote server KOA_HOME
+- CLAUDE.md injection from project root on session start
+- ensureLocalHome() helper for first-run directory creation
+- Security: bash tool cwd lock correctly scoped to project directory
+
+### Decisions
+- AgentLoop already standalone (no server required) — koa code is a thin wrapper on existing chat subcommand
+- KOA_LOCAL_HOME isolates local sessions from remote server config
+- v1 scope: same tools as chat subcommand; no new tools or integrations
+
+### Next Session
+- [ ] P1 UX: UX-004 through UX-024
+- [ ] Verify npm link install story on a fresh machine
 - [ ] Tag v1.0.0

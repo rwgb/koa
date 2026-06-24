@@ -6,6 +6,17 @@ import { mkdirSync } from 'node:fs'
 // Singleton cache: resolved path → open DB instance
 const dbCache = new Map<string, Database.Database>()
 
+/**
+ * Clears the module-level DB cache and closes all open handles.
+ * Intended for test teardown only — do not call in production code.
+ */
+export function clearDbCache(): void {
+  for (const db of dbCache.values()) {
+    try { db.close() } catch { /* already closed */ }
+  }
+  dbCache.clear()
+}
+
 export function initSchema(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memory_entries (

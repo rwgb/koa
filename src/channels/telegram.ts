@@ -3,6 +3,30 @@ import type { AgentLoop } from '../agent/loop.js';
 const TELEGRAM_API = 'https://api.telegram.org/bot';
 const POLL_TIMEOUT = 30; // long-poll seconds
 
+/**
+ * Build the set of allowed Telegram chat IDs from environment variables.
+ * Returns an empty set when no allowlist is configured (allow-all mode).
+ *
+ * TELEGRAM_ALLOWED_CHAT_IDS  — comma-separated list of chat IDs (primary)
+ * TELEGRAM_DEFAULT_CHAT_ID   — single chat ID (backwards-compat fallback)
+ */
+function buildAllowlist(): Set<string> {
+  const ids = new Set<string>();
+
+  const multi = process.env['TELEGRAM_ALLOWED_CHAT_IDS'];
+  if (multi) {
+    for (const id of multi.split(',')) {
+      const trimmed = id.trim();
+      if (trimmed) ids.add(trimmed);
+    }
+  }
+
+  const single = process.env['TELEGRAM_DEFAULT_CHAT_ID']?.trim();
+  if (single) ids.add(single);
+
+  return ids;
+}
+
 export class TelegramPoller {
   private token: string;
   private loop: AgentLoop;
@@ -67,6 +91,11 @@ export class TelegramPoller {
   }
 
   private async handleMessage(chatId: number, text: string): Promise<void> {
+    const allowlist = buildAllowlist();
+    if (allowlist.size > 0 && !allowlist.has(String(chatId))) {
+      process.stderr.write(`[Telegram] unauthorized chat ID ${chatId} — dropping message\n`);
+      return;
+    }
     try {
       const result = await this.loop.turn(text);
       if (result.content) {

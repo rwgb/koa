@@ -21,7 +21,7 @@ const SCHEDULE_OPTIONS = [
 export default function DelegationsPage() {
   const [delegations, setDelegations] = useState<DelegationRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<DelegationRecord | null>(null);
   const [form, setForm] = useState<DelegationForm>({ pattern: '', action: '', schedule: 'daily' });
@@ -71,14 +71,22 @@ export default function DelegationsPage() {
   }
 
   async function toggleEnabled(d: DelegationRecord) {
-    await updateDelegationApi(d.id, { enabled: d.enabled === 0 });
-    await load();
+    try {
+      await updateDelegationApi(d.id, { enabled: d.enabled === 0 });
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this delegation?')) return;
-    await deleteDelegationApi(id);
-    await load();
+    try {
+      await deleteDelegationApi(id);
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   return (
@@ -88,7 +96,12 @@ export default function DelegationsPage() {
         <button className="btn btn-primary" onClick={openAdd}>+ Add delegation</button>
       </div>
 
-      {error && <p className="error-text">{error}</p>}
+      {error && (
+        <div className="error-banner">
+          <span className="error-text">{error}</span>
+          <button className="btn btn-sm btn-ghost" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
 
       {loading ? (
         <p className="empty-state">Loading…</p>

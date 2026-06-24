@@ -289,16 +289,30 @@ function FactsPanel() {
 export default function MemoryPage() {
   const [engram, setEngram] = useState<EngramMemoryResponse | null>(null);
   const [files, setFiles] = useState<MemoryFilesResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Section-level error states — a failure in one section does not affect the others.
+  const [engramError, setEngramError] = useState<string | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  // Combined loading gate: stays true until both initial fetches have settled.
+  const [engramSettled, setEngramSettled] = useState(false);
+  const [filesSettled, setFilesSettled] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
 
+  // isLoading is true until both fetchMemoryEngram AND fetchMemoryFiles have resolved or rejected.
+  const isLoading = !engramSettled || !filesSettled;
+
   const loadEngram = useCallback(() => {
-    fetchMemoryEngram().then(setEngram).catch((err) => setError((err as Error).message));
+    fetchMemoryEngram()
+      .then((data) => { setEngram(data); setEngramError(null); })
+      .catch((err) => setEngramError((err as Error).message))
+      .finally(() => setEngramSettled(true));
   }, []);
 
   const loadFiles = useCallback(() => {
-    fetchMemoryFiles().then(setFiles).catch((err) => setError((err as Error).message));
+    fetchMemoryFiles()
+      .then((data) => { setFiles(data); setFilesError(null); })
+      .catch((err) => setFilesError((err as Error).message))
+      .finally(() => setFilesSettled(true));
   }, []);
 
   useEffect(() => {
@@ -320,7 +334,20 @@ export default function MemoryPage() {
     }
   }
 
-  if (error) return <div className="page-error">Error: {error}</div>;
+  if (isLoading) {
+    return (
+      <div className="memory-page">
+        <header className="page-header">
+          <div className="page-header__row">
+            <h1 className="page-title">Memory</h1>
+          </div>
+        </header>
+        <div className="memory-body">
+          <div className="page-loading">Loading memory…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="memory-page">
@@ -337,8 +364,28 @@ export default function MemoryPage() {
       </header>
 
       <div className="memory-body">
-        {engram ? <EngramPanel data={engram} /> : <div className="page-loading">Loading brain…</div>}
-        {files ? <ProjectFilesPanel data={files} onRefresh={loadFiles} /> : <div className="page-loading">Loading files…</div>}
+        {engramError ? (
+          <section className="mem-section">
+            <div className="mem-section__header">
+              <h2 className="mem-section__title">Engram Brain</h2>
+            </div>
+            <div className="mem-error">Failed to load engram: {engramError}</div>
+          </section>
+        ) : engram ? (
+          <EngramPanel data={engram} />
+        ) : null}
+
+        {filesError ? (
+          <section className="mem-section">
+            <div className="mem-section__header">
+              <h2 className="mem-section__title">Project Memory Files</h2>
+            </div>
+            <div className="mem-error">Failed to load files: {filesError}</div>
+          </section>
+        ) : files ? (
+          <ProjectFilesPanel data={files} onRefresh={loadFiles} />
+        ) : null}
+
         <FactsPanel />
       </div>
     </div>

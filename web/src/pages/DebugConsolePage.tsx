@@ -29,10 +29,14 @@ export default function DebugConsolePage() {
   const [filter, setFilter] = useState<LogLevel>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [tab, setTab] = useState<Tab>('logs');
+  const [isPaused, setIsPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [infoError, setInfoError] = useState<string | null>(null);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracks whether the user manually paused (vs auto-paused by visibility)
+  const userPausedRef = useRef(false);
 
   const loadLogs = useCallback(async () => {
     try {
@@ -48,9 +52,9 @@ export default function DebugConsolePage() {
     try {
       const data = await getDebugInfo();
       setInfo(data);
-      setError(null);
+      setInfoError(null);
     } catch (err) {
-      setError((err as Error).message);
+      setInfoError((err as Error).message);
     }
   }, []);
 
@@ -60,15 +64,42 @@ export default function DebugConsolePage() {
     void loadInfo();
   }, [loadLogs, loadInfo]);
 
-  // Auto-refresh logs every 2s
+  // Pause/Resume button handler — marks the pause as user-initiated
+  function handleTogglePause() {
+    const next = !isPaused;
+    userPausedRef.current = next;
+    setIsPaused(next);
+  }
+
+  // Auto-refresh logs every 2s — respects isPaused
   useEffect(() => {
+    if (isPaused) {
+      if (intervalRef.current !== null) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      return;
+    }
     intervalRef.current = setInterval(() => {
       void loadLogs();
     }, 2000);
     return () => {
       if (intervalRef.current !== null) clearInterval(intervalRef.current);
     };
-  }, [loadLogs]);
+  }, [loadLogs, isPaused]);
+
+  // Auto-pause when tab is hidden; resume only if user had not manually paused
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === 'hidden') {
+        setIsPaused(true);
+      } else if (!userPausedRef.current) {
+        setIsPaused(false);
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   // Auto-scroll to bottom when new entries arrive
   useEffect(() => {
@@ -91,7 +122,9 @@ export default function DebugConsolePage() {
     await loadInfo();
   }
 
-  const filtered = filter === 'all' ? entries : entries.filter(e => e.level === filter);
+  const LOG_CAP = 500;
+  const allFiltered = filter === 'all' ? entries : entries.filter(e => e.level === filter);
+  const filtered = allFiltered.length > LOG_CAP ? allFiltered.slice(-LOG_CAP) : allFiltered;
 
   function countLevel(lvl: string) {
     return entries.filter(e => e.level === lvl).length;
@@ -106,6 +139,9 @@ export default function DebugConsolePage() {
           <p className="page-subtitle" style={{ color: 'var(--text-muted)', margin: 0 }}>Server logs and diagnostics</p>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button className="btn btn--secondary" onClick={handleTogglePause}>
+            {isPaused ? 'Resume' : 'Pause'}
+          </button>
           <button className="btn btn--secondary" onClick={() => { void handleRefresh(); }}>
             Refresh
           </button>
@@ -126,14 +162,12 @@ export default function DebugConsolePage() {
         <button
           className={`tab-btn${tab === 'logs' ? ' tab-btn--active' : ''}`}
           onClick={() => setTab('logs')}
-          style={{ padding: '0.5rem 1rem', background: 'none', border: 'none', cursor: 'pointer', color: tab === 'logs' ? 'var(--accent)' : 'var(--text-muted)', borderBottom: tab === 'logs' ? '2px solid var(--accent)' : '2px solid transparent', fontWeight: tab === 'logs' ? 600 : 400 }}
         >
           Logs ({entries.length})
         </button>
         <button
           className={`tab-btn${tab === 'info' ? ' tab-btn--active' : ''}`}
           onClick={() => setTab('info')}
-          style={{ padding: '0.5rem 1rem', background: 'none', border: 'none', cursor: 'pointer', color: tab === 'info' ? 'var(--accent)' : 'var(--text-muted)', borderBottom: tab === 'info' ? '2px solid var(--accent)' : '2px solid transparent', fontWeight: tab === 'info' ? 600 : 400 }}
         >
           Info
         </button>
@@ -146,17 +180,8 @@ export default function DebugConsolePage() {
             {(['all', 'log', 'warn', 'error', 'debug'] as LogLevel[]).map(lvl => (
               <button
                 key={lvl}
+                className={`filter-pill${filter === lvl ? ' filter-pill--active' : ''}`}
                 onClick={() => setFilter(lvl)}
-                style={{
-                  padding: '0.25rem 0.625rem',
-                  fontSize: '0.8125rem',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border)',
-                  background: filter === lvl ? 'var(--accent)' : 'transparent',
-                  color: filter === lvl ? '#fff' : 'var(--text-muted)',
-                  cursor: 'pointer',
-                  fontWeight: filter === lvl ? 600 : 400,
-                }}
               >
                 {lvl} {lvl === 'all' ? `(${entries.length})` : `(${countLevel(lvl)})`}
               </button>
@@ -170,6 +195,13 @@ export default function DebugConsolePage() {
               Auto-scroll
             </label>
           </div>
+
+          {/* Cap indicator */}
+          {allFiltered.length > LOG_CAP && (
+            <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.375rem' }}>
+              Showing last {LOG_CAP} of {allFiltered.length} entries
+            </div>
+          )}
 
           {/* Log area */}
           <div
@@ -203,7 +235,9 @@ export default function DebugConsolePage() {
 
       {tab === 'info' && (
         <div style={{ overflowY: 'auto', flex: 1 }}>
-          {info === null ? (
+          {infoError !== null ? (
+            <p style={{ color: 'var(--red)' }}>Failed to load diagnostics — {infoError}</p>
+          ) : info === null ? (
             <p style={{ color: 'var(--text-muted)' }}>Loading...</p>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
@@ -233,7 +267,7 @@ export default function DebugConsolePage() {
                 <h3 style={{ marginTop: 0, marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Credentials</h3>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
                   <tbody>
-                    {info.credentialKeys.map(({ key, set }) => (
+                    {info.credentialKeys.map(({ key, set }: { key: string; set: boolean }) => (
                       <tr key={key} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.375rem 0.5rem 0.375rem 0', fontFamily: 'monospace', color: 'var(--text-muted)' }}>{key}</td>
                         <td style={{ padding: '0.375rem 0' }}>
@@ -263,7 +297,7 @@ export default function DebugConsolePage() {
                 <h3 style={{ marginTop: 0, marginBottom: '0.5rem', fontSize: '0.875rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Environment</h3>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                   <tbody>
-                    {Object.entries(info.env).map(([k, v]) => (
+                    {(Object.entries(info.env) as [string, string][]).map(([k, v]) => (
                       <tr key={k} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '0.25rem 0.5rem 0.25rem 0', fontFamily: 'monospace', color: 'var(--text-muted)', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{k}</td>
                         <td style={{ padding: '0.25rem 0', fontFamily: 'monospace', wordBreak: 'break-all' }}>{v}</td>
