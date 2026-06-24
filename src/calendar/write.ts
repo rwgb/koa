@@ -8,6 +8,7 @@ export interface CalendarEventDraft {
   description?: string;
   location?: string;
   allDay?: boolean;
+  timeZone?: string;
 }
 
 function buildEventResource(draft: Partial<CalendarEventDraft> & { summary?: string; start?: string; end?: string }) {
@@ -19,12 +20,16 @@ function buildEventResource(draft: Partial<CalendarEventDraft> & { summary?: str
   if (draft.start !== undefined) {
     resource['start'] = draft.allDay
       ? { date: draft.start.slice(0, 10) }
-      : { dateTime: draft.start };
+      : draft.timeZone
+        ? { dateTime: draft.start, timeZone: draft.timeZone }
+        : { dateTime: draft.start };
   }
   if (draft.end !== undefined) {
     resource['end'] = draft.allDay
       ? { date: draft.end.slice(0, 10) }
-      : { dateTime: draft.end };
+      : draft.timeZone
+        ? { dateTime: draft.end, timeZone: draft.timeZone }
+        : { dateTime: draft.end };
   }
   return resource;
 }

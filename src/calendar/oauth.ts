@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { loadIntegrations } from '../integrations/store.js';
+import { readCredentials } from '../config/credentials.js';
 
 const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
@@ -9,8 +10,9 @@ const CALENDAR_SCOPES = [
 function makeOAuth2Client(redirectUri?: string) {
   const integrations = loadIntegrations();
   const cal = integrations.find(i => i.type === 'google-calendar');
-  const clientId = cal?.config['clientId'] ?? process.env['GOOGLE_CALENDAR_CLIENT_ID'] ?? process.env['GOOGLE_CLIENT_ID'] ?? '';
-  const clientSecret = cal?.config['clientSecret'] ?? process.env['GOOGLE_CALENDAR_CLIENT_SECRET'] ?? process.env['GOOGLE_CLIENT_SECRET'] ?? '';
+  const creds = readCredentials();
+  const clientId = cal?.config['clientId'] ?? process.env['GOOGLE_CALENDAR_CLIENT_ID'] ?? process.env['GOOGLE_CLIENT_ID'] ?? creds['GOOGLE_CLIENT_ID'] ?? '';
+  const clientSecret = cal?.config['clientSecret'] ?? process.env['GOOGLE_CALENDAR_CLIENT_SECRET'] ?? process.env['GOOGLE_CLIENT_SECRET'] ?? creds['GOOGLE_CLIENT_SECRET'] ?? '';
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
 

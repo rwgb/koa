@@ -86,7 +86,10 @@ export class CalendarSync {
         deleteCalendarEventsNotIn(googleIds, cal.id);
         process.stderr.write(`[calendar:${cal.id}] synced ${googleIds.length} events\n`);
       } catch (e) {
-        process.stderr.write(`[calendar:${cal.id}] sync error: ${e instanceof Error ? e.message : String(e)}\n`);
+        const msg = e instanceof Error ? e.message : String(e);
+        const apiErr = (e as { response?: { data?: { error?: { code?: number; message?: string } } } })?.response?.data?.error;
+        const suffix = apiErr ? ` (HTTP ${apiErr.code ?? '?'}: ${apiErr.message ?? ''})` : '';
+        process.stderr.write(`[calendar:${cal.id}] sync error: ${msg}${suffix}\n`);
       }
     }
   }

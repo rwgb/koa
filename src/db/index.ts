@@ -720,6 +720,10 @@ export function deleteCalendarEventsNotIn(googleIds: string[], integrationId: st
   db.prepare(`DELETE FROM calendar_events WHERE source_integration_id = ? AND google_id NOT IN (${placeholders})`).run(integrationId, ...googleIds);
 }
 
+export function deleteCalendarEventsBySourceId(integrationId: string): void {
+  getDb().prepare('DELETE FROM calendar_events WHERE source_integration_id = ?').run(integrationId);
+}
+
 // ── Notification log ────────────────────────────────────────────────────────
 
 const VALID_ESCALATION_LEVELS: readonly EscalationLevel[] = ['due-tomorrow', '24h', '8h', 'overdue'];

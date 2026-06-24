@@ -51,6 +51,7 @@ import {
   getDelegation,
   updateDelegation,
   deleteDelegation,
+  deleteCalendarEventsBySourceId,
 } from '../../db/index.js';
 import type { Delegation } from '../../db/index.js';
 import { createRequire } from "node:module";
@@ -139,6 +140,14 @@ export function createOAuthCallbackRouter(
       .then(tokens => {
         const integrations = loadIntegrations();
         const existing = integrations.find(i => i.id === integrationId);
+        const clientId = existing?.config['clientId']
+          ?? process.env['GOOGLE_CALENDAR_CLIENT_ID']
+          ?? process.env['GOOGLE_CLIENT_ID']
+          ?? '';
+        const clientSecret = existing?.config['clientSecret']
+          ?? process.env['GOOGLE_CALENDAR_CLIENT_SECRET']
+          ?? process.env['GOOGLE_CLIENT_SECRET']
+          ?? '';
         saveIntegration({
           id: integrationId,
           type: 'google-calendar',
@@ -146,6 +155,8 @@ export function createOAuthCallbackRouter(
           status: 'connected',
           config: {
             ...(existing?.config ?? {}),
+            ...(clientId ? { clientId } : {}),
+            ...(clientSecret ? { clientSecret } : {}),
             refreshToken: tokens.refresh_token,
           },
         });
@@ -724,10 +735,17 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
 
   router.delete('/integrations/:id', (req, res) => {
     const id = (req.params as { id: string }).id;
+    const integration = loadIntegrations().find(i => i.id === id);
     const removed = deleteIntegration(id);
     if (!removed) {
       res.status(404).json({ error: 'Integration not found' });
       return;
+    }
+    if (integration?.type === 'google-calendar') {
+      deleteCalendarEventsBySourceId(id);
+      if (!loadIntegrations().some(i => i.type === 'google-calendar')) {
+        calendarSync.stop();
+      }
     }
     res.json({ status: 'ok' });
   });

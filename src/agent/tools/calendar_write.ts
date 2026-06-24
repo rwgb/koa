@@ -13,17 +13,19 @@ export const createCalendarEventTool: Tool = {
       description: { type: 'string', description: 'Optional event description' },
       location: { type: 'string', description: 'Optional event location' },
       all_day: { type: 'boolean', description: 'Set to true for all-day events' },
+      time_zone: { type: 'string', description: 'IANA timezone name (e.g. America/New_York). Required when start/end lack a UTC offset.' },
     },
     required: ['summary', 'start', 'end'],
   },
   async execute(input) {
-    const { summary, start, end, description, location, all_day } = input as {
+    const { summary, start, end, description, location, all_day, time_zone } = input as {
       summary?: unknown;
       start?: unknown;
       end?: unknown;
       description?: unknown;
       location?: unknown;
       all_day?: unknown;
+      time_zone?: unknown;
     };
 
     if (!summary || typeof summary !== 'string') return 'Error: summary is required';
@@ -38,6 +40,7 @@ export const createCalendarEventTool: Tool = {
       ...(typeof description === 'string' ? { description } : {}),
       ...(typeof location === 'string' ? { location } : {}),
       ...(all_day === true ? { allDay: true } : {}),
+      ...(typeof time_zone === 'string' ? { timeZone: time_zone } : {}),
     });
     return `Created calendar event "${summary}" (id: ${eventId})`;
   },
@@ -55,17 +58,19 @@ export const updateCalendarEventTool: Tool = {
       end: { type: 'string', description: 'New ISO 8601 end datetime' },
       description: { type: 'string', description: 'New event description' },
       location: { type: 'string', description: 'New event location' },
+      time_zone: { type: 'string', description: 'IANA timezone name (e.g. America/New_York). Required when start/end lack a UTC offset.' },
     },
     required: ['event_id'],
   },
   async execute(input) {
-    const { event_id, summary, start, end, description, location } = input as {
+    const { event_id, summary, start, end, description, location, time_zone } = input as {
       event_id?: unknown;
       summary?: unknown;
       start?: unknown;
       end?: unknown;
       description?: unknown;
       location?: unknown;
+      time_zone?: unknown;
     };
 
     if (!event_id || typeof event_id !== 'string') return 'Error: event_id is required';
@@ -76,6 +81,7 @@ export const updateCalendarEventTool: Tool = {
       ...(typeof end === 'string' ? { end } : {}),
       ...(typeof description === 'string' ? { description } : {}),
       ...(typeof location === 'string' ? { location } : {}),
+      ...(typeof time_zone === 'string' ? { timeZone: time_zone } : {}),
     });
     return `Updated calendar event ${event_id}`;
   },
