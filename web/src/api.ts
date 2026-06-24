@@ -352,6 +352,18 @@ export async function fetchPlugins(): Promise<LoadedPlugin[]> {
   return res.json() as Promise<LoadedPlugin[]>;
 }
 
+// ── SSE Ticket ────────────────────────────────────────────────────────────────
+
+// Obtain a one-time short-lived ticket for SSE connections.
+// Use the returned ticket as ?ticket= instead of ?token= to avoid exposing the
+// long-lived bearer token in URLs (proxy logs, browser history, server access logs).
+export async function fetchSseTicket(): Promise<string> {
+  const res = await authFetch('/api/admin/auth/sse-ticket', { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to obtain SSE ticket: ${res.status}`);
+  const data = (await res.json()) as { ticket: string };
+  return data.ticket;
+}
+
 // ── Chat (SSE) ────────────────────────────────────────────────────────────────
 
 export function streamChat(

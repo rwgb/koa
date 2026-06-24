@@ -18,7 +18,9 @@ export function validateSafeUrl(raw: string, extraHostCheck?: (h: string) => boo
     /^f[cd][0-9a-f]{2}:/i.test(bareHost) ||
     /^fe80:/i.test(bareHost) ||
     host === '0.0.0.0' ||
-    /^::ffff:/i.test(bareHost)
+    /^::ffff:/i.test(bareHost) ||
+    // RFC 6598 shared address space (100.64.0.0/10) — used by Tailscale CGNAT; block to prevent SSRF into overlay network
+    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)
   ) { throw new Error('URL resolves to a private or loopback address'); }
   if (extraHostCheck && !extraHostCheck(host)) throw new Error('URL not permitted for this integration type');
 }

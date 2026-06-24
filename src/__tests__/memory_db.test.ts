@@ -9,9 +9,8 @@ const openDbs: Database.Database[] = []
 const tempPaths: string[] = []
 
 afterEach(() => {
-  for (const db of openDbs) {
-    try { db.close() } catch { /* already closed */ }
-  }
+  // Clear the module-level singleton cache first so handles are closed cleanly
+  clearDbCache()
   openDbs.length = 0
   for (const p of tempPaths) {
     try { unlinkSync(p) } catch { /* already gone */ }
@@ -25,8 +24,8 @@ function makeTempPath(suffix: string): string {
   return p
 }
 
-// Import helpers - note: the singleton cache is module-level so we must use unique paths per test
-import { getGlobalMemoryDb, getProjectMemoryDb, initSchema } from '../memory/db.js'
+// Import helpers — clearDbCache ensures the module singleton is reset between tests
+import { getGlobalMemoryDb, getProjectMemoryDb, initSchema, clearDbCache } from '../memory/db.js'
 
 describe('getGlobalMemoryDb', () => {
   it('creates the memory_entries table at a temp path', () => {

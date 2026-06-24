@@ -5,6 +5,7 @@ import type { KoaConfig } from '../config/index.js';
 import { buildDailyBriefing } from '../proactive/briefing.js';
 import { routeResponse } from '../channels/router.js';
 import { tokenEqual } from './utils.js';
+import { consumeTicket } from './auth-ticket.js';
 
 // Rate-limiter for the /api/auth token-verification endpoint.
 // Prevents brute-force guessing of the web token.
@@ -59,9 +60,13 @@ export function requireAuth(config: KoaConfig) {
     }
     const header = req.headers['authorization'];
     const bearerToken = header?.startsWith('Bearer ') ? header.slice(7) : undefined;
-    // Also accept ?token= query param — needed for SSE (GET-only, no custom headers on some clients)
-    const queryToken = (req.query as Record<string, string | undefined>)['token'];
-    const token = bearerToken ?? queryToken;
+    const query = req.query as Record<string, string | undefined>;
+    // ?ticket= — one-time short-lived SSE ticket (preferred; avoids long-lived token in URL)
+    const ticketParam = query['ticket'];
+    const ticketToken = ticketParam ? consumeTicket(ticketParam) : null;
+    // TODO: deprecate ?token= once all clients use ticket auth
+    const queryToken = query['token'];
+    const token = bearerToken ?? ticketToken ?? queryToken;
     if (!token) { res.status(401).json({ error: 'Authorization required' }); return; }
     if (tokenEqual(token, config.webToken)) { next(); return; }
     res.status(401).json({ error: 'Invalid token' });

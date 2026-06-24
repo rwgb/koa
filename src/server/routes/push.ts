@@ -23,7 +23,8 @@ export function createPushRouter(deps: PushRouterDeps): Router {
     try {
       res.json({ publicKey: getPublicVapidKey() });
     } catch (e) {
-      res.status(500).json({ error: (e as Error).message });
+      console.error('[push] vapid-key error:', e);
+      res.status(500).json({ error: 'Push notifications not configured' });
     }
   });
 

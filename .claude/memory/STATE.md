@@ -57,7 +57,7 @@ metadata:
 | — | Multi-instance integrations (gmail, google-calendar, slack, mcp_server) + security fixes | ✅ done 2026-06-23 |
 | — | All P0/P1 audit findings (9 P0 + 28 P1) remediated | ✅ done 2026-06-23 |
 | — | Deploy to LXC — migration 11 applied, service active | ✅ done 2026-06-24 |
-| — | CI/CD: GitHub Actions workflow + self-hosted runner (koa-lxc) online | ✅ done 2026-06-24 |
+| — | CI/CD: GitHub Actions workflow + self-hosted runner (koa-lxc) online + pipeline green | ✅ done 2026-06-24 |
 | — | Calendar: timezone support, credential fallback, cleanup on delete | ✅ done 2026-06-24 |
 
 ## Current State (2026-06-24)
@@ -70,8 +70,8 @@ metadata:
 
 ## Next
 
-- [ ] Trigger test push to verify CI pipeline runs end-to-end on GitHub
-- [ ] Add ANTHROPIC_API_KEY to rwgb/koa repo secrets (for AI review, quota resets 2026-07-01)
+- [x] Trigger test push to verify CI pipeline runs end-to-end on GitHub ✅
+- [x] Add ANTHROPIC_API_KEY to rwgb/koa repo secrets ✅ (user confirmed)
 - [ ] P2: SEC-008/009/011/012/013, GAP-13/14/15, UX-011–022 (17 items)
 - [ ] Verify koa code via npm link on a fresh project
 - [ ] Open PR: feature/web-console-and-hardening → main (v1.1.0)

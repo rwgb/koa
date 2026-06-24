@@ -50,11 +50,9 @@ BODY="${BODY} [${BRANCH}]"
 # ── Send ntfy ────────────────────────────────────────────────────────────────
 
 HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-  -d "${BODY}" \
-  -H "Title: Koa checkpoint" \
-  -H "Priority: default" \
-  -H "Tags: white_check_mark" \
-  "${NTFY_URL}")
+  -H "Content-Type: application/json" \
+  -d "{\"topic\":\"${NTFY_TOPIC}\",\"title\":\"Koa checkpoint\",\"message\":\"${BODY}\",\"tags\":[\"white_check_mark\"]}" \
+  "${NTFY_BASE_URL}")
 
 if [[ "${HTTP_STATUS}" != "200" ]]; then
   echo "ERROR: ntfy returned HTTP ${HTTP_STATUS}" >&2

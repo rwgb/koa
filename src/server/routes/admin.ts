@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { getLogBuffer, clearLogBuffer } from '../debug-log.js';
 import { adminUpdateRateLimit } from '../middleware.js';
+import { issueTicket } from '../auth-ticket.js';
 import type { AgentLoop } from '../../agent/loop.js';
 import type { KoaConfig } from '../../config/index.js';
 import { readKoaConfigFile, writeKoaConfigFile, setApiKey } from '../../config/index.js';
@@ -220,8 +221,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       const url = generateOAuthUrl(redirectUri, nonce);
       res.json({ url });
     } catch (e) {
+      console.error('[admin] oauth/gmail error:', e);
       oauthState.delete(nonce);
-      res.status(500).json({ error: (e as Error).message });
+      res.status(500).json({ error: 'OAuth configuration error' });
     }
   });
 
@@ -238,9 +240,19 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       const url = generateCalendarOAuthUrl(redirectUri, nonce);
       res.json({ url });
     } catch (e) {
+      console.error('[admin] oauth/calendar error:', e);
       oauthState.delete(nonce);
-      res.status(500).json({ error: (e as Error).message });
+      res.status(500).json({ error: 'OAuth configuration error' });
     }
+  });
+
+  // ── SSE ticket issuance (short-lived one-time ticket for SSE URL auth) ──────
+
+  router.post('/auth/sse-ticket', (req: Request, res: Response) => {
+    // config.webToken is guaranteed non-null here — requireAuth rejects the request
+    // before it reaches this handler when no token is configured.
+    const ticketId = issueTicket(config.webToken!);
+    res.json({ ticket: ticketId });
   });
 
   // ── Memory ───────────────────────────────────────────────────────────────────

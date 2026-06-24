@@ -779,36 +779,20 @@ export default function SettingsPage() {
             value={config.engramEnabled}
             onSave={v => handleSave({ engramEnabled: v })}
           />
-          <div className="setting-row">
-            <span className="setting-row__label">SpiderBrain</span>
-            <span className="setting-row__value">
+          <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+            <span className="setting-row__label" style={{ marginBottom: '2px' }}>
+              SpiderBrain status:&nbsp;
               {config.spiderBrainAvailable
                 ? <span className="badge badge-green">active</span>
                 : <span className="badge badge-muted">not found</span>
               }
-              {config.spiderBrainBrain && (
-                <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                  {config.spiderBrainBrain}
-                </span>
-              )}
-              {!config.spiderBrainBrain && config.spiderBrainAvailable && (
-                <span style={{ marginLeft: '8px', fontSize: '11px', color: 'var(--text-muted)' }}>
-                  auto-detected
-                </span>
-              )}
             </span>
-            <div className="setting-row__actions">
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  const val = window.prompt('SpiderBrain brain path (leave empty to use auto-detect):', config.spiderBrainBrain ?? '');
-                  if (val !== null) void handleSave({ spiderBrainBrain: val.trim() || null });
-                }}
-              >
-                Override
-              </button>
-            </div>
           </div>
+          <EditableRow
+            label="SpiderBrain brain path"
+            value={config.spiderBrainBrain ?? ''}
+            onSave={v => handleSave({ spiderBrainBrain: v.trim() || null })}
+          />
         </div>
 
         {/* API Key */}

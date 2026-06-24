@@ -106,19 +106,25 @@ export default function MessageBubble({ item }: Props) {
 
   if (item.kind === 'tool_result') {
     if (!devMode) return null;
+    const resultStr = typeof item.result === 'string' ? item.result : JSON.stringify(item.result);
+    const isError = resultStr.startsWith('Error:');
+    const preview = resultStr.length > 60 ? resultStr.slice(0, 60) + '…' : resultStr;
     return (
-      <div className="bubble bubble--result">
+      <div className={`bubble bubble--result${isError ? ' bubble--result-error' : ''}`}>
         <button
-          className="bubble__tool-header bubble__tool-header--result"
+          className={`bubble__tool-header bubble__tool-header--result${isError ? ' bubble__tool-header--error' : ''}`}
           onClick={() => setExpanded(e => !e)}
           aria-expanded={expanded}
         >
-          <Icon name="check" size={12} className="bubble__tool-icon" />
+          <Icon name={isError ? 'alert' : 'check'} size={12} className="bubble__tool-icon" />
           <span className="bubble__tool-name">{item.name}</span>
+          {!expanded && (
+            <span className="bubble__tool-preview">{preview}</span>
+          )}
           <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={12} />
         </button>
         {expanded && (
-          <pre className="bubble__pre">{item.result}</pre>
+          <pre className="bubble__pre">{resultStr}</pre>
         )}
       </div>
     );
