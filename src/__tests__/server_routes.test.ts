@@ -12,6 +12,7 @@ import type { KoaConfig } from '../config/index.js';
 import type { AgentLoop } from '../agent/loop.js';
 import type * as GmailModule from '../channels/gmail.js';
 import type * as CalOAuthModule from '../calendar/oauth.js';
+import type * as MiddlewareModule from '../server/middleware.js';
 
 // ── Mock background service modules so createServer() doesn't start real pollers ──
 vi.mock('../channels/gmail.js', async (importOriginal) => {
@@ -98,7 +99,7 @@ vi.mock('../proactive/delegations.js', () => ({
 // Bypass the adminUpdateRateLimit (max:2 / 10 min) so admin config tests don't
 // get 429 when multiple PUT /config calls happen within the same test run.
 vi.mock('../server/middleware.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../server/middleware.js')>();
+  const actual = await importOriginal<typeof MiddlewareModule>();
   return {
     ...actual,
     adminUpdateRateLimit: (_req: unknown, _res: unknown, next: () => void) => next(),

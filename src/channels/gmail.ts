@@ -3,6 +3,7 @@ import * as imapSimple from 'imap-simple';
 import type { ImapSimpleOptions, ImapSimple } from 'imap-simple';
 import Anthropic from '@anthropic-ai/sdk';
 import { loadIntegrations, saveIntegration } from '../integrations/store.js';
+import type { Integration } from '../integrations/store.js';
 import { isDuplicate, markProcessed, contentHash } from './dedup.js';
 import { createTask } from '../db/index.js';
 import type { ExtractedIntent } from './types.js';
@@ -49,19 +50,7 @@ export async function exchangeCodeForTokens(
   };
 }
 
-async function getAccessToken(): Promise<string> {
-  const integrations = loadIntegrations();
-  const gmail = integrations.find(i => i.type === 'gmail');
-  if (!gmail) throw new Error('Gmail integration not configured');
-
-  const oauth2 = makeOAuth2Client();
-  oauth2.setCredentials({ refresh_token: gmail.config['refreshToken'] ?? null });
-  const { token } = await oauth2.getAccessToken();
-  if (!token) throw new Error('Failed to refresh Gmail access token');
-  return token;
-}
-
-async function getAccessTokenForIntegration(gmail: import('../integrations/store.js').Integration): Promise<string> {
+async function getAccessTokenForIntegration(gmail: Integration): Promise<string> {
   const oauth2 = makeOAuth2Client();
   oauth2.setCredentials({ refresh_token: gmail.config['refreshToken'] ?? null });
   const { token } = await oauth2.getAccessToken();
@@ -160,7 +149,7 @@ export class GmailPoller {
     return this._processedTimestamps.length >= RATE_LIMIT_MAX;
   }
 
-  private async _pollOne(gmail: import('../integrations/store.js').Integration, apiKey: string): Promise<void> {
+  private async _pollOne(gmail: Integration, apiKey: string): Promise<void> {
     const channel = `gmail:${gmail.id}`;
     const email = gmail.config['email'] ?? '';
     let connection: ImapSimple | null = null;

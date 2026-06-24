@@ -14,6 +14,7 @@ import express from 'express';
 import request from 'supertest';
 import type { Express } from 'express';
 import type { OAuthStateMap } from '../server/routes/admin.js';
+import type { KoaConfig } from '../config/index.js';
 import type * as GmailModule from '../channels/gmail.js';
 import type * as CalOAuthModule from '../calendar/oauth.js';
 
@@ -73,7 +74,7 @@ async function buildOAuthApp(): Promise<{ app: Express; oauthState: OAuthStateMa
   const config = {
     publicUrl: undefined,
     apiKey: undefined,
-  } as unknown as import('../config/index.js').KoaConfig;
+  } as unknown as KoaConfig;
 
   const oauthState: OAuthStateMap = new Map();
   const router = createOAuthCallbackRouter(config, oauthState);

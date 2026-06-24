@@ -3,7 +3,6 @@ import { Command } from 'commander';
 import { render } from 'ink';
 import React from 'react';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import { App } from '../tui/App.js';
 import { AgentLoop } from '../agent/loop.js';
