@@ -19,7 +19,7 @@ jobs:
           # Fetch enough history so HEAD~1 and origin/main are available
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
 
