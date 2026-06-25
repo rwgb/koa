@@ -1,8 +1,10 @@
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import type Database from 'better-sqlite3';
 
 // Each migration: [version, sql]
-const MIGRATIONS: [number, string][] = [
+const MIGRATIONS: [number, string | ((db: Database.Database) => void)][] = [
   [
     1,
     `
@@ -220,6 +222,27 @@ const MIGRATIONS: [number, string][] = [
     ALTER TABLE calendar_events ADD COLUMN source_integration_id TEXT NOT NULL DEFAULT 'google-calendar';
     `,
   ],
+  [
+    12,
+    (db) => {
+      const intPath = path.join(process.env['KOA_HOME'] ?? os.homedir(), '.koa', 'integrations.json');
+      let calIntegrations: { id: string; type: string }[] = [];
+      try {
+        const raw = fs.readFileSync(intPath, 'utf8');
+        const all = JSON.parse(raw) as { id: string; type: string }[];
+        calIntegrations = all.filter(i => i.type === 'google-calendar');
+      } catch { /* no integrations file */ }
+
+      if (calIntegrations.length === 1) {
+        db.prepare('UPDATE calendar_events SET source_integration_id = ? WHERE source_integration_id = ?')
+          .run(calIntegrations[0]!.id, 'google-calendar');
+      } else if (calIntegrations.length === 0) {
+        db.prepare('DELETE FROM calendar_events WHERE source_integration_id = ?')
+          .run('google-calendar');
+      }
+      // Multiple integrations: ambiguous ownership, leave as-is; next sync re-stamps correctly
+    },
+  ],
 ];
 
 export function runMigrations(db: Database.Database): void {
@@ -262,9 +285,13 @@ export function runMigrations(db: Database.Database): void {
     }
   }
 
-  for (const [version, sql] of pending) {
+  for (const [version, migration] of pending) {
     db.transaction(() => {
-      db.exec(sql);
+      if (typeof migration === 'string') {
+        db.exec(migration);
+      } else {
+        migration(db);
+      }
       db.prepare('UPDATE schema_version SET version = ?').run(version);
     })();
     process.stderr.write(`[koa/db] applied migration ${version}\n`);

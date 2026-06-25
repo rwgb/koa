@@ -106,6 +106,10 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 ### Deploy
 17. ~~**Deploy to LXC**~~ — **done 2026-06-24**: P2 fixes deployed @ c53d8b5, migration 11 confirmed live, service active, undici absent, better-sqlite3 native binding verified
 
+## Recent Fixes
+
+- **Calendar legacy source_integration_id bug** (2026-06-24): Deleting the last google-calendar integration left orphaned events with `source_integration_id = "google-calendar"` (migration 11 default string) because the cascade only matched the integration UUID. Fixed via migration 12 (function-based: backfills real UUID if one integration remains, or deletes orphaned legacy events if none remain) and an admin route sweep in `DELETE /integrations/:id` that fires when the last google-calendar integration is removed.
+
 ## Don't Restart
 
 - `undici@8.4.1` incompatible with Node.js 20 — do not re-add

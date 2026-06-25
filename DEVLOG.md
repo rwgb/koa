@@ -1,5 +1,26 @@
 # Koa — DevLog
 
+## [2026-06-24] - Fix calendar legacy source_integration_id cleanup
+
+### Completed
+- Fixed: deleting the last google-calendar integration left events with source_integration_id = "google-calendar" (migration 11 default) behind because the cascade used the integration UUID
+- Added migration 12: reads integrations.json and either backfills source_integration_id with the real UUID (exactly one integration) or deletes orphaned legacy events (no integrations)
+- Extended MIGRATIONS type in migrations.ts to support function-based migrations alongside SQL strings
+- Updated admin DELETE /integrations/:id route to sweep legacy events when the last google-calendar integration is deleted
+- Added deleteCalendarEventsBySourceId to the db mock in server_routes.test.ts
+
+### Decisions
+- Function-based migration chosen over SQL-only: needed access to integrations JSON (application context) to do the backfill
+- Legacy sweep only fires when LAST integration is deleted: avoids ambiguously deleting events that still belong to a remaining integration
+
+### Known Issues
+- Dev sync not arriving: likely a silent OAuth refresh error unrelated to this fix; user should POST /api/calendar/sync to surface the real error
+
+### Next Session
+- [ ] Investigate dev sync failure (POST /api/calendar/sync, check stderr logs)
+
+---
+
 ## 2026-06-24 — v1.2.0 released
 
 ### Completed

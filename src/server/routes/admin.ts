@@ -756,6 +756,7 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     if (integration?.type === 'google-calendar') {
       deleteCalendarEventsBySourceId(id);
       if (!loadIntegrations().some(i => i.type === 'google-calendar')) {
+        deleteCalendarEventsBySourceId('google-calendar');
         calendarSync.stop();
       }
     }

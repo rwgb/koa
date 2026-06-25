@@ -63,10 +63,12 @@ metadata:
 
 | v1.2.0 | PR #31 merged → main; tagged v1.2.0 @ 6f0b42a | ✅ done 2026-06-24 |
 
-## Current State (2026-06-24)
+| — | Calendar disconnect: migration 12 + legacy event sweep on last integration remove | ✅ done 2026-06-25 |
 
-- Branch: `main` @ 6f0b42a — v1.2.0 released
-- Tests: 1058 passing, 0 failing | tsc: clean (root + web)
+## Current State (2026-06-25)
+
+- Branch: `main` — calendar disconnect bug fixed, uncommitted
+- Tests: passing (server_routes) | tsc: clean
 - Production (192.168.1.200): deployed @ c53d8b5 (P2 hardening); v1.2.0 merge will auto-deploy via CI
 - CI/CD: green — koa-lxc runner active
 - Calendar: credentials synced to LXC

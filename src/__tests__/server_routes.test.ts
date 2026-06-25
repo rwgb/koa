@@ -119,6 +119,7 @@ vi.mock('../db/index.js', () => ({
   getDelegation: vi.fn().mockReturnValue(null),
   updateDelegation: vi.fn().mockReturnValue(null),
   deleteDelegation: vi.fn().mockReturnValue(0),
+  deleteCalendarEventsBySourceId: vi.fn(),
 }));
 
 // ── Fake AgentLoop ──────────────────────────────────────────────────────────────
