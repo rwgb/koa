@@ -20,11 +20,11 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.104.1",
+    "@anthropic-ai/sdk": "^0.107.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^12.11.1",
     "chalk": "^5.3.0",
     "commander": "^15.0.0",
     "cors": "^2.8.6",
@@ -33,7 +33,7 @@
     "express-rate-limit": "^8.5.2",
     "googleapis": "^173.0.0",
     "imap-simple": "^5.1.0",
-    "ink": "^7.0.5",
+    "ink": "^7.1.0",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "open": "^11.0.0",
