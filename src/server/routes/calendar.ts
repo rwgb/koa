@@ -9,6 +9,7 @@ export function createCalendarRouter(): Router {
   const router = Router();
 
   router.get('/events', (req, res) => {
+    if (!isCalendarConfigured()) { res.json([]); return; }
     try {
       const q = req.query as Record<string, string>;
       const start = q['start'] ?? new Date().toISOString();
@@ -18,6 +19,7 @@ export function createCalendarRouter(): Router {
   });
 
   router.get('/conflicts', (req, res) => {
+    if (!isCalendarConfigured()) { res.json({ conflicts: [] }); return; }
     try {
       const q = req.query as Record<string, string>;
       if (!q['taskId']) { res.status(400).json({ error: 'taskId required' }); return; }
@@ -28,6 +30,7 @@ export function createCalendarRouter(): Router {
   });
 
   router.get('/availability', (req, res) => {
+    if (!isCalendarConfigured()) { res.json([]); return; }
     try {
       const q = req.query as Record<string, string>;
       const start = q['start'] ?? new Date().toISOString();

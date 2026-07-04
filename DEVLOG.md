@@ -1,5 +1,30 @@
 # Koa — DevLog
 
+## [2026-06-25] - Calendar Integration Bug Fix
+
+### Completed
+- Fixed stale-events bug: added `isCalendarConfigured()` guards to `/events`, `/conflicts`, and `/availability` handlers in `calendar.ts` so that when no active google-calendar integration with a refreshToken exists, the endpoints short-circuit to empty results (`[]` / `{ conflicts: [] }`) rather than returning stale DB rows
+- Fixed partial-disconnect window: changed `deleteCalendarEventsBySourceId('google-calendar')` in `admin.ts` to run unconditionally on every google-calendar disconnect (previously only when the last integration was removed), eliminating the window where legacy migration-12 rows could linger across a partial disconnect
+- Fixed OAuth black-screen bug: added a pre-flight credential check to `GET /oauth/calendar` in `admin.ts` that resolves `clientId` from the integration config or `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CLIENT_ID` env vars; returns HTTP 400 with a human-readable error before generating any auth URL if `clientId` is empty — replacing the previous silent failure where `generateAuthUrl()` produced a broken `client_id=`-empty URL that Google rendered as a blank 'invalid_client' page
+
+### Decisions
+- `isCalendarConfigured()` guard placed at the top of each read handler (not at the DB layer) to match the existing pattern already used in the `/sync` handler
+- Unconditional legacy sweep on every google-calendar disconnect: safer than conditional because remaining integrations use their own UUIDs, not the legacy `'google-calendar'` string
+- Pre-flight credential check returns HTTP 400 (not redirect) so the frontend can surface an actionable message rather than opening a broken popup
+
+### Issues Found
+- **MEDIUM**: Token storage without at-rest encryption — `refresh_token` and `clientSecret` persisted in plaintext at `~/.koa/integrations.json` with 0o600 file mode. File permissions are correct but values are not encrypted at rest; backup/snapshot exposure is possible. Relevant: `src/integrations/store.ts` (saveIntegration, lines 79–93), `src/server/routes/admin.ts` (calendar callback, lines 152–163). Recommendation: encrypt sensitive fields using a key derived from `KOA_ENCRYPTION_KEY` env var before writing to disk.
+
+### Next Session
+- [ ] Implement at-rest encryption for `refresh_token` and `clientSecret` in `src/integrations/store.ts` (resolve MEDIUM security finding)
+- [ ] Investigate original dev sync failure (POST /api/calendar/sync, check stderr logs)
+
+### Learnings
+- `generateAuthUrl()` on a Google OAuth2 client with empty `clientId`/`clientSecret` does NOT throw — it silently produces a structurally valid URL with `client_id=` (empty string). Pre-flight checks are required at the handler level, not just at the OAuth client level.
+- The `source_integration_id = 'google-calendar'` legacy string (migration-11 default) and UUID-based rows can coexist; the unconditional sweep is the only safe way to handle all disconnect paths.
+
+---
+
 ## [2026-06-24] - Fix calendar legacy source_integration_id cleanup
 
 ### Completed

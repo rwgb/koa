@@ -1,15 +1,27 @@
 ---
-written: 2026-06-23
-branch: feature/web-console-and-hardening
-tests: 995
+written: 2026-06-25
+branch: main
+tests: passing
 tsc: clean
-tip: 212ec82
+tip: 07fc671
 audit: docs/AUDIT-2026-06-23.md
 ---
 
 ## Where We Are
 
-**2026-06-23 P0 remediation session**: All 9 P0 audit findings fully remediated as of 2026-06-23. SEC-001/002 security fixes applied, GAP-01–05 test coverage added, UX-001–003 error surfaces fixed. Branch sealed with commit b107b89.
+**2026-06-25 calendar bug fix session**: Two calendar integration bugs resolved and merged to main (commit 07fc671).
+
+1. **Stale events bug (RESOLVED)** — `isCalendarConfigured()` guards added to `/events`, `/conflicts`, and `/availability` handlers in `src/server/routes/calendar.ts`. When no active google-calendar integration with a refreshToken exists, these endpoints short-circuit to empty results rather than returning stale DB rows. The `/sync` handler already had this guard; the three read endpoints now match it.
+
+2. **OAuth black-screen bug (RESOLVED)** — Pre-flight credential check added to `GET /oauth/calendar` in `src/server/routes/admin.ts`. Handler resolves `clientId` from integration config or `GOOGLE_CALENDAR_CLIENT_ID`/`GOOGLE_CLIENT_ID` env vars; returns HTTP 400 with a human-readable error if `clientId` is empty, replacing the silent `generateAuthUrl()` failure that produced a blank 'invalid_client' Google page.
+
+3. **Legacy-row partial-disconnect window (RESOLVED)** — `deleteCalendarEventsBySourceId('google-calendar')` in `admin.ts` now runs unconditionally on every google-calendar disconnect (previously only when the last integration was removed).
+
+**Security**: Zero HIGH findings. One MEDIUM open: plaintext token storage (`refresh_token`, `clientSecret`) in `~/.koa/integrations.json` — see Next Steps.
+
+**2026-06-24 sessions**: PR #31 merged to main, v1.2.0 tagged and deployed to LXC. Legacy `source_integration_id` cleanup (migration 12) landed.
+
+**2026-06-23 P0 remediation session**: All 9 P0 audit findings fully remediated. SEC-001/002 security fixes applied, GAP-01–05 test coverage added, UX-001–003 error surfaces fixed. Branch sealed with commit b107b89.
 
 **2026-06-23 audit session**: Full security + QA + UI/UX audit completed. 54 findings ranked P0/P1/P2 in `docs/AUDIT-2026-06-23.md`. 910 tests passing (was 843), 55.4% statement coverage.
 
@@ -108,7 +120,12 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 
 ## Recent Fixes
 
-- **Calendar legacy source_integration_id bug** (2026-06-24): Deleting the last google-calendar integration left orphaned events with `source_integration_id = "google-calendar"` (migration 11 default string) because the cascade only matched the integration UUID. Fixed via migration 12 (function-based: backfills real UUID if one integration remains, or deletes orphaned legacy events if none remain) and an admin route sweep in `DELETE /integrations/:id` that fires when the last google-calendar integration is removed.
+- **Calendar stale-events + OAuth black screen** (2026-06-25, RESOLVED): See "Where We Are" above. Files changed: `src/server/routes/calendar.ts`, `src/server/routes/admin.ts`. QA: tsc clean, tests passing. Security: 0 HIGH, 1 MEDIUM (plaintext token storage).
+- **Calendar legacy source_integration_id bug** (2026-06-24, RESOLVED): Deleting the last google-calendar integration left orphaned events with `source_integration_id = "google-calendar"` (migration 11 default string) because the cascade only matched the integration UUID. Fixed via migration 12 and admin route sweep. Partial-disconnect window also closed (2026-06-25): sweep now unconditional on every disconnect.
+
+## Open Issues
+
+- **MEDIUM — Plaintext token storage**: `refresh_token` and `clientSecret` stored unencrypted in `~/.koa/integrations.json`. File mode is 0o600 but no at-rest encryption. Encrypt using `KOA_ENCRYPTION_KEY` env var in `src/integrations/store.ts` (saveIntegration, lines 79–93).
 
 ## Don't Restart
 
@@ -136,3 +153,9 @@ Planning workflow completed. 10 root-cause findings ranked. All have file-level 
 | CP30 | MCP over stdio | done |
 | — | Ansible hardening role + playbook refactor | done |
 | — | koa code: local project agent subcommand | done |
+| — | Calendar bug fix: stale events + OAuth black screen (2026-06-25) | done |
+
+## Next Steps
+
+- [ ] Encrypt `refresh_token` + `clientSecret` at rest in `src/integrations/store.ts` using `KOA_ENCRYPTION_KEY` (resolves MEDIUM security finding)
+- [ ] Investigate dev sync failure (POST /api/calendar/sync, check stderr logs)

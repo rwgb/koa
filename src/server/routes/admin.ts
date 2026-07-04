@@ -233,6 +233,22 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     const nonce = crypto.randomBytes(32).toString('hex');
     const rawIdCal = typeof req.query['integrationId'] === 'string' ? req.query['integrationId'] : '';
     const integrationId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawIdCal) ? rawIdCal : 'google-calendar';
+
+    // Pre-flight: verify OAuth credentials are available before generating a URL.
+    // If the integration hasn't been saved yet (e.g. user clicked Connect before Save),
+    // clientId will be empty and Google would return a blank "invalid_client" page.
+    const integration = loadIntegrations().find(i => i.id === integrationId);
+    const clientId = integration?.config['clientId']
+      ?? process.env['GOOGLE_CALENDAR_CLIENT_ID']
+      ?? process.env['GOOGLE_CLIENT_ID']
+      ?? '';
+    if (!clientId) {
+      res.status(400).json({
+        error: 'Google OAuth client credentials are not configured — enter your Client ID and Secret and save before connecting.',
+      });
+      return;
+    }
+
     oauthState.set(nonce, { ts: Date.now(), integrationId });
 
     const redirectUri = config.publicUrl ? `${config.publicUrl}/api/admin/oauth/calendar/callback` : `${req.protocol}://${req.get('host')}/api/admin/oauth/calendar/callback`;
@@ -755,8 +771,10 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     }
     if (integration?.type === 'google-calendar') {
       deleteCalendarEventsBySourceId(id);
+      // Always clean up legacy rows (source_integration_id='google-calendar') left by
+      // migration 12; the call is idempotent so running it on every disconnect is safe.
+      deleteCalendarEventsBySourceId('google-calendar');
       if (!loadIntegrations().some(i => i.type === 'google-calendar')) {
-        deleteCalendarEventsBySourceId('google-calendar');
         calendarSync.stop();
       }
     }

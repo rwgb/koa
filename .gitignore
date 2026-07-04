@@ -20,3 +20,8 @@ infra/terraform/.terraform.lock.hcl
 
 # Packer — variable files contain secrets
 infra/packer/*.pkrvars.hcl
+
+# Test coverage output
+coverage/
+# Runtime lock
+.claude/scheduled_tasks.lock
